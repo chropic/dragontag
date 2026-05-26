@@ -1,0 +1,392 @@
+"""Per-file pipeline: identify → tag → move.
+
+State for each in-flight file lives in a ``Job`` row (see ``models.py``).
+The pipeline runs in a single background worker thread fed by an in-memory
+``queue.Queue``; this is plenty for a single-user app and avoids dragging
+in Celery/RQ. Jobs that survive a restart are picked up by
+:func:`resubmit_pending` on startup.
+
+Two key control-flow branches:
+
+* **Auto-apply path** — score ≥ threshold, MB had a primary-type. Tags are
+  written, file is moved, status → ``done``.
+* **Review path** — anything else (low score, no MB match, missing
+  RELEASETYPE, destination conflict). Status → ``needs_review`` with a
+  ``ReviewReason``; the UI presents the right buttons for that reason.
+"""
+from __future__ import annotations
+
+import logging
+import queue
+import threading
+import traceback
+from datetime import datetime
+from pathlib import Path
+
+from sqlmodel import select
+
+from ..config import settings
+from ..db import session
+from ..identify import acoustid as acid
+from ..identify import existing_tags, filename_parse
+from ..identify import musicbrainz as mbq
+from ..identify.scoring import score_candidate
+from ..library.mover import move, write_cover_jpg
+from ..library.paths import build_destination
+from ..models import Job, JobStatus, ReviewReason
+from ..tagging.coverart import fetch_for_release, fetch_for_release_group
+from ..tagging.writers import write_tags
+
+log = logging.getLogger(__name__)
+
+# Anything outside this whitelist is ignored by the watcher and rejected at
+# write time. Kept in lock-step with the dispatch table in
+# ``tagging/writers/__init__.py``.
+SUPPORTED_EXTS = {".flac", ".mp3", ".wav", ".m4a", ".mp4"}
+
+
+# ---------------------------------------------------------------------------
+# Job creation
+# ---------------------------------------------------------------------------
+
+
+def enqueue(path: Path) -> Job:
+    """Persist a new ``Job`` and return it. Doesn't submit to the worker —
+    callers call :func:`submit` after committing so the worker can see the row.
+    """
+    with session() as s:
+        job = Job(source_path=str(path), original_name=path.name, status=JobStatus.queued)
+        s.add(job)
+        s.commit()
+        s.refresh(job)
+        return job
+
+
+# ---------------------------------------------------------------------------
+# Pipeline mechanics
+# ---------------------------------------------------------------------------
+
+
+def _set(job: Job, **kwargs) -> None:
+    """Mutate ``job`` in-place and bump ``updated_at``."""
+    for k, v in kwargs.items():
+        setattr(job, k, v)
+    job.updated_at = datetime.utcnow()
+
+
+def _append_log(job: Job, line: str) -> None:
+    """Append a human-readable progress line to the job's log column."""
+    job.log = (job.log or "") + line.rstrip() + "\n"
+
+
+def process(job_id: int) -> None:
+    """Top-level worker entry point: load the job, run the pipeline, save errors."""
+    with session() as s:
+        job = s.get(Job, job_id)
+        if not job:
+            return
+        try:
+            _process_inner(s, job)
+        except Exception as e:
+            # Catch-all: the worker thread must keep running even if one job
+            # blows up. The full traceback is preserved on the job row so the
+            # UI can surface it.
+            log.exception("pipeline failed")
+            _set(job, status=JobStatus.error, error=f"{e}\n{traceback.format_exc()}")
+            s.add(job)
+            s.commit()
+
+
+def _process_inner(s, job: Job) -> None:
+    src = Path(job.source_path)
+    if not src.exists():
+        _set(job, status=JobStatus.error, error="Source file not found")
+        s.add(job)
+        s.commit()
+        return
+
+    _set(job, status=JobStatus.identifying)
+    _append_log(job, f"Identifying {src.name}")
+    s.add(job)
+    s.commit()
+
+    # ----- gather clues from the file itself -----
+    existing = existing_tags.read(src)
+    fname = filename_parse.parse(src)
+    clues = {
+        "title": existing.get("title") or fname.get("title"),
+        "artist": existing.get("artist") or fname.get("artist"),
+        "album": existing.get("album"),
+        "duration": existing.get("duration"),
+    }
+    _append_log(job, f"Clues: {clues}")
+
+    # ----- step 1: short-circuit on existing MBIDs -----
+    # If the file was already tagged by Picard (or by us), the MB IDs are the
+    # most reliable identifier we can have — skip the search entirely.
+    if existing.get("mb_track_id") and existing.get("mb_album_id"):
+        try:
+            tags = mbq.assemble_tags(
+                release_id=existing["mb_album_id"],
+                recording_id=existing["mb_track_id"],
+            )
+            _commit_tag_path(s, job, src, tags, score=1.0)
+            return
+        except Exception as e:
+            # Pre-existing MBIDs occasionally point at deleted/redirected MB
+            # entries. Fall through to the regular search path.
+            _append_log(job, f"MBID short-circuit failed: {e}")
+
+    # ----- step 2: MB text search -----
+    cands = mbq.search_candidates(
+        title=clues.get("title"),
+        artist=clues.get("artist"),
+        album=clues.get("album"),
+        duration_sec=clues.get("duration"),
+        limit=5,
+    )
+
+    # ----- step 3: AcoustID fallback when text search came up empty -----
+    if (not cands) and settings().acoustid_enabled:
+        _append_log(job, "Falling back to AcoustID fingerprint")
+        for m in acid.lookup(src)[:3]:
+            if not m.recording_id:
+                continue
+            try:
+                rec = mbq.fetch_recording(m.recording_id)
+            except Exception:
+                continue
+            # AcoustID gives us a recording; we still need a release to
+            # form a Candidate. Expand into the first few releases.
+            for rel in (rec.get("release-list") or [])[:3]:
+                cands.append(
+                    mbq.Candidate(
+                        score=m.score,
+                        recording_id=m.recording_id,
+                        release_id=rel["id"],
+                        raw_recording=rec,
+                        raw_release=rel,
+                    )
+                )
+
+    if not cands:
+        _set(job, status=JobStatus.needs_review, review_reason=ReviewReason.no_match)
+        _append_log(job, "No candidates found")
+        s.add(job)
+        s.commit()
+        return
+
+    # ----- step 4: rank candidates -----
+    scored = []
+    for c in cands:
+        sb = score_candidate(
+            candidate_recording=c.raw_recording,
+            candidate_release=c.raw_release,
+            clues=clues,
+            mb_search_score=c.score,
+        )
+        scored.append((sb.total, sb, c))
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    # Persist the top 5 so the review UI doesn't need to re-query MB.
+    job.candidates_json = {
+        "items": [
+            {
+                "recording_id": c.recording_id,
+                "release_id": c.release_id,
+                "score": t,
+                "title": c.raw_recording.get("title"),
+                "album": c.raw_release.get("title"),
+            }
+            for (t, _, c) in scored[:5]
+        ]
+    }
+    best_total, _, best = scored[0]
+    _append_log(job, f"Best candidate score={best_total:.3f}")
+
+    # ----- step 5: branch on threshold -----
+    threshold = settings().score_threshold
+    if best_total < threshold:
+        _set(
+            job,
+            status=JobStatus.needs_review,
+            review_reason=ReviewReason.low_score,
+            score=best_total,
+        )
+        s.add(job)
+        s.commit()
+        return
+
+    # ----- step 6: fully resolve the chosen candidate -----
+    try:
+        tags = mbq.assemble_tags(release_id=best.release_id, recording_id=best.recording_id)
+    except Exception as e:
+        _append_log(job, f"assemble_tags failed: {e}")
+        _set(
+            job,
+            status=JobStatus.needs_review,
+            review_reason=ReviewReason.no_match,
+            score=best_total,
+        )
+        s.add(job)
+        s.commit()
+        return
+
+    # RELEASETYPE is the only field we treat as mandatory — the user's
+    # convention demands one, and getting it wrong (e.g. tagging a single as
+    # an album) corrupts a lot of downstream tooling. Route to review.
+    if not tags.release_type:
+        _append_log(job, "RELEASETYPE missing from MB release-group; sending to review for override")
+        job.chosen_tags_json = _tags_to_dict(tags)
+        _set(
+            job,
+            status=JobStatus.needs_review,
+            review_reason=ReviewReason.missing_releasetype,
+            score=best_total,
+        )
+        s.add(job)
+        s.commit()
+        return
+
+    _commit_tag_path(s, job, src, tags, score=best_total)
+
+
+def _commit_tag_path(s, job: Job, src: Path, tags, *, score: float) -> None:
+    """Final 'happy path' actions: cover art + write + move.
+
+    Also reachable from the review UI's apply handler (after the user picks a
+    candidate or overrides RELEASETYPE), so it must be safe to call with a
+    pre-assembled ``tags`` object.
+    """
+
+    # ----- cover art (best resolution available) -----
+    cover = fetch_for_release(tags.mb_album_id) if tags.mb_album_id else None
+    if not cover and tags.mb_release_group_id:
+        cover = fetch_for_release_group(tags.mb_release_group_id)
+    if cover:
+        tags.cover_bytes = cover.data
+        tags.cover_mime = cover.mime
+        _append_log(job, f"Fetched cover {cover.width}x{cover.height} ({cover.mime})")
+
+    _set(job, status=JobStatus.tagging, score=score)
+    job.chosen_tags_json = _tags_to_dict(tags)
+    s.add(job)
+    s.commit()
+
+    # ----- write tags -----
+    try:
+        write_tags(src, tags)
+    except Exception as e:
+        _append_log(job, f"write_tags failed: {e}")
+        _set(job, status=JobStatus.error, error=str(e))
+        s.add(job)
+        s.commit()
+        return
+
+    # ----- move into library -----
+    _set(job, status=JobStatus.moving)
+    s.add(job)
+    s.commit()
+
+    dest = build_destination(tags, src.suffix)
+    result = move(src, dest, overwrite=False)
+    if not result.moved and result.conflict:
+        # Don't auto-overwrite — kick to review so the user decides.
+        _append_log(job, f"Destination conflict: {dest}")
+        _set(
+            job,
+            status=JobStatus.needs_review,
+            review_reason=ReviewReason.destination_conflict,
+            destination_path=str(dest),
+        )
+        s.add(job)
+        s.commit()
+        return
+
+    # ----- side-effect: write cover.jpg next to the file -----
+    if cover:
+        write_cover_jpg(
+            dest.parent,
+            cover.data,
+            min_overwrite_pixels=settings().cover_min_overwrite_pixels,
+            new_width=cover.width,
+        )
+
+    _set(job, status=JobStatus.done, destination_path=str(dest))
+    _append_log(job, f"Done -> {dest}")
+    s.add(job)
+    s.commit()
+
+
+def _tags_to_dict(tags) -> dict:
+    """JSON-safe view of a ``TrackTags`` for storage on the job row.
+
+    We drop ``cover_bytes`` because it's a binary blob (and large) — the
+    cover is embedded in the file, not stored in the DB.
+    """
+    return {k: v for k, v in tags.__dict__.items() if k != "cover_bytes"}
+
+
+# ---------------------------------------------------------------------------
+# Background worker
+# ---------------------------------------------------------------------------
+
+_q: "queue.Queue[int]" = queue.Queue()
+_worker_started = False
+
+
+def _worker_loop() -> None:
+    """Pull job IDs off the queue and process them serially.
+
+    Single-threaded by design: MB rate-limits to 1 req/sec, so parallelism
+    wouldn't help, and serialization keeps the SQLite write traffic simple.
+    """
+    while True:
+        job_id = _q.get()
+        try:
+            process(job_id)
+        except Exception:
+            log.exception("worker error")
+        finally:
+            _q.task_done()
+
+
+def start_worker() -> None:
+    """Idempotently start the worker thread. Called from FastAPI's startup hook."""
+    global _worker_started
+    if _worker_started:
+        return
+    t = threading.Thread(target=_worker_loop, name="aio-pipeline", daemon=True)
+    t.start()
+    _worker_started = True
+
+
+def submit(job_id: int) -> None:
+    """Enqueue a job for the worker (and ensure the worker is running)."""
+    start_worker()
+    _q.put(job_id)
+
+
+def resubmit_pending() -> None:
+    """Re-queue jobs that were mid-flight at last shutdown.
+
+    Anything in queued/identifying/tagging/moving is safe to restart from
+    scratch because the pipeline is idempotent until the move step (the
+    final move is the only destructive operation, and ``needs_review`` /
+    ``done`` jobs are skipped).
+    """
+    with session() as s:
+        rows = s.exec(
+            select(Job).where(
+                Job.status.in_(
+                    [
+                        JobStatus.queued,
+                        JobStatus.identifying,
+                        JobStatus.tagging,
+                        JobStatus.moving,
+                    ]
+                )
+            )
+        ).all()
+    for j in rows:
+        submit(j.id)

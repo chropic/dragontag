@@ -1,0 +1,240 @@
+"""Configuration: three layers stacked from low-trust to high-trust.
+
+Layer 1 — **Environment variables** (``AIO_*``): immutable container config (volume
+paths, username, secret file paths). Parsed by ``Env`` using pydantic-settings.
+
+Layer 2 — **Docker secret files**: files referenced by the ``*_FILE`` env vars
+(``AIO_PASSWORD_FILE``, ``AIO_SESSION_SECRET_FILE``, ``AIO_ACOUSTID_KEY_FILE``).
+Reading the file at request time means rotated secrets are picked up without
+rebuilding the image. The file contents win over the inline ``*`` env vars.
+
+Layer 3 — **User settings JSON** (``/config/settings.json``): everything tweakable
+from the web UI (separators, thresholds, filename templates). Loaded lazily into
+``UserSettings`` and rewritten atomically on every UI update.
+
+Public surface:
+
+* :func:`env`      — returns the immutable ``Env`` (env-var-only) singleton.
+* :func:`settings` — returns the current ``UserSettings`` (UI-editable).
+* :func:`store`    — returns the underlying ``_Store`` for ``store().update(patch)``.
+"""
+from __future__ import annotations
+
+import json
+import os
+import secrets
+from pathlib import Path
+from typing import Any
+
+from pydantic import BaseModel, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _read_secret(path: str | None) -> str | None:
+    """Read a secret file once. Trailing whitespace is stripped because
+    ``echo "value" > secret.txt`` and most editors append a newline."""
+    if not path:
+        return None
+    p = Path(path)
+    if not p.exists():
+        return None
+    return p.read_text(encoding="utf-8").strip() or None
+
+
+class Separators(BaseModel):
+    """Per-tag joiner strings used when rendering multi-value Vorbis fields.
+
+    Defaults match the user's reference convention in ``flac_metadata.md``:
+    ``ARTIST`` and ``album_artist`` use ``//`` (a stylistic choice that survives
+    in some players that don't split on semicolons), while ``ARTISTS`` and the
+    MusicBrainz multi-ID fields use ``;``.
+
+    The ``default`` field is the fallback for any tag not explicitly listed.
+    """
+
+    ARTIST: str = "//"
+    album_artist: str = "//"
+    ARTISTS: str = ";"
+    ARTISTSORT: str = ";"
+    ALBUMARTISTSORT: str = ";"
+    GENRE: str = ";"
+    LABEL: str = ";"
+    ISRC: str = ";"
+    MUSICBRAINZ_ARTISTID: str = ";"
+    MUSICBRAINZ_ALBUMARTISTID: str = ";"
+    COMPOSER: str = ";"
+    default: str = ";"
+
+
+class UserSettings(BaseModel):
+    """Settings that can be edited from the web UI.
+
+    Persisted to ``/config/settings.json``. The schema is intentionally flat
+    (no nested objects beyond ``Separators``) so the settings page can render
+    everything as plain form inputs.
+    """
+
+    # ----- identification -----
+    acoustid_enabled: bool = True
+    score_threshold: float = 0.85  # below this the file is routed to /review
+
+    # ----- tag rendering -----
+    separators: Separators = Field(default_factory=Separators)
+
+    # ----- library layout -----
+    # Placeholders accepted by ``Path.format`` calls in library/paths.py:
+    #   {track} {disc} {title} {artist} {ext} {disctotal} {tracktotal}
+    filename_template_single: str = "{track:02d}. {title}.{ext}"
+    filename_template_multidisc: str = "{track:02d}. {title}.{ext}"
+    multidisc_folder_template: str = "Disc {disc}"
+
+    # ----- watcher -----
+    watcher_enabled: bool = True
+    # fnmatch patterns ignored on top of the always-on extension whitelist
+    watcher_ignore_patterns: list[str] = Field(
+        default_factory=lambda: ["*.part", "*.tmp", "*.crdownload", ".*"]
+    )
+    # Number of seconds a file must be untouched before we consider it ready
+    # to process. Guards against picking up half-written downloads.
+    watcher_settle_seconds: float = 2.0
+
+    # ----- cover art -----
+    # If a `cover.jpg` already exists in the album folder, we only overwrite
+    # when the *new* image is at least this many pixels wide. Prevents a
+    # smaller fingerprint-fallback cover from clobbering a hand-curated one.
+    cover_min_overwrite_pixels: int = 1000
+
+    # ----- MusicBrainz client -----
+    musicbrainz_user_agent: str = (
+        "aio-tagger/0.1.0 ( https://github.com/local/aio-tagger )"
+    )
+    musicbrainz_server: str = "musicbrainz.org"
+
+    def merged(self, patch: dict[str, Any]) -> "UserSettings":
+        """Return a new ``UserSettings`` with ``patch`` overlaid on top.
+
+        Used by :meth:`_Store.update`. We re-validate via pydantic so bad
+        inputs from the form (e.g. negative threshold) are rejected before
+        being persisted.
+        """
+        data = self.model_dump()
+        data.update(patch)
+        return UserSettings.model_validate(data)
+
+
+class Env(BaseSettings):
+    """Immutable container-level config from ``AIO_*`` environment variables.
+
+    ``pydantic-settings`` strips the ``AIO_`` prefix and lowercases the rest,
+    so e.g. ``AIO_LIBRARY_PATH`` -> ``Env.library_path``.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="AIO_", extra="ignore")
+
+    username: str = "admin"
+
+    # Auth: prefer the *_FILE variant (Docker secret). The plain variant is
+    # supported only for local dev (set ``AIO_PASSWORD=...``).
+    password_file: str | None = None
+    password: str | None = None
+
+    session_secret_file: str | None = None
+    session_secret: str | None = None
+
+    acoustid_key_file: str | None = None
+    acoustid_key: str | None = None
+
+    # Volume mount points. Containers should leave these at the defaults and
+    # mount their host directories there; the env vars exist primarily so a
+    # local dev run can point at temp paths (see tests/conftest.py).
+    library_path: Path = Path("/library")
+    drop_path: Path = Path("/drop")
+    config_path: Path = Path("/config")
+
+    def resolve_password(self) -> str | None:
+        """Return either the secret-file content or the inline password."""
+        return _read_secret(self.password_file) or self.password
+
+    def resolve_session_secret(self) -> str:
+        """Return a session signing secret. Falls back to an ephemeral random
+        value so a fresh container can still start without configuration —
+        existing sessions are simply invalidated on every restart in that case.
+        """
+        s = _read_secret(self.session_secret_file) or self.session_secret
+        if not s:
+            s = secrets.token_urlsafe(32)
+        return s
+
+    def resolve_acoustid_key(self) -> str | None:
+        return _read_secret(self.acoustid_key_file) or self.acoustid_key
+
+
+class _Store:
+    """Lazy holder for the env+settings pair, with JSON persistence.
+
+    Kept as a class (not module globals) so tests can construct an isolated
+    instance against a temp dir if needed. In production a single module-level
+    singleton is constructed via :func:`store`.
+    """
+
+    def __init__(self) -> None:
+        self.env = Env()
+        # Ensure the config dir exists before we try to read/write settings.json.
+        # On a bare ``docker compose up`` with a fresh volume, this is the
+        # first thing that touches the mount.
+        self.env.config_path.mkdir(parents=True, exist_ok=True)
+        self._settings_path = self.env.config_path / "settings.json"
+        self.user = self._load()
+
+    def _load(self) -> UserSettings:
+        """Read settings.json if it exists; on corruption, fall back to defaults.
+
+        We don't raise on a bad JSON file because a broken settings file
+        shouldn't prevent the app from booting (the user couldn't fix it
+        without the UI running).
+        """
+        if self._settings_path.exists():
+            try:
+                return UserSettings.model_validate_json(
+                    self._settings_path.read_text("utf-8")
+                )
+            except Exception:
+                pass
+        u = UserSettings()
+        self._save(u)
+        return u
+
+    def _save(self, u: UserSettings) -> None:
+        # ensure_ascii=False keeps unicode (artist names, etc.) readable in
+        # the on-disk file.
+        self._settings_path.write_text(
+            json.dumps(u.model_dump(), indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+    def update(self, patch: dict[str, Any]) -> UserSettings:
+        """Merge ``patch`` over the current settings, persist, and return."""
+        self.user = self.user.merged(patch)
+        self._save(self.user)
+        return self.user
+
+
+_store: _Store | None = None
+
+
+def store() -> _Store:
+    """Return the process-wide settings store (constructed lazily)."""
+    global _store
+    if _store is None:
+        _store = _Store()
+    return _store
+
+
+def env() -> Env:
+    """Shortcut for ``store().env``."""
+    return store().env
+
+
+def settings() -> UserSettings:
+    """Shortcut for ``store().user``. Call from request handlers / pipeline."""
+    return store().user

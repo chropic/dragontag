@@ -1,0 +1,24 @@
+<table class="w-full text-sm">
+  <thead class="text-slate-400 border-b border-slate-700">
+    <tr><th class="text-left py-2">File</th><th class="text-left">Status</th><th class="text-left">Score</th><th class="text-left">Destination</th><th class="text-left">Updated</th></tr>
+  </thead>
+  <tbody>
+  {% for j in jobs %}
+    <tr class="border-b border-slate-800 hover:bg-slate-800/50">
+      <td class="py-2 truncate max-w-xs"><a class="text-indigo-400 hover:underline" href="/jobs/{{ j.id }}">{{ j.original_name }}</a></td>
+      <td>
+        <span class="px-2 py-0.5 rounded text-xs
+          {% if j.status.value == 'done' %}bg-emerald-700{% elif j.status.value == 'error' %}bg-red-700
+          {% elif j.status.value == 'needs_review' %}bg-amber-700{% else %}bg-slate-700{% endif %}">
+          {{ j.status.value }}
+        </span>
+      </td>
+      <td>{% if j.score is not none %}{{ "%.2f"|format(j.score) }}{% endif %}</td>
+      <td class="truncate max-w-md text-slate-400">{{ j.destination_path or "" }}</td>
+      <td class="text-slate-400 text-xs">{{ j.updated_at.strftime("%H:%M:%S") }}</td>
+    </tr>
+  {% else %}
+    <tr><td class="py-4 text-slate-500" colspan="5">No jobs yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>

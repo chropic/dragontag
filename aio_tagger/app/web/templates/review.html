@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block content %}
+<h2 class="text-xl font-semibold mb-4">Review queue</h2>
+
+{% for j in items %}
+<div class="bg-slate-800 rounded-lg p-4 mb-4 border border-slate-700">
+  <div class="flex items-center justify-between">
+    <div>
+      <a href="/jobs/{{ j.id }}" class="font-medium text-indigo-400 hover:underline">{{ j.original_name }}</a>
+      <span class="ml-2 text-xs px-2 py-0.5 rounded bg-amber-700">{{ j.review_reason.value if j.review_reason else "review" }}</span>
+      {% if j.score is not none %}<span class="ml-2 text-xs text-slate-400">score {{ "%.2f"|format(j.score) }}</span>{% endif %}
+    </div>
+  </div>
+
+  {% if j.review_reason and j.review_reason.value == "destination_conflict" %}
+    <form method="post" action="/review/{{ j.id }}/resolve_conflict" class="mt-3 flex gap-2 text-sm">
+      <span class="text-slate-400">Destination exists: <span class="text-slate-200">{{ j.destination_path }}</span></span>
+      <button name="action" value="replace" class="px-3 py-1 rounded bg-red-700 hover:bg-red-600">Replace</button>
+      <button name="action" value="rename" class="px-3 py-1 rounded bg-indigo-700 hover:bg-indigo-600">Rename (-1)</button>
+      <button name="action" value="skip" class="px-3 py-1 rounded bg-slate-700 hover:bg-slate-600">Skip</button>
+    </form>
+  {% else %}
+    <form method="post" action="/review/{{ j.id }}/apply" class="mt-3 space-y-2 text-sm">
+      {% set cands = j.candidates_json.get("items", []) if j.candidates_json else [] %}
+      {% if cands %}
+      <div class="space-y-1">
+        {% for c in cands %}
+          <label class="flex items-center gap-2 p-2 rounded hover:bg-slate-700/40">
+            <input type="radio" name="pick" value="{{ c.recording_id }}|{{ c.release_id }}" {% if loop.first %}checked{% endif %}>
+            <span class="font-mono text-xs">{{ "%.2f"|format(c.score) }}</span>
+            <span>{{ c.title }} — {{ c.album }}</span>
+            <a class="ml-auto text-xs text-indigo-400 hover:underline" target="_blank"
+               href="https://musicbrainz.org/recording/{{ c.recording_id }}">MB</a>
+          </label>
+        {% endfor %}
+      </div>
+      <input type="hidden" name="recording_id" value="">
+      <input type="hidden" name="release_id" value="">
+      <script>
+        // pick -> split into recording_id / release_id on submit
+        (function () {
+          const form = document.currentScript.previousElementSibling.closest('form');
+          form.addEventListener('submit', () => {
+            const pick = form.querySelector('input[name=pick]:checked');
+            if (!pick) return;
+            const [rec, rel] = pick.value.split('|');
+            form.querySelector('input[name=recording_id]').value = rec;
+            form.querySelector('input[name=release_id]').value = rel;
+          });
+        })();
+      </script>
+      {% else %}
+      <div class="text-slate-400">No candidates were stored. Search manually:</div>
+      <input name="recording_id" placeholder="MB recording id" class="p-1 rounded bg-slate-900 border border-slate-700 w-72">
+      <input name="release_id" placeholder="MB release id" class="p-1 rounded bg-slate-900 border border-slate-700 w-72">
+      {% endif %}
+
+      <div class="flex items-center gap-2">
+        <label class="text-slate-400">RELEASETYPE override:</label>
+        <select name="release_type_override" class="p-1 rounded bg-slate-900 border border-slate-700">
+          <option value="">(use MB value)</option>
+          <option>Album</option><option>Single</option><option>EP</option>
+          <option>Compilation</option><option>Soundtrack</option><option>Other</option>
+        </select>
+        <button class="ml-auto px-3 py-1 rounded bg-emerald-700 hover:bg-emerald-600">Apply</button>
+      </div>
+    </form>
+  {% endif %}
+</div>
+{% else %}
+<p class="text-slate-400">Review queue is empty.</p>
+{% endfor %}
+{% endblock %}

@@ -1,0 +1,60 @@
+"""AcoustID fingerprint lookup.
+
+Used as the last-resort identifier when MB text search returns nothing
+(e.g. a file with no usable filename and no existing tags). Computes a
+Chromaprint fingerprint via the ``fpcalc`` binary (installed in the Docker
+image) and asks the AcoustID API which MB recording IDs it matches.
+
+The API requires an application key — we read it from the
+``AIO_ACOUSTID_KEY_FILE`` Docker secret. If no key is configured, this module
+quietly returns an empty list and the pipeline routes the job to review.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+import acoustid
+
+from ..config import env
+
+
+@dataclass
+class AcoustIDMatch:
+    acoustid_id: str   # the AcoustID itself (not the MB id). May be empty.
+    score: float        # 0..1, how close the fingerprint matches
+    recording_id: str | None  # MB recording UUID we should look up next
+
+
+def lookup(path: Path) -> list[AcoustIDMatch]:
+    """Return zero or more matches in descending confidence order.
+
+    Returns ``[]`` on any of: no API key, no ``fpcalc`` available, file
+    can't be fingerprinted, network/API failure. All of those are non-fatal
+    — the pipeline falls through to the review queue with reason ``no_match``.
+    """
+    key = env().resolve_acoustid_key()
+    if not key:
+        return []
+    try:
+        results = list(acoustid.match(key, str(path)))
+    except acoustid.NoBackendError:
+        # fpcalc isn't installed / on PATH. Shouldn't happen in our Docker
+        # image (we apt-get libchromaprint-tools) but possible in local dev.
+        return []
+    except acoustid.FingerprintGenerationError:
+        # File is too short / corrupt / not actually audio.
+        return []
+    except acoustid.WebServiceError:
+        return []
+
+    out: list[AcoustIDMatch] = []
+    for score, recording_id, *_ in results:
+        # ``acoustid.match`` (the high-level helper) doesn't expose the
+        # AcoustID UUID directly — we'd need ``acoustid.lookup`` for that.
+        # Leaving acoustid_id empty here is fine: the pipeline uses MB to
+        # build the rest of the tags.
+        out.append(
+            AcoustIDMatch(acoustid_id="", score=float(score), recording_id=recording_id)
+        )
+    return out

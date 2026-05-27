@@ -20,10 +20,10 @@ import threading
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlmodel import select
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -47,6 +47,7 @@ app.add_middleware(
     SessionMiddleware,
     secret_key=env().resolve_session_secret(),
     https_only=False,
+    max_age=86400 * 7,  # 7-day cookie lifetime
 )
 
 # Static dir is created on first import so the StaticFiles mount doesn't
@@ -66,6 +67,11 @@ def _startup() -> None:
     pipeline.resubmit_pending()   # finish anything that was mid-flight at last shutdown
     if settings().watcher_enabled:
         watcher.start()
+
+
+@app.get("/health")
+def health():
+    return JSONResponse({"status": "ok"})
 
 
 def require_auth(request: Request) -> None:
@@ -170,19 +176,38 @@ def logout(request: Request):
 # ---------------------------------------------------------------------------
 
 
+_PER_PAGE = 50
+
+
 @app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request, _: None = Depends(require_auth)):
+def dashboard(request: Request, _: None = Depends(require_auth), page: int = 1):
+    page = max(1, page)
     with session() as s:
-        recent = s.exec(select(Job).order_by(Job.updated_at.desc()).limit(50)).all()
-    return templates.TemplateResponse("dashboard.html", {"request": request, "jobs": recent})
+        total = s.exec(select(func.count(Job.id))).one()
+        jobs = s.exec(
+            select(Job).order_by(Job.updated_at.desc())
+            .offset((page - 1) * _PER_PAGE).limit(_PER_PAGE)
+        ).all()
+    total_pages = max(1, (total + _PER_PAGE - 1) // _PER_PAGE)
+    return templates.TemplateResponse("dashboard.html", {
+        "request": request, "jobs": jobs, "page": page, "total_pages": total_pages,
+    })
 
 
 @app.get("/jobs/table", response_class=HTMLResponse)
-def jobs_table(request: Request, _: None = Depends(require_auth)):
+def jobs_table(request: Request, _: None = Depends(require_auth), page: int = 1):
     """HTMX partial: just the table body, polled every 5s by the dashboard."""
+    page = max(1, page)
     with session() as s:
-        recent = s.exec(select(Job).order_by(Job.updated_at.desc()).limit(50)).all()
-    return templates.TemplateResponse("_jobs_table.html", {"request": request, "jobs": recent})
+        total = s.exec(select(func.count(Job.id))).one()
+        jobs = s.exec(
+            select(Job).order_by(Job.updated_at.desc())
+            .offset((page - 1) * _PER_PAGE).limit(_PER_PAGE)
+        ).all()
+    total_pages = max(1, (total + _PER_PAGE - 1) // _PER_PAGE)
+    return templates.TemplateResponse("_jobs_table.html", {
+        "request": request, "jobs": jobs, "page": page, "total_pages": total_pages,
+    })
 
 
 @app.post("/upload")
@@ -198,6 +223,35 @@ def job_detail(job_id: int, request: Request, _: None = Depends(require_auth)):
         if not job:
             raise HTTPException(404)
     return templates.TemplateResponse("job_detail.html", {"request": request, "job": job})
+
+
+@app.post("/jobs/{job_id}/requeue")
+def job_requeue(job_id: int, request: Request, _: None = Depends(require_auth)):
+    with session() as s:
+        job = s.get(Job, job_id)
+        if not job:
+            raise HTTPException(404)
+        if job.status not in (JobStatus.done, JobStatus.error, JobStatus.skipped):
+            raise HTTPException(400, "only done/error/skipped jobs can be requeued")
+        job.status = JobStatus.queued
+        job.error = None
+        job.log = ""
+        s.add(job)
+        s.commit()
+    pipeline.submit(job_id)
+    return RedirectResponse(f"/jobs/{job_id}", status_code=303)
+
+
+@app.get("/jobs/{job_id}/log", response_class=HTMLResponse)
+def job_log(job_id: int, request: Request, _: None = Depends(require_auth)):
+    with session() as s:
+        job = s.get(Job, job_id)
+        if not job:
+            raise HTTPException(404)
+    text = job.log or job.error or "(no log)"
+    return HTMLResponse(
+        f'<pre class="text-xs text-[#8a8a8a] whitespace-pre-wrap p-2 m-0">{text}</pre>'
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -342,6 +396,9 @@ def settings_update(
     sep_CONDUCTOR: str = Form(...),
     sep_LYRICIST: str = Form(...),
     sep_ARRANGER: str = Form(...),
+    webhook_url: str = Form(""),
+    webhook_on_done: str | None = Form(None),
+    webhook_on_error: str | None = Form(None),
 ):
     """Persist a settings patch from the UI form.
 
@@ -377,6 +434,9 @@ def settings_update(
             "LYRICIST": sep_LYRICIST,
             "ARRANGER": sep_ARRANGER,
         },
+        "webhook_url": webhook_url,
+        "webhook_on_done": bool(webhook_on_done),
+        "webhook_on_error": bool(webhook_on_error),
     }
     store().update(patch)
     return RedirectResponse("/settings", status_code=303)

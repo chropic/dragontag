@@ -5,7 +5,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends libchromaprint-tools ca-certificates \
+ && apt-get install -y --no-install-recommends libchromaprint-tools ca-certificates curl \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --system --uid 1000 --no-create-home dragontag
 
@@ -18,6 +18,8 @@ RUN pip install --upgrade pip && pip install .
 
 VOLUME ["/library", "/drop", "/config"]
 EXPOSE 7593
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:7593/health || exit 1
 
 ENV AIO_LIBRARY_PATH=/library \
     AIO_DROP_PATH=/drop \

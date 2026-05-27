@@ -96,6 +96,8 @@ def process(job_id: int) -> None:
             _set(job, status=JobStatus.error, error=f"{e}\n{traceback.format_exc()}")
             s.add(job)
             s.commit()
+            from ..notify import post_error
+            post_error(job)
 
 
 def _process_inner(s: Session, job: Job) -> None:
@@ -362,6 +364,8 @@ def _commit_tag_path(s: Session, job: Job, src: Path, tags: TrackTags, *, score:
     _append_log(job, f"Done -> {dest}")
     s.add(job)
     s.commit()
+    from ..notify import post_done
+    post_done(job, tags)
 
 
 def _pick_library_folder() -> Path:

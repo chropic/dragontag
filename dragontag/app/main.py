@@ -19,7 +19,7 @@ import logging
 import threading
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -32,7 +32,7 @@ from .db import session
 from .identify import musicbrainz as mbq
 from .ingest import pipeline, uploads, watcher
 from .library.mover import move
-from .models import Job, JobStatus, LibraryFolder, Track
+from .models import Job, JobStatus, LibraryFolder, ReviewReason, Track
 
 logging.basicConfig(level=logging.INFO)
 
@@ -157,19 +157,26 @@ def review(request: Request, _: None = Depends(require_auth)):
 
 
 @app.post("/review/{job_id}/apply")
-def review_apply(
+async def review_apply(
     job_id: int,
     request: Request,
     _: None = Depends(require_auth),
     recording_id: str = Form(...),
     release_id: str = Form(...),
     release_type_override: str | None = Form(None),
+    cover_art_url: str = Form(default=""),
+    cover_art_file: UploadFile = File(default=None),
 ):
     """Apply a user-chosen MB candidate to a job stuck in review.
 
     Re-uses the pipeline's ``_commit_tag_path`` so the cover-art fetch /
     write / move flow is identical to the auto-apply path. Importing it
     inside the function avoids an import cycle at module load time.
+
+    If the user selected a cover from the thumbnail strip (``cover_art_url``)
+    or uploaded a custom image (``cover_art_file``), those bytes are set on
+    the tags object before calling ``_commit_tag_path`` — which skips its own
+    CAA fetch when ``tags.cover_bytes`` is already populated.
     """
     with session() as s:
         job = s.get(Job, job_id)
@@ -181,6 +188,21 @@ def review_apply(
             raise HTTPException(500, str(e))
         if release_type_override:
             tags.release_type = release_type_override
+
+        # Cover art override: custom upload takes priority over URL selection.
+        if cover_art_file and cover_art_file.filename:
+            tags.cover_bytes = await cover_art_file.read()
+            tags.cover_mime = cover_art_file.content_type or "image/jpeg"
+        elif cover_art_url:
+            import requests as _req
+            try:
+                r = _req.get(cover_art_url, timeout=10, allow_redirects=True)
+                r.raise_for_status()
+                tags.cover_bytes = r.content
+                tags.cover_mime = r.headers.get("content-type", "image/jpeg")
+            except Exception:
+                pass  # fall back to normal CAA fetch inside _commit_tag_path
+
         from .ingest.pipeline import _commit_tag_path
         _commit_tag_path(s, job, Path(job.source_path), tags, score=job.score or 1.0)
     return RedirectResponse("/review", status_code=303)
@@ -244,6 +266,7 @@ def settings_update(
     _: None = Depends(require_auth),
     acoustid_enabled: str | None = Form(None),
     lyrics_enabled: str | None = Form(None),
+    dry_run: str | None = Form(None),
     score_threshold: float = Form(...),
     filename_template_single: str = Form(...),
     filename_template_multidisc: str = Form(...),
@@ -275,6 +298,7 @@ def settings_update(
     patch = {
         "acoustid_enabled": bool(acoustid_enabled),
         "lyrics_enabled": bool(lyrics_enabled),
+        "dry_run": bool(dry_run),
         "score_threshold": score_threshold,
         "filename_template_single": filename_template_single,
         "filename_template_multidisc": filename_template_multidisc,

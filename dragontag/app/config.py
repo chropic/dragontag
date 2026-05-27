@@ -118,6 +118,11 @@ class UserSettings(BaseModel):
     # Also runs the explicit-content classifier and writes ITUNESADVISORY.
     lyrics_enabled: bool = True
 
+    # Dry-run mode: pipeline identifies and assembles tags but stops before
+    # writing to files or moving them. Jobs land in the review queue so the
+    # user can inspect and commit individually.
+    dry_run: bool = False
+
     # ----- MusicBrainz client -----
     musicbrainz_user_agent: str = (
         "dragontag/0.1.0 ( https://github.com/local/dragontag )"

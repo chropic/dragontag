@@ -47,6 +47,7 @@ class Track(SQLModel, table=True):
     duration: float | None = None
     mb_track_id: str | None = None
     mb_album_id: str | None = None
+    advisory: int | None = Field(default=None)
 
     last_seen: datetime = Field(default_factory=datetime.utcnow)
     indexed_at: datetime = Field(default_factory=datetime.utcnow)
@@ -82,6 +83,7 @@ class ReviewReason(str, Enum):
     no_match = "no_match"  # no MB or AcoustID candidate at all
     destination_conflict = "destination_conflict"  # target path already exists
     missing_releasetype = "missing_releasetype"  # MB release-group has no primary-type
+    dry_run = "dry_run"  # dry-run mode: preview without writing
 
 
 class Job(SQLModel, table=True):

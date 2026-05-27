@@ -10,6 +10,7 @@ request threads. SQLModel/SQLAlchemy serialize writes internally.
 """
 from __future__ import annotations
 
+from sqlalchemy import text
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from .config import env
@@ -32,9 +33,23 @@ def engine():
             echo=False,
             connect_args={"check_same_thread": False},
         )
+        _migrate(_engine)
         SQLModel.metadata.create_all(_engine)
         _seed_library_folder()
     return _engine
+
+
+def _migrate(engine) -> None:
+    """Idempotent schema migrations for columns added after initial create_all.
+
+    SQLModel/create_all never ALTER TABLEs existing tables, so any column added
+    to a model after first boot requires an explicit migration here.
+    """
+    with engine.connect() as conn:
+        existing_cols = {r[1] for r in conn.execute(text("PRAGMA table_info('track')"))}
+        if "advisory" not in existing_cols:
+            conn.execute(text("ALTER TABLE track ADD COLUMN advisory INTEGER"))
+            conn.commit()
 
 
 def _seed_library_folder() -> None:

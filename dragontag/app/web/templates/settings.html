@@ -17,6 +17,10 @@
       <input type="checkbox" name="watcher_enabled" {% if settings.watcher_enabled %}checked{% endif %}>
       Watch drop folder for new files
     </label>
+    <label class="flex items-center gap-2">
+      <input type="checkbox" name="lyrics_enabled" {% if settings.lyrics_enabled %}checked{% endif %}>
+      Fetch lyrics from LRCLIB and embed in files (also auto-tags explicit content)
+    </label>
   </div>
 
   <div class="bg-slate-800 p-4 rounded border border-slate-700 space-y-2">

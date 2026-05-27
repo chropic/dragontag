@@ -243,6 +243,7 @@ def settings_update(
     request: Request,
     _: None = Depends(require_auth),
     acoustid_enabled: str | None = Form(None),
+    lyrics_enabled: str | None = Form(None),
     score_threshold: float = Form(...),
     filename_template_single: str = Form(...),
     filename_template_multidisc: str = Form(...),
@@ -273,6 +274,7 @@ def settings_update(
     """
     patch = {
         "acoustid_enabled": bool(acoustid_enabled),
+        "lyrics_enabled": bool(lyrics_enabled),
         "score_threshold": score_threshold,
         "filename_template_single": filename_template_single,
         "filename_template_multidisc": filename_template_multidisc,

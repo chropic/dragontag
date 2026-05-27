@@ -38,6 +38,7 @@ from mutagen.id3 import (
     TSRC,
     TXXX,
     UFID,
+    USLT,
 )
 
 from ..schema import TrackTags
@@ -140,3 +141,9 @@ def populate_id3(id3: ID3, tags: TrackTags, sep) -> None:
                 data=tags.cover_bytes,
             )
         )
+
+    # ----- lyrics & advisory -----
+    if tags.lyrics:
+        id3.add(USLT(encoding=3, lang="eng", desc="", text=tags.lyrics))
+    if tags.advisory is not None:
+        id3.add(TXXX(encoding=3, desc="ITUNESADVISORY", text=[str(tags.advisory)]))

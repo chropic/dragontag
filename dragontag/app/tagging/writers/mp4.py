@@ -108,4 +108,10 @@ def write(path: Path, tags: TrackTags, sep) -> None:
         fmt = MP4Cover.FORMAT_PNG if tags.cover_mime == "image/png" else MP4Cover.FORMAT_JPEG
         t["covr"] = [MP4Cover(tags.cover_bytes, imageformat=fmt)]
 
+    # ----- lyrics & advisory -----
+    if tags.lyrics:
+        t["\xa9lyr"] = [tags.lyrics]
+    if tags.advisory is not None:
+        t["rtng"] = [tags.advisory]
+
     audio.save()

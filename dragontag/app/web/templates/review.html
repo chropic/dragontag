@@ -1,41 +1,41 @@
 {% extends "base.html" %}
 {% block content %}
-<h2 class="text-xl font-semibold mb-4">Review queue</h2>
+<h2 class="text-xl font-mono font-semibold mb-4">Review queue</h2>
 
 {% for j in items %}
-<div class="bg-slate-800 rounded-lg p-4 mb-4 border border-slate-700">
+<div class="bg-[#0c0c0c] p-4 mb-4 border border-[#4a4a4a]">
   <div class="flex items-center justify-between">
     <div>
-      <a href="/jobs/{{ j.id }}" class="font-medium text-indigo-400 hover:underline">{{ j.original_name }}</a>
-      <span class="ml-2 text-xs px-2 py-0.5 rounded bg-amber-700">{{ j.review_reason.value if j.review_reason else "review" }}</span>
-      {% if j.score is not none %}<span class="ml-2 text-xs text-slate-400">score {{ "%.2f"|format(j.score) }}</span>{% endif %}
+      <a href="/jobs/{{ j.id }}" class="font-medium text-[#cfcfcf] hover:underline">{{ j.original_name }}</a>
+      <span class="ml-2 text-xs px-2 py-0.5 bg-[#f2e5b5] text-black">{{ j.review_reason.value if j.review_reason else "review" }}</span>
+      {% if j.score is not none %}<span class="ml-2 text-xs text-[#8a8a8a]">score {{ "%.2f"|format(j.score) }}</span>{% endif %}
     </div>
   </div>
 
   {% if j.review_reason and j.review_reason.value == "destination_conflict" %}
     <form method="post" action="/review/{{ j.id }}/resolve_conflict" class="mt-3 flex gap-2 text-sm">
-      <span class="text-slate-400">Destination exists: <span class="text-slate-200">{{ j.destination_path }}</span></span>
-      <button name="action" value="replace" class="px-3 py-1 rounded bg-red-700 hover:bg-red-600">Replace</button>
-      <button name="action" value="rename" class="px-3 py-1 rounded bg-indigo-700 hover:bg-indigo-600">Rename (-1)</button>
-      <button name="action" value="skip" class="px-3 py-1 rounded bg-slate-700 hover:bg-slate-600">Skip</button>
+      <span class="text-[#8a8a8a]">Destination exists: <span class="text-[#cfcfcf]">{{ j.destination_path }}</span></span>
+      <button name="action" value="replace" class="px-3 py-1 bg-[#ffb4b4] text-black hover:bg-[#ffb4b4]/80">Replace</button>
+      <button name="action" value="rename" class="px-3 py-1 bg-white text-black hover:bg-[#cfcfcf]">Rename (-1)</button>
+      <button name="action" value="skip" class="px-3 py-1 bg-[#131313] hover:bg-[#131313]/80">Skip</button>
     </form>
   {% else %}
     <form method="post" action="/review/{{ j.id }}/apply" enctype="multipart/form-data" class="mt-3 space-y-3 text-sm">
 
       {# ---- dry-run preview: tag table + computed destination ---- #}
       {% if j.review_reason and j.review_reason.value == "dry_run" %}
-      <div class="bg-slate-900/60 rounded border border-slate-700 p-3">
-        <div class="text-slate-400 text-xs mb-2 font-semibold uppercase tracking-wide">Dry-run preview</div>
+      <div class="bg-black/60 border border-[#4a4a4a] p-3">
+        <div class="text-[#8a8a8a] text-xs mb-2 font-semibold uppercase tracking-wide">Dry-run preview</div>
         {% if j.destination_path %}
-        <div class="mb-2 text-xs"><span class="text-slate-400">Destination: </span><span class="text-slate-200 font-mono">{{ j.destination_path }}</span></div>
+        <div class="mb-2 text-xs"><span class="text-[#8a8a8a]">Destination: </span><span class="text-[#cfcfcf] font-mono">{{ j.destination_path }}</span></div>
         {% endif %}
         {% if j.chosen_tags_json %}
         <table class="w-full text-xs border-collapse">
           {% for k, v in j.chosen_tags_json.items() %}
           {% if v is not none and v != "" and v != [] and v != false and k != "cover_mime" %}
-          <tr class="border-t border-slate-700/50">
-            <td class="py-0.5 pr-3 text-slate-400 font-mono whitespace-nowrap">{{ k }}</td>
-            <td class="py-0.5 text-slate-200 break-all">
+          <tr class="border-t border-[#4a4a4a]/50">
+            <td class="py-0.5 pr-3 text-[#8a8a8a] font-mono whitespace-nowrap">{{ k }}</td>
+            <td class="py-0.5 text-[#cfcfcf] break-all">
               {%- if v is iterable and v is not string -%}{{ v | join(", ") }}{%- else -%}{{ v }}{%- endif -%}
             </td>
           </tr>
@@ -51,11 +51,11 @@
       {% if cands %}
       <div class="space-y-1">
         {% for c in cands %}
-          <label class="flex items-center gap-2 p-2 rounded hover:bg-slate-700/40">
+          <label class="flex items-center gap-2 p-2 hover:bg-[#131313]/40">
             <input type="radio" name="pick" value="{{ c.recording_id }}|{{ c.release_id }}" {% if loop.first %}checked{% endif %}>
             <span class="font-mono text-xs">{{ "%.2f"|format(c.score) }}</span>
             <span>{{ c.title }} — {{ c.album }}</span>
-            <a class="ml-auto text-xs text-indigo-400 hover:underline" target="_blank"
+            <a class="ml-auto text-xs text-[#cfcfcf] hover:underline" target="_blank"
                href="https://musicbrainz.org/recording/{{ c.recording_id }}">MB</a>
           </label>
         {% endfor %}
@@ -75,21 +75,21 @@
         })();
       </script>
       {% else %}
-      <div class="text-slate-400">No candidates were stored. Search manually:</div>
-      <input name="recording_id" placeholder="MB recording id" class="p-1 rounded bg-slate-900 border border-slate-700 w-72">
-      <input name="release_id" placeholder="MB release id" class="p-1 rounded bg-slate-900 border border-slate-700 w-72">
+      <div class="text-[#8a8a8a]">No candidates were stored. Search manually:</div>
+      <input name="recording_id" placeholder="MB recording id" class="p-1 bg-black border border-[#4a4a4a] w-72">
+      <input name="release_id" placeholder="MB release id" class="p-1 bg-black border border-[#4a4a4a] w-72">
       {% endif %}
 
       {# ---- cover art picker ---- #}
       {% if cands %}
       <div class="space-y-2">
-        <div class="text-slate-400 text-xs font-semibold uppercase tracking-wide">Cover art</div>
+        <div class="text-[#8a8a8a] text-xs font-semibold uppercase tracking-wide">Cover art</div>
         <div class="flex gap-2 flex-wrap" id="covers-{{ j.id }}">
           {% for c in cands %}
           <button type="button"
             data-url="https://coverartarchive.org/release/{{ c.release_id }}/front"
             onclick="selectCover(this, 'covers-{{ j.id }}', 'cover_url_{{ j.id }}')"
-            class="cover-btn rounded overflow-hidden border-2 border-transparent focus:outline-none {% if loop.first %}border-indigo-500{% endif %}"
+            class="cover-btn overflow-hidden border-2 border-transparent focus:outline-none {% if loop.first %}border-white{% endif %}"
             title="{{ c.album }}">
             <img src="https://coverartarchive.org/release/{{ c.release_id }}/front-250"
                  onerror="this.closest('button').style.display='none'"
@@ -99,21 +99,21 @@
         </div>
         <input type="hidden" name="cover_art_url" id="cover_url_{{ j.id }}"
                value="https://coverartarchive.org/release/{{ cands[0].release_id }}/front">
-        <label class="flex items-center gap-2 text-xs text-slate-400">
+        <label class="flex items-center gap-2 text-xs text-[#8a8a8a]">
           <span>Custom cover:</span>
           <input type="file" name="cover_art_file" accept="image/*"
                  onchange="if(this.value) document.getElementById('cover_url_{{ j.id }}').value=''"
-                 class="text-xs text-slate-300">
+                 class="text-xs text-[#cfcfcf]">
         </label>
       </div>
       <script>
         function selectCover(btn, groupId, urlInputId) {
           document.querySelectorAll('#' + groupId + ' .cover-btn').forEach(function(b) {
-            b.classList.remove('border-indigo-500');
+            b.classList.remove('border-white');
             b.classList.add('border-transparent');
           });
           btn.classList.remove('border-transparent');
-          btn.classList.add('border-indigo-500');
+          btn.classList.add('border-white');
           document.getElementById(urlInputId).value = btn.dataset.url;
           // Clear custom file input when picking from strip
           var fileInput = btn.closest('form').querySelector('input[type=file][name=cover_art_file]');
@@ -123,28 +123,28 @@
       {% endif %}
 
       <div class="flex items-center gap-2">
-        <label class="text-slate-400">RELEASETYPE override:</label>
-        <select name="release_type_override" class="p-1 rounded bg-slate-900 border border-slate-700">
+        <label class="text-[#8a8a8a]">RELEASETYPE override:</label>
+        <select name="release_type_override" class="p-1 bg-black border border-[#4a4a4a]">
           <option value="">(use MB value)</option>
           <option>Album</option><option>Single</option><option>EP</option>
           <option>Compilation</option><option>Soundtrack</option><option>Other</option>
         </select>
         {% if j.review_reason and j.review_reason.value == "dry_run" %}
-        <button class="ml-auto px-3 py-1 rounded bg-emerald-700 hover:bg-emerald-600">Commit</button>
+        <button class="ml-auto px-3 py-1 bg-[#c7f0c7] text-black hover:bg-[#c7f0c7]/80">Commit</button>
         {% else %}
-        <button class="ml-auto px-3 py-1 rounded bg-emerald-700 hover:bg-emerald-600">Apply</button>
+        <button class="ml-auto px-3 py-1 bg-[#c7f0c7] text-black hover:bg-[#c7f0c7]/80">Apply</button>
         {% endif %}
       </div>
     </form>
 
     {% if j.review_reason and j.review_reason.value == "dry_run" %}
     <form method="post" action="/review/{{ j.id }}/resolve_conflict" class="mt-2">
-      <button name="action" value="skip" class="text-xs px-3 py-1 rounded bg-slate-700 hover:bg-slate-600">Skip (discard)</button>
+      <button name="action" value="skip" class="text-xs px-3 py-1 bg-[#131313] hover:bg-[#131313]/80">Skip (discard)</button>
     </form>
     {% endif %}
   {% endif %}
 </div>
 {% else %}
-<p class="text-slate-400">Review queue is empty.</p>
+<p class="text-[#8a8a8a]">Review queue is empty.</p>
 {% endfor %}
 {% endblock %}

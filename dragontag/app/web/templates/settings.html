@@ -1,17 +1,17 @@
 {% extends "base.html" %}
 {% block content %}
-<h2 class="text-xl font-semibold mb-4">Settings</h2>
+<h2 class="text-xl font-mono font-semibold mb-4">Settings</h2>
 <form method="post" action="/settings" class="space-y-4 max-w-2xl text-sm">
-  <div class="bg-slate-800 p-4 rounded border border-slate-700 space-y-2">
+  <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-2">
     <label class="flex items-center gap-2">
       <input type="checkbox" name="acoustid_enabled" {% if settings.acoustid_enabled %}checked{% endif %}>
       Enable AcoustID fingerprint fallback
     </label>
     <label class="block">
-      <span class="text-slate-400">Auto-apply threshold</span>
+      <span class="text-[#8a8a8a]">Auto-apply threshold</span>
       <input type="number" name="score_threshold" step="0.01" min="0" max="1"
              value="{{ settings.score_threshold }}"
-             class="mt-1 p-1 rounded bg-slate-900 border border-slate-700 w-32">
+             class="mt-1 p-1 bg-black border border-[#4a4a4a] w-32">
     </label>
     <label class="flex items-center gap-2">
       <input type="checkbox" name="watcher_enabled" {% if settings.watcher_enabled %}checked{% endif %}>
@@ -27,36 +27,36 @@
     </label>
   </div>
 
-  <div class="bg-slate-800 p-4 rounded border border-slate-700 space-y-2">
-    <h3 class="font-semibold">Filename templates</h3>
+  <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-2">
+    <h3 class="font-mono font-semibold">Filename templates</h3>
     <label class="block">
-      <span class="text-slate-400">Single disc</span>
+      <span class="text-[#8a8a8a]">Single disc</span>
       <input name="filename_template_single" value="{{ settings.filename_template_single }}"
-             class="mt-1 w-full p-1 rounded bg-slate-900 border border-slate-700 font-mono">
+             class="mt-1 w-full p-1 bg-black border border-[#4a4a4a] font-mono">
     </label>
     <label class="block">
-      <span class="text-slate-400">Multi-disc (inside Disc N folder)</span>
+      <span class="text-[#8a8a8a]">Multi-disc (inside Disc N folder)</span>
       <input name="filename_template_multidisc" value="{{ settings.filename_template_multidisc }}"
-             class="mt-1 w-full p-1 rounded bg-slate-900 border border-slate-700 font-mono">
+             class="mt-1 w-full p-1 bg-black border border-[#4a4a4a] font-mono">
     </label>
     <label class="block">
-      <span class="text-slate-400">Multi-disc folder name</span>
+      <span class="text-[#8a8a8a]">Multi-disc folder name</span>
       <input name="multidisc_folder_template" value="{{ settings.multidisc_folder_template }}"
-             class="mt-1 w-full p-1 rounded bg-slate-900 border border-slate-700 font-mono">
+             class="mt-1 w-full p-1 bg-black border border-[#4a4a4a] font-mono">
     </label>
-    <p class="text-xs text-slate-500">Vars: <code>{track}</code> <code>{disc}</code> <code>{title}</code> <code>{artist}</code> <code>{ext}</code> <code>{disctotal}</code> <code>{tracktotal}</code></p>
+    <p class="text-xs text-[#8a8a8a]">Vars: <code>{track}</code> <code>{disc}</code> <code>{title}</code> <code>{artist}</code> <code>{ext}</code> <code>{disctotal}</code> <code>{tracktotal}</code></p>
   </div>
 
-  <div class="bg-slate-800 p-4 rounded border border-slate-700 space-y-2">
-    <h3 class="font-semibold">Genre options</h3>
+  <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-2">
+    <h3 class="font-mono font-semibold">Genre options</h3>
     <label class="block">
-      <span class="text-slate-400">Max genres (0 = no limit)</span>
+      <span class="text-[#8a8a8a]">Max genres (0 = no limit)</span>
       <input type="number" name="genre_limit" min="0" value="{{ settings.genre_limit }}"
-             class="mt-1 p-1 rounded bg-slate-900 border border-slate-700 w-24">
+             class="mt-1 p-1 bg-black border border-[#4a4a4a] w-24">
     </label>
     <label class="block">
-      <span class="text-slate-400">Genre casing</span>
-      <select name="genre_casing" class="mt-1 p-1 rounded bg-slate-900 border border-slate-700">
+      <span class="text-[#8a8a8a]">Genre casing</span>
+      <select name="genre_casing" class="mt-1 p-1 bg-black border border-[#4a4a4a]">
         <option value="title" {% if settings.genre_casing == "title" %}selected{% endif %}>Title Case</option>
         <option value="lower" {% if settings.genre_casing == "lower" %}selected{% endif %}>lowercase</option>
         <option value="as-is" {% if settings.genre_casing == "as-is" %}selected{% endif %}>as-is (raw MB tags)</option>
@@ -64,28 +64,28 @@
     </label>
   </div>
 
-  <div class="bg-slate-800 p-4 rounded border border-slate-700 space-y-2">
-    <h3 class="font-semibold">Multi-value separators</h3>
+  <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-2">
+    <h3 class="font-mono font-semibold">Multi-value separators</h3>
     <div class="grid grid-cols-2 gap-2">
       {% set sep = settings.separators %}
-      <label>ARTIST <input name="sep_ARTIST" value="{{ sep.ARTIST }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
-      <label>album_artist <input name="sep_album_artist" value="{{ sep.album_artist }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
-      <label>ARTISTS <input name="sep_ARTISTS" value="{{ sep.ARTISTS }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
-      <label>ARTISTSORT <input name="sep_ARTISTSORT" value="{{ sep.ARTISTSORT }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
-      <label>ALBUMARTISTSORT <input name="sep_ALBUMARTISTSORT" value="{{ sep.ALBUMARTISTSORT }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
-      <label>GENRE <input name="sep_GENRE" value="{{ sep.GENRE }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
-      <label>LABEL <input name="sep_LABEL" value="{{ sep.LABEL }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
-      <label>ISRC <input name="sep_ISRC" value="{{ sep.ISRC }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
-      <label>COMPOSER <input name="sep_COMPOSER" value="{{ sep.COMPOSER }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
-      <label>CONDUCTOR <input name="sep_CONDUCTOR" value="{{ sep.CONDUCTOR }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
-      <label>LYRICIST <input name="sep_LYRICIST" value="{{ sep.LYRICIST }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
-      <label>ARRANGER <input name="sep_ARRANGER" value="{{ sep.ARRANGER }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
+      <label>ARTIST <input name="sep_ARTIST" value="{{ sep.ARTIST }}" class="p-1 bg-black border border-[#4a4a4a] w-24 ml-2 font-mono"></label>
+      <label>album_artist <input name="sep_album_artist" value="{{ sep.album_artist }}" class="p-1 bg-black border border-[#4a4a4a] w-24 ml-2 font-mono"></label>
+      <label>ARTISTS <input name="sep_ARTISTS" value="{{ sep.ARTISTS }}" class="p-1 bg-black border border-[#4a4a4a] w-24 ml-2 font-mono"></label>
+      <label>ARTISTSORT <input name="sep_ARTISTSORT" value="{{ sep.ARTISTSORT }}" class="p-1 bg-black border border-[#4a4a4a] w-24 ml-2 font-mono"></label>
+      <label>ALBUMARTISTSORT <input name="sep_ALBUMARTISTSORT" value="{{ sep.ALBUMARTISTSORT }}" class="p-1 bg-black border border-[#4a4a4a] w-24 ml-2 font-mono"></label>
+      <label>GENRE <input name="sep_GENRE" value="{{ sep.GENRE }}" class="p-1 bg-black border border-[#4a4a4a] w-24 ml-2 font-mono"></label>
+      <label>LABEL <input name="sep_LABEL" value="{{ sep.LABEL }}" class="p-1 bg-black border border-[#4a4a4a] w-24 ml-2 font-mono"></label>
+      <label>ISRC <input name="sep_ISRC" value="{{ sep.ISRC }}" class="p-1 bg-black border border-[#4a4a4a] w-24 ml-2 font-mono"></label>
+      <label>COMPOSER <input name="sep_COMPOSER" value="{{ sep.COMPOSER }}" class="p-1 bg-black border border-[#4a4a4a] w-24 ml-2 font-mono"></label>
+      <label>CONDUCTOR <input name="sep_CONDUCTOR" value="{{ sep.CONDUCTOR }}" class="p-1 bg-black border border-[#4a4a4a] w-24 ml-2 font-mono"></label>
+      <label>LYRICIST <input name="sep_LYRICIST" value="{{ sep.LYRICIST }}" class="p-1 bg-black border border-[#4a4a4a] w-24 ml-2 font-mono"></label>
+      <label>ARRANGER <input name="sep_ARRANGER" value="{{ sep.ARRANGER }}" class="p-1 bg-black border border-[#4a4a4a] w-24 ml-2 font-mono"></label>
     </div>
   </div>
 
-  <div class="bg-slate-800 p-4 rounded border border-slate-700 space-y-2">
-    <h3 class="font-semibold">Skip fields</h3>
-    <p class="text-xs text-slate-500">Checked fields will not be written to audio files.</p>
+  <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-2">
+    <h3 class="font-mono font-semibold">Skip fields</h3>
+    <p class="text-xs text-[#8a8a8a]">Checked fields will not be written to audio files.</p>
     {% set skipped = settings.skip_fields %}
     <div class="grid grid-cols-2 gap-1">
       {% for field_name in [
@@ -107,6 +107,6 @@
     </div>
   </div>
 
-  <button class="px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-500">Save</button>
+  <button class="px-4 py-2 bg-white text-black hover:bg-[#cfcfcf]">Save</button>
 </form>
 {% endblock %}

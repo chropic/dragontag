@@ -2,13 +2,13 @@
 {% block title %}Library — dragontag{% endblock %}
 {% block content %}
 <div class="flex items-center justify-between mb-4">
-  <h2 class="text-xl font-semibold">Library</h2>
-  <a href="/library/folders" class="text-sm text-indigo-400 hover:text-indigo-300">Manage folders</a>
+  <h2 class="text-xl font-mono font-semibold">Library</h2>
+  <a href="/library/folders" class="text-sm text-[#cfcfcf] hover:text-white">Manage folders</a>
 </div>
 
 {% if not folders %}
-<div class="bg-slate-800 p-6 rounded border border-slate-700 text-slate-400 text-sm">
-  No library folders configured. <a href="/library/folders" class="text-indigo-400 hover:text-indigo-300">Add one.</a>
+<div class="bg-[#0c0c0c] p-6 border border-[#4a4a4a] text-[#8a8a8a] text-sm">
+  No library folders configured. <a href="/library/folders" class="text-[#cfcfcf] hover:text-white">Add one.</a>
 </div>
 {% else %}
 
@@ -16,9 +16,9 @@
 <div class="flex gap-2 mb-4 flex-wrap">
   {% for f in folders %}
   <a href="/library?folder_id={{ f.id }}{% if q %}&q={{ q }}{% endif %}"
-     class="px-3 py-1 rounded text-sm border
-            {% if f.id == active_id %}bg-indigo-600 border-indigo-500 text-white
-            {% else %}bg-slate-800 border-slate-700 text-slate-300 hover:text-white{% endif %}">
+     class="px-3 py-1 text-sm border
+            {% if f.id == active_id %}bg-white text-black border-white
+            {% else %}bg-[#0c0c0c] border-[#4a4a4a] text-[#cfcfcf] hover:text-white{% endif %}">
     {{ f.label or f.path }}
   </a>
   {% endfor %}
@@ -27,13 +27,13 @@
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
 
   {# Search #}
-  <div class="lg:col-span-3 bg-slate-800 p-4 rounded border border-slate-700">
+  <div class="lg:col-span-3 bg-[#0c0c0c] p-4 border border-[#4a4a4a]">
     <input
       type="text"
       name="q"
       value="{{ q }}"
       placeholder="Search title, artist, album…"
-      class="w-full p-2 rounded bg-slate-900 border border-slate-700 text-sm"
+      class="w-full p-2 bg-black border border-[#4a4a4a] text-sm"
       hx-get="/library/tracks"
       hx-target="#library-tracks"
       hx-trigger="input changed delay:300ms"
@@ -42,40 +42,40 @@
   </div>
 
   {# Scan card #}
-  <div class="bg-slate-800 p-4 rounded border border-slate-700 space-y-2">
-    <h3 class="font-semibold text-sm">Index folder</h3>
-    <p class="text-xs text-slate-400">Read tags from all files in the selected folder and update the library DB.</p>
+  <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-2">
+    <h3 class="font-mono font-semibold text-sm">Index folder</h3>
+    <p class="text-xs text-[#8a8a8a]">Read tags from all files in the selected folder and update the library DB.</p>
     <form method="post" action="/library/scan">
       <input type="hidden" name="folder_id" value="{{ active_id }}">
-      <button class="mt-1 px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 text-sm">Scan now</button>
+      <button class="mt-1 px-3 py-1 bg-[#131313] hover:bg-[#131313]/80 text-sm">Scan now</button>
     </form>
   </div>
 
   {# Organize card #}
-  <div class="bg-slate-800 p-4 rounded border border-slate-700 space-y-2">
-    <h3 class="font-semibold text-sm">Organize folder</h3>
-    <p class="text-xs text-slate-400">Move files to match the current filename &amp; folder templates. Run a scan first.</p>
+  <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-2">
+    <h3 class="font-mono font-semibold text-sm">Organize folder</h3>
+    <p class="text-xs text-[#8a8a8a]">Move files to match the current filename &amp; folder templates. Run a scan first.</p>
     <form method="post" action="/library/organize">
       <input type="hidden" name="folder_id" value="{{ active_id }}">
-      <button class="mt-1 px-3 py-1 rounded bg-amber-700 hover:bg-amber-600 text-sm">Organize</button>
+      <button class="mt-1 px-3 py-1 bg-[#f2e5b5] text-black hover:bg-[#f2e5b5]/80 text-sm">Organize</button>
     </form>
   </div>
 
   {# Bulk re-tag card #}
-  <div class="bg-slate-800 p-4 rounded border border-slate-700 space-y-2">
-    <h3 class="font-semibold text-sm">Bulk re-tag</h3>
-    <p class="text-xs text-slate-400">Queue every audio file in a folder through the full identify → tag → move pipeline.</p>
+  <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-2">
+    <h3 class="font-mono font-semibold text-sm">Bulk re-tag</h3>
+    <p class="text-xs text-[#8a8a8a]">Queue every audio file in a folder through the full identify → tag → move pipeline.</p>
     <form method="post" action="/library/bulk-retag" class="space-y-1">
       <input type="text" name="source_path" placeholder="/path/to/folder"
-             class="w-full p-1 rounded bg-slate-900 border border-slate-700 text-xs font-mono">
-      <button class="px-3 py-1 rounded bg-indigo-700 hover:bg-indigo-600 text-sm">Enqueue all</button>
+             class="w-full p-1 bg-black border border-[#4a4a4a] text-xs font-mono">
+      <button class="px-3 py-1 bg-white text-black hover:bg-[#cfcfcf] text-sm">Enqueue all</button>
     </form>
   </div>
 
 </div>
 
 {# Track table #}
-<div class="bg-slate-800 p-4 rounded border border-slate-700">
+<div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a]">
   <div id="library-tracks">
     {% include "_library_tracks.html" %}
   </div>

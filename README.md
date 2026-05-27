@@ -1,178 +1,179 @@
-# dragontag
+<div align="center">
 
-![CI](https://github.com/chropic/dragontag/actions/workflows/ci.yml/badge.svg)
+# 🐉 dragontag
 
-A self-hosted, Docker-deployable music tagger and library organizer.
+**Self-hosted, Docker-native music tagger and library organizer**
 
-Drop audio files into a watched folder (or upload them through the web UI). The app
-identifies each file against **MusicBrainz** (with optional **AcoustID** fingerprinting),
-writes a full set of tags in a customizable Vorbis-Comment-style convention, embeds
-high-quality cover art, and moves the file into a tidy
-`Library/Artist/Album/[Disc N/]Filename.ext` layout.
+[![CI](https://github.com/chropic/dragontag/actions/workflows/ci.yml/badge.svg)](https://github.com/chropic/dragontag/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.12-blue?logo=python&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-green)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688?logo=fastapi&logoColor=white)
 
-Built for users who want MusicBrainz Picard's accuracy without having to run it
-manually on every new file.
+Drop an audio file. Get a perfectly tagged, organized result — automatically.
+
+</div>
+
+---
+
+dragontag identifies every file against **MusicBrainz** (with optional **AcoustID** acoustic fingerprinting), writes a complete, casing-exact Vorbis-style tag set, embeds cover art from the Cover Art Archive, fetches synced lyrics from LRCLIB, and moves the file into a clean `Artist / Album / 01. Title.flac` library layout.
+
+High-confidence matches flow through completely hands-free. Everything else lands in a review queue where you pick the right candidate, resolve destination conflicts, or override a missing `RELEASETYPE` — all from the browser.
 
 ---
 
 ## Features
 
-- **Drop & forget ingest** — drag-and-drop in the web UI *or* drop files into the
-  watched folder; both flow through the same pipeline.
-- **MusicBrainz-first identification** — short-circuits on an existing
-  `MUSICBRAINZ_TRACKID`, otherwise searches by title/artist/album/duration.
-- **AcoustID fingerprint fallback** — toggleable in settings. Uses `fpcalc` (bundled
-  in the Docker image) when text search fails.
-- **Confidence-scored auto-apply** — high-confidence matches are tagged & moved
-  automatically; uncertain matches and destination conflicts land in a review queue.
-- **Customizable tag convention** — per-tag multi-value separators (e.g. `ARTIST=//`,
-  `ARTISTS=;`), exact-casing Vorbis fields (`album_artist`, `track`, `disc` lowercase
-  to match the user's reference convention), duplicated track/disc totals
-  (`TRACKTOTAL` + `TOTALTRACKS`, `DISCTOTAL` + `TOTALDISCS`).
-- **Format coverage** — FLAC (Vorbis Comments), MP3 (ID3v2.4), WAV (ID3 chunk),
-  M4A/MP4 (atoms + freeform `----:com.apple.iTunes:` for MB IDs).
-- **Cover art** — fetched at the best available resolution from the Cover Art Archive,
-  embedded in the file *and* written as `cover.jpg` next to it.
-- **Docker-native** — `/library`, `/drop`, `/config` volumes; password and AcoustID
-  key are loaded from Docker secret files (argon2-hashed).
-- **Dry-run mode** — preview destination paths and tags without writing or moving
-  files. Jobs land in the review queue for inspection before committing.
-- **LRCLIB lyrics + explicit auto-tagger** — fetches synced or plain-text lyrics
-  and embeds them; classifies explicit content and writes `ITUNESADVISORY`.
-- **First-run setup wizard** — configure credentials and AcoustID key from the
-  browser on first boot, no Docker secrets required.
-- **Web UI** — dashboard with live-refreshing job list, review queue with candidate
-  picker + `RELEASETYPE` override, conflict resolver, settings page.
-- **SQLite-backed state** — jobs and history survive container restarts.
+| | |
+|---|---|
+| **Drop & forget ingest** | Drag-and-drop in the web UI *or* drop files into the watched folder — both hit the same pipeline |
+| **MusicBrainz-first ID** | Short-circuits on an existing `MUSICBRAINZ_TRACKID`; otherwise searches by title / artist / album / duration |
+| **AcoustID fingerprint fallback** | Toggleable. Uses `fpcalc` (bundled in the image) when text search comes up empty |
+| **Confidence-scored auto-apply** | Matches above the threshold are tagged and moved without human intervention |
+| **Review queue** | Low-score matches, missing `RELEASETYPE`, and destination conflicts surface a candidate picker and action buttons |
+| **Format coverage** | FLAC · MP3 (ID3v2.4) · WAV (ID3 chunk) · M4A / MP4 |
+| **Cover art** | Best available resolution from the Cover Art Archive, embedded in the file *and* written as `cover.jpg` |
+| **Lyrics + advisory** | Synced LRC or plain text from LRCLIB, embedded per-format; explicit content auto-tagged as `ITUNESADVISORY` |
+| **Dry-run mode** | Preview destination paths and assembled tags without touching any files |
+| **Webhook notifications** | Discord-compatible webhook fires on job completion or error |
+| **Paginated dashboard** | Live-refreshing job list with inline log expansion, pagination, and one-click re-queue |
+| **SQLite-backed state** | All jobs and history survive container restarts |
+| **First-run wizard** | Set credentials and AcoustID key from the browser on first boot — no Docker secrets required |
 
 ---
 
-## Quick start (Docker)
+## Quick start
 
 ```bash
 git clone https://github.com/chropic/dragontag.git
 cd dragontag
 
-# 1. Hash a password and stash it as a Docker secret
+# 1. Hash a password for the web UI
 mkdir -p secrets config
 python -m dragontag.tools.hash_password 'your-password' > secrets/password.txt
 
-# 2. (Optional) drop your AcoustID API key in:
+# 2. (Optional) AcoustID key for fingerprint fallback
 echo 'your-acoustid-key' > secrets/acoustid_key.txt
 
-# 3. Edit docker-compose.yml — point /library and /drop at your actual paths
+# 3. Point /library and /drop at your actual paths
 $EDITOR docker-compose.yml
 
-# 4. The container runs as uid 1000; make sure your host paths are writable by it:
+# 4. The container runs as uid 1000 — make sure your paths are writable
 sudo chown -R 1000:1000 /srv/music/library /srv/music/drop ./config
 
-# 5. Up (pulls the published image from GHCR automatically)
+# 5. Pull and start
 docker compose up -d
 ```
 
-Open <http://localhost:7593>, log in with the username from `AIO_USERNAME` (default
-`admin` in the sample compose file) and the password you hashed.
+Open **http://localhost:7593** and log in. The first boot redirects you to `/setup` if no password is configured yet.
 
-> **Building locally** — replace the `image:` line in `docker-compose.yml` with
-> `build: .` to build from source instead of pulling.
+> **Building locally** — swap `image:` for `build: .` in `docker-compose.yml`.
+
+---
+
+## Configuration
 
 ### Volumes
 
-| Mount | Purpose |
+| Mount | Contents |
 |---|---|
-| `/library` | Destination library root. Files land at `Library/Artist/Album/[Disc N/]<filename>`. |
-| `/drop`    | Watched ingest folder. Anything dropped here gets queued automatically. |
-| `/config`  | SQLite DB (`dragontag.db`), `settings.json`, logs. |
+| `/library` | Destination root — files land at `Artist/Album/[Disc N/]NN. Title.ext` |
+| `/drop` | Watched ingest folder — anything dropped here is queued automatically |
+| `/config` | SQLite DB (`dragontag.db`), `settings.json`, password hash, AcoustID key |
 
 ### Environment variables
 
-| Var | Purpose |
+| Variable | Purpose |
 |---|---|
-| `AIO_USERNAME` | Web UI login username. |
-| `AIO_PASSWORD_FILE` | Path to argon2-hashed password (use Docker secret). |
-| `AIO_SESSION_SECRET_FILE` | Path to session signing secret. Defaults to ephemeral random. |
-| `AIO_ACOUSTID_KEY_FILE` | Path to AcoustID key file. Optional. |
-| `AIO_LIBRARY_PATH` / `AIO_DROP_PATH` / `AIO_CONFIG_PATH` | Override default mount points. |
+| `AIO_USERNAME` | Web UI login username (default `admin`) |
+| `AIO_PASSWORD_FILE` | Path to argon2-hashed password file (Docker secret recommended) |
+| `AIO_SESSION_SECRET_FILE` | Session signing secret. Falls back to an ephemeral random value |
+| `AIO_ACOUSTID_KEY_FILE` | Path to AcoustID API key file. Optional |
+| `AIO_LIBRARY_PATH` | Override default `/library` mount |
+| `AIO_DROP_PATH` | Override default `/drop` mount |
+| `AIO_CONFIG_PATH` | Override default `/config` mount |
+
+### Settings UI
+
+Everything below is editable live from the **Settings** page and written atomically to `/config/settings.json`:
+
+- AcoustID fingerprint fallback on/off
+- Auto-apply confidence threshold (default `0.85`)
+- Filename templates — single-disc and multi-disc variants with `{track}`, `{disc}`, `{title}`, `{artist}`, `{ext}` vars
+- Per-tag multi-value separators (`ARTIST`, `album_artist`, `ARTISTS`, `GENRE`, …)
+- Genre limit and casing (`Title Case` / `lowercase` / `as-is`)
+- Fields to skip entirely (suppressed at write time across all formats)
+- Watcher on/off, ignore patterns, settle window
+- Cover-art minimum pixel width before overwriting an existing `cover.jpg`
+- Discord webhook URL, `on_done` and `on_error` toggles
+- Dry-run mode toggle
+- MusicBrainz user-agent and server (for self-hosted mirrors)
 
 ---
 
 ## How it works
 
 ```
-              ┌───────────────────┐
-  Drop file ──►   Watcher / UI    │── enqueue ──►  Job (SQLite)
-              └───────────────────┘                    │
-                                                       ▼
-                                   ┌─────────────────────────────────────┐
-                                   │  Pipeline                            │
-                                   │   1. Read existing tags + filename   │
-                                   │   2. Direct MBID short-circuit       │
-                                   │      else MusicBrainz text search    │
-                                   │      else AcoustID fingerprint       │
-                                   │   3. Score top candidate             │
-                                   │   4. ≥ threshold → auto              │
-                                   │      < threshold → review queue      │
-                                   │   5. Assemble TrackTags from MB      │
-                                   │   6. Fetch cover (CAA, highest res)  │
-                                   │   7. Write tags (format-aware)       │
-                                   │   8. Move into library + cover.jpg   │
-                                   └─────────────────────────────────────┘
+  Drop file / upload
+        │
+        ▼
+  ┌─────────────────┐
+  │  Watcher / UI   │──── enqueue ────► Job row (SQLite)
+  └─────────────────┘                        │
+                                             ▼
+                          ┌──────────────────────────────────────┐
+                          │  Pipeline                             │
+                          │                                       │
+                          │  1. Read existing tags + filename     │
+                          │  2. MBID short-circuit (if present)   │
+                          │     else  MusicBrainz text search     │
+                          │     else  AcoustID fingerprint        │
+                          │                                       │
+                          │  3. Score top candidate               │
+                          │     ≥ threshold ──► auto-apply        │
+                          │     < threshold ──► review queue      │
+                          │                                       │
+                          │  4. Assemble TrackTags from MB        │
+                          │  5. Fetch cover art (CAA)             │
+                          │  6. Fetch lyrics (LRCLIB)             │
+                          │  7. Write tags (format-aware)         │
+                          │  8. Move into library + cover.jpg     │
+                          │  9. Fire webhook (if configured)      │
+                          └──────────────────────────────────────┘
 ```
 
-When a file is sent to the review queue, the UI shows the top 5 candidates with
-their scores, MusicBrainz links, and a `RELEASETYPE` override dropdown. Destination
-conflicts get **replace / rename / skip** buttons.
+Files sent to the review queue show the top 5 MB candidates with scores and links. Destination conflicts get **replace / rename / skip** buttons.
 
 ---
 
 ## Tag convention
 
-The default Vorbis-Comment shape (FLAC) matches this exact layout — see
-[`schema.py`](dragontag/app/tagging/schema.py):
+The canonical schema is defined in [`schema.py`](dragontag/app/tagging/schema.py). The default Vorbis-Comment shape (FLAC):
 
-| Tag | Source / Notes |
+| Tag | Value |
 |---|---|
 | `TITLE` | MB recording title |
-| `ARTIST` | MB artist-credit phrase, multi-value joined with `//` (configurable) |
-| `ARTISTS` | MB artist names, joined with `;` |
+| `ARTIST` | MB artist-credit phrase — multi-value joined with `//` |
+| `ARTISTS` | MB artist names — joined with `;` |
 | `ARTISTSORT` | MB artist sort names |
 | `ALBUM` | MB release title |
 | `album_artist` *(lowercase)* | MB release artist-credit phrase |
 | `ALBUMARTISTSORT` | MB release artist sort names |
-| `COMPOSER` | MB recording → work-relations of type `composer` |
-| `DATE` / `ORIGINALDATE` / `ORIGINALYEAR` | MB release date + release-group first-release-date |
-| `track` *(lowercase)* | `NN/TT` format |
-| `TRACKTOTAL` + `TOTALTRACKS` | Both written for compatibility |
-| `disc` *(lowercase)* + `DISCTOTAL` + `TOTALDISCS` | Same |
-| `GENRE` | Top MB tags |
-| `LABEL`, `MEDIA`, `BARCODE`, `ISRC` | From MB release / recording |
-| `RELEASECOUNTRY`, `RELEASESTATUS`, `RELEASETYPE`, `SCRIPT` | From MB release / release-group |
+| `COMPOSER` · `LYRICIST` · `ARRANGER` · `CONDUCTOR` | From MB recording / work relations |
+| `DATE` · `ORIGINALDATE` · `ORIGINALYEAR` | Release date + release-group first-release-date |
+| `track` *(lowercase)* | `NN/TT` — also written as `TRACKTOTAL` + `TOTALTRACKS` |
+| `disc` *(lowercase)* | `N/T` — also written as `DISCTOTAL` + `TOTALDISCS` |
+| `GENRE` | Top community-voted MB tags |
+| `LABEL` · `MEDIA` · `BARCODE` · `ISRC` | From MB release / recording |
+| `RELEASECOUNTRY` · `RELEASESTATUS` · `RELEASETYPE` · `SCRIPT` | From MB release / release-group |
+| `LYRICS` | Synced LRC or plain text from LRCLIB |
+| `ITUNESADVISORY` | `0` clean · `1` explicit (auto-classified from lyrics) |
 | `ACOUSTID_ID` | From AcoustID match or pre-existing tag |
-| `MUSICBRAINZ_TRACKID` / `…_RELEASETRACKID` / `…_ALBUMID` / `…_ALBUMARTISTID` / `…_ARTISTID` / `…_RELEASEGROUPID` | Full MB integration |
+| `MUSICBRAINZ_TRACKID` · `_RELEASETRACKID` · `_ALBUMID` · `_ALBUMARTISTID` · `_ARTISTID` · `_RELEASEGROUPID` | Full MB provenance |
 
-Other formats map this canonical schema into their native tags:
+**Other formats** map this schema into their native containers:
 
-- **MP3 / WAV** — ID3v2.4 standard frames (`TIT2`, `TPE1`, `TPE2`, `TALB`,
-  `TRCK`, `TPOS`, `TDRC`, …) plus `TXXX:NAME` frames for everything non-standard
-  (`MUSICBRAINZ_*`, `RELEASETYPE`, `BARCODE`, etc.).
-- **M4A / MP4** — standard atoms (`©nam`, `©ART`, `aART`, `trkn`, `disk`, …)
-  plus `----:com.apple.iTunes:NAME` freeform atoms for MB and custom fields.
-
----
-
-## Settings
-
-All editable from the **Settings** page (and persisted to `/config/settings.json`):
-
-- AcoustID enabled (bool)
-- Auto-apply score threshold (default `0.85`)
-- Per-tag multi-value separators (`ARTIST`, `album_artist`, `ARTISTS`, `GENRE`, …)
-- Filename templates (single-disc, multi-disc) — vars: `{track}`, `{disc}`, `{title}`,
-  `{artist}`, `{ext}`, `{disctotal}`, `{tracktotal}`
-- Multi-disc folder name template (`Disc {disc}` by default)
-- Watcher on/off, ignore patterns, settle time
-- Cover-art minimum pixel width before overwriting an existing `cover.jpg`
-- MusicBrainz user-agent string and server (for self-hosted MB mirrors)
+- **MP3 / WAV** — ID3v2.4 standard frames (`TIT2`, `TPE1`, `TALB`, `TRCK`, …) + `TXXX:NAME` for non-standard fields
+- **M4A / MP4** — standard atoms (`©nam`, `©ART`, `aART`, `trkn`, `disk`, …) + `----:com.apple.iTunes:NAME` freeform atoms
 
 ---
 
@@ -181,85 +182,71 @@ All editable from the **Settings** page (and persisted to `/config/settings.json
 ```bash
 git clone https://github.com/chropic/dragontag.git
 cd dragontag
+
 python -m venv .venv
-source .venv/bin/activate            # or .venv\Scripts\activate on Windows
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 
-# Run tests
-pytest
+# Run all tests
+pytest -v
 
-# Run the server against ad-hoc local paths
+# Run the dev server against local paths
 AIO_LIBRARY_PATH=./library AIO_DROP_PATH=./drop AIO_CONFIG_PATH=./config \
-AIO_USERNAME=dev AIO_PASSWORD='dev' \
+AIO_USERNAME=dev AIO_PASSWORD=dev \
 uvicorn dragontag.app.main:app --reload --port 7593
 ```
 
 ### Project layout
 
 ```
-dragontag/
-  app/
-    main.py                FastAPI routes + HTMX wiring
-    config.py              Env + secret-file + JSON settings layers
-    db.py                  SQLite engine bootstrap (SQLModel)
-    models.py              Job / JobStatus / ReviewReason
-    auth.py                argon2 verify + session helpers
-    ingest/
-      pipeline.py          Per-file orchestration; background queue
-      watcher.py           watchdog observer with settle window
-      uploads.py           UI upload handler
-    identify/
-      existing_tags.py     mutagen-based normalized tag reader
-      filename_parse.py    "Artist - Title" / "NN - Title" heuristics
-      musicbrainz.py       musicbrainzngs search + assemble TrackTags
-      acoustid.py          fpcalc + AcoustID lookup
-      scoring.py           Confidence model (title/artist/album/duration)
-    tagging/
-      schema.py            TrackTags dataclass + Vorbis rendering
-      coverart.py          Cover Art Archive fetcher
-      writers/
-        __init__.py        Dispatch by extension
-        _id3common.py      Shared ID3 frame builder (MP3 + WAV)
-        flac.py / mp3.py / mp4.py / wav.py
-    library/
-      paths.py             sanitize_segment + build_destination
-      mover.py             Move w/ conflict detection, cover.jpg writer
-    web/
-      templates/           Jinja2: login, dashboard, review, settings, job detail
-      static/
-  tools/
-    hash_password.py       CLI for argon2 password hashing
-tests/
-  test_paths.py            Sanitization + destination assembly
-  test_schema_vorbis.py    Vorbis output matches reference convention
-  test_scoring.py          Confidence model sanity checks
+dragontag/app/
+├── main.py               FastAPI routes + HTMX wiring
+├── config.py             Env vars · Docker secrets · settings.json layers
+├── db.py                 SQLite engine bootstrap (SQLModel)
+├── models.py             Job · Track · LibraryFolder · enums
+├── auth.py               argon2 verify + session helpers
+├── notify.py             Discord webhook sender (fire-and-forget)
+├── ingest/
+│   ├── pipeline.py       Per-file orchestration + background worker queue
+│   ├── watcher.py        watchdog observer with settle window
+│   ├── uploads.py        UI upload handler
+│   └── bulk.py           Folder-level bulk re-tag enqueuer
+├── identify/
+│   ├── existing_tags.py  mutagen-based normalized tag reader
+│   ├── filename_parse.py "Artist - Title" / "NN - Title" heuristics
+│   ├── musicbrainz.py    musicbrainzngs search + TrackTags assembler
+│   ├── acoustid.py       fpcalc + AcoustID lookup
+│   └── scoring.py        Confidence model (title / artist / album / duration)
+├── tagging/
+│   ├── schema.py         TrackTags dataclass + Vorbis rendering
+│   ├── coverart.py       Cover Art Archive fetcher
+│   ├── lyrics_fetcher.py LRCLIB client (synced + plain text)
+│   ├── advisory.py       Explicit-content classifier
+│   └── writers/          Format dispatch → flac · mp3 · mp4 · wav
+└── library/
+    ├── paths.py           sanitize_segment + build_destination
+    ├── mover.py           Move with conflict detection + cover.jpg writer
+    ├── scanner.py         Index existing files into Track table
+    └── organizer.py       Reorganize library by current filename template
 ```
 
 ### Tests
-
-Pure-logic tests (no network, no audio I/O) cover the most failure-prone parts:
-
-- `test_paths.py` — `sanitize_segment` strips only forbidden chars and trims trailing
-  dots/spaces (Windows-safe); builds the expected
-  `Bladee/gluee/01. deletee (intro).flac` path; multi-disc adds a `Disc N` subfolder.
-- `test_schema_vorbis.py` — feeds the exact reference values from the user's
-  `flac_metadata.md` into `TrackTags.to_vorbis()` and asserts every output key/value
-  field-for-field, including casing.
-- `test_scoring.py` — verifies a perfect match scores high and a wrong title
-  scores low.
 
 ```bash
 pytest -v
 ```
 
----
+Pure-logic, no-network tests cover the most failure-prone paths:
 
-## Roadmap
-
-- [x] Webhook / Discord notifications for completed batches
+| File | What it checks |
+|---|---|
+| `test_paths.py` | `sanitize_segment` strips only forbidden chars; correct single- and multi-disc destination paths |
+| `test_schema_vorbis.py` | `TrackTags.to_vorbis()` output matches the reference Vorbis field-for-field, including exact casing |
+| `test_scoring.py` | Perfect match scores high; wrong title scores low |
+| `test_lyrics_advisory.py` | Lyrics embedded correctly per format; explicit classifier fires on known words, respects word boundaries |
 
 ---
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).

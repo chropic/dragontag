@@ -1,7 +1,7 @@
 {% if tracks %}
 <table class="w-full text-sm">
   <thead>
-    <tr class="text-left text-slate-400 border-b border-slate-700">
+    <tr class="text-left text-[#8a8a8a] border-b border-[#4a4a4a]">
       <th class="pb-2 pr-4">#</th>
       <th class="pb-2 pr-4">Title</th>
       <th class="pb-2 pr-4">Artist</th>
@@ -13,21 +13,21 @@
   </thead>
   <tbody>
     {% for t in tracks %}
-    <tr class="border-b border-slate-800 hover:bg-slate-800">
-      <td class="py-1 pr-4 text-slate-400">{{ t.track_num or "—" }}</td>
+    <tr class="border-b border-[#4a4a4a] hover:bg-[#0c0c0c]">
+      <td class="py-1 pr-4 text-[#8a8a8a]">{{ t.track_num or "—" }}</td>
       <td class="py-1 pr-4">{{ t.title or "—" }}</td>
-      <td class="py-1 pr-4 text-slate-300">{{ t.artist or "—" }}</td>
-      <td class="py-1 pr-4 text-slate-300">{{ t.album or "—" }}</td>
-      <td class="py-1 pr-4 text-slate-400">{{ t.disc_num or "—" }}</td>
-      <td class="py-1 pr-4 text-slate-400">
+      <td class="py-1 pr-4 text-[#cfcfcf]">{{ t.artist or "—" }}</td>
+      <td class="py-1 pr-4 text-[#cfcfcf]">{{ t.album or "—" }}</td>
+      <td class="py-1 pr-4 text-[#8a8a8a]">{{ t.disc_num or "—" }}</td>
+      <td class="py-1 pr-4 text-[#8a8a8a]">
         {% if t.duration %}{{ "%-4.0f"|format(t.duration // 60) }}:{{ "%02.0f"|format(t.duration % 60) }}{% else %}—{% endif %}
       </td>
-      <td class="py-1 text-slate-500 text-xs truncate max-w-xs" title="{{ t.path }}">{{ t.path }}</td>
+      <td class="py-1 text-[#8a8a8a] text-xs truncate max-w-xs" title="{{ t.path }}">{{ t.path }}</td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
-<p class="text-xs text-slate-500 mt-2">{{ tracks|length }} track{% if tracks|length != 1 %}s{% endif %}</p>
+<p class="text-xs text-[#8a8a8a] mt-2">{{ tracks|length }} track{% if tracks|length != 1 %}s{% endif %}</p>
 {% else %}
-<p class="text-slate-500 text-sm">No tracks found.</p>
+<p class="text-[#8a8a8a] text-sm">No tracks found.</p>
 {% endif %}

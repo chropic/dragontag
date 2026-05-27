@@ -243,10 +243,14 @@ class _Store:
     def _save(self, u: UserSettings) -> None:
         # ensure_ascii=False keeps unicode (artist names, etc.) readable in
         # the on-disk file.
-        self._settings_path.write_text(
-            json.dumps(u.model_dump(), indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        try:
+            self._settings_path.write_text(
+                json.dumps(u.model_dump(), indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except OSError as e:
+            import logging
+            logging.getLogger(__name__).warning("settings: could not write %s: %s", self._settings_path, e)
 
     def update(self, patch: dict[str, Any]) -> UserSettings:
         """Merge ``patch`` over the current settings, persist, and return."""

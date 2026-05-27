@@ -53,7 +53,6 @@ app.add_middleware(
 # Static dir is created on first import so the StaticFiles mount doesn't
 # error on a fresh checkout (we don't ship any static assets yet).
 _static_dir = Path(__file__).parent / "web" / "static"
-_static_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "web" / "templates"))

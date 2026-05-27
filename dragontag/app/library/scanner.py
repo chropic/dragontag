@@ -54,6 +54,7 @@ def _flush_batch(paths: list[Path], folder_id: int) -> None:
                 _upsert_from_disk(s, p, folder_id)
             except Exception:
                 log.exception("scanner: failed to index %s", p)
+                s.rollback()
         s.commit()
 
 

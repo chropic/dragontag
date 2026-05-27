@@ -65,8 +65,10 @@ class _Handler(FileSystemEventHandler):
     def settle_loop(self) -> None:
         """Background loop: wait for file events, then drain after settle window."""
         while True:
-            self._has_pending.wait(timeout=5.0)
+            signalled = self._has_pending.wait(timeout=5.0)
             self._has_pending.clear()
+            if not signalled:
+                continue
             time.sleep(settings().watcher_settle_seconds)
             now = time.time()
             settle = settings().watcher_settle_seconds

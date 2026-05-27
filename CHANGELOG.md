@@ -146,10 +146,10 @@ Six new fields added to `TrackTags` and written to all supported formats (FLAC/M
 ## Tasks 12, 13, 15, 16 — Polish & release
 **Branch:** `task/polish-release`
 
-- Scanner batches DB commits (50 files per transaction instead of per-file)
+- Scanner batches DB commits (50 files per transaction instead of per-file); session rollback on per-file errors preserves the rest of the batch
 - Lazy imports for Pillow and requests (faster cold startup)
 - DB indexes on `Job.updated_at` and `Track.library_folder_id`
-- Event-driven watcher settle loop (no busy-poll when idle)
+- Event-driven watcher settle loop (no busy-poll when idle); skips settle sleep on idle timeouts
 - Deduplicated filename uniquification utility in `library/paths.py`
 - Type annotations added to pipeline internals
 - Legacy `aio-*` thread names renamed to `dragontag-*`

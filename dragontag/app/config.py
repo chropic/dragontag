@@ -1,10 +1,10 @@
 """Configuration: three layers stacked from low-trust to high-trust.
 
-Layer 1 — **Environment variables** (``AIO_*``): immutable container config (volume
+Layer 1 — **Environment variables** (``DRAGONTAG_*``): immutable container config (volume
 paths, username, secret file paths). Parsed by ``Env`` using pydantic-settings.
 
 Layer 2 — **Docker secret files**: files referenced by the ``*_FILE`` env vars
-(``AIO_PASSWORD_FILE``, ``AIO_SESSION_SECRET_FILE``, ``AIO_ACOUSTID_KEY_FILE``).
+(``DRAGONTAG_PASSWORD_FILE``, ``DRAGONTAG_SESSION_SECRET_FILE``, ``DRAGONTAG_ACOUSTID_KEY_FILE``).
 Reading the file at request time means rotated secrets are picked up without
 rebuilding the image. The file contents win over the inline ``*`` env vars.
 
@@ -118,6 +118,12 @@ class UserSettings(BaseModel):
     # Also runs the explicit-content classifier and writes ITUNESADVISORY.
     lyrics_enabled: bool = True
 
+    # ----- smart formatting -----
+    # Apply Title Case to title, album, artist, composer strings.
+    format_title_case: bool = False
+    # Wrap bare trailing qualifiers (Live, Remix, etc.) in parentheses.
+    format_fix_qualifiers: bool = False
+
     # Dry-run mode: pipeline identifies and assembles tags but stops before
     # writing to files or moving them. Jobs land in the review queue so the
     # user can inspect and commit individually.
@@ -147,18 +153,18 @@ class UserSettings(BaseModel):
 
 
 class Env(BaseSettings):
-    """Immutable container-level config from ``AIO_*`` environment variables.
+    """Immutable container-level config from ``DRAGONTAG_*`` environment variables.
 
-    ``pydantic-settings`` strips the ``AIO_`` prefix and lowercases the rest,
-    so e.g. ``AIO_LIBRARY_PATH`` -> ``Env.library_path``.
+    ``pydantic-settings`` strips the ``DRAGONTAG_`` prefix and lowercases the rest,
+    so e.g. ``DRAGONTAG_LIBRARY_PATH`` -> ``Env.library_path``.
     """
 
-    model_config = SettingsConfigDict(env_prefix="AIO_", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix="DRAGONTAG_", extra="ignore")
 
     username: str = "admin"
 
     # Auth: prefer the *_FILE variant (Docker secret). The plain variant is
-    # supported only for local dev (set ``AIO_PASSWORD=...``).
+    # supported only for local dev (set ``DRAGONTAG_PASSWORD=...``).
     password_file: str | None = None
     password: str | None = None
 

@@ -99,6 +99,7 @@ def write(path: Path, tags: TrackTags, sep) -> None:
         "TOTALTRACKS",
         "DISCTOTAL",
         "TOTALDISCS",
+        "TAGGER",
     ):
         if k in v:
             put_ff(k, v[k])

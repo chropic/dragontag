@@ -23,6 +23,7 @@ dependencies = [
     "watchdog>=4.0",
     "argon2-cffi>=23.1",
     "Pillow>=10.3",
+    "alembic>=1.13",
 ]
 
 [project.optional-dependencies]

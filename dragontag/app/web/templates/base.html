@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>{% block title %}dragontag{% endblock %}</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
@@ -43,19 +44,87 @@
   </style>
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
-<body class="bg-black text-white font-sans min-h-screen">
-  <nav class="bg-[#0c0c0c] px-4 py-3 flex items-center gap-4 border-b border-[#4a4a4a]">
-    <a href="/" class="font-mono font-semibold tracking-tight">dragontag</a>
-    <a href="/" class="text-[#cfcfcf] hover:text-white text-sm">Dashboard</a>
-    <a href="/review" class="text-[#cfcfcf] hover:text-white text-sm">Review</a>
-    <a href="/library" class="text-[#cfcfcf] hover:text-white text-sm">Library</a>
-    <a href="/settings" class="text-[#cfcfcf] hover:text-white text-sm">Settings</a>
+<body class="bg-black text-white font-sans min-h-screen"
+      x-data="toastManager()"
+      x-init="init()"
+      @show-toast.window="addToast($event.detail)"
+      hx-on::after-request="handleHxToast(event)">
+
+  <nav class="bg-[#0c0c0c] px-6 py-5 flex items-center gap-5 border-b border-[#4a4a4a]">
+    <a href="/" class="font-mono font-bold text-lg tracking-tight">dragontag</a>
+
+    {% set nav_items = [
+      ('/', 'dashboard', 'Dashboard'),
+      ('/review', 'review', 'Review'),
+      ('/library', 'library', 'Library'),
+      ('/jobs', 'jobs', 'Jobs'),
+      ('/docs', 'docs', 'Docs'),
+      ('/settings', 'settings', 'Settings'),
+    ] %}
+    {% for href, page_key, label in nav_items %}
+      {% if active_page == page_key %}
+        <a href="{{ href }}" class="text-white font-bold text-sm border-b-2 border-white pb-0.5">{{ label }}</a>
+      {% else %}
+        <a href="{{ href }}" class="text-[#cfcfcf] hover:text-white text-sm">{{ label }}</a>
+      {% endif %}
+    {% endfor %}
+
     <form action="/logout" method="post" class="ml-auto">
       <button class="text-[#8a8a8a] hover:text-white text-sm">Log out</button>
     </form>
   </nav>
+
   <main class="max-w-6xl mx-auto p-6">
     {% block content %}{% endblock %}
   </main>
+
+  <!-- Toast container -->
+  <div class="fixed bottom-4 right-4 z-50 flex flex-col gap-2" style="pointer-events:none;">
+    <template x-for="t in toasts" :key="t.id">
+      <div class="px-4 py-2 text-sm font-mono border flex items-center gap-3 transition-all"
+           style="pointer-events:auto;"
+           :class="{
+             'bg-[#0c0c0c] border-[#c7f0c7] text-[#c7f0c7]': t.level === 'success',
+             'bg-[#0c0c0c] border-[#ffb4b4] text-[#ffb4b4]': t.level === 'error',
+             'bg-[#0c0c0c] border-[#4a4a4a] text-[#cfcfcf]':  t.level === 'info'
+           }">
+        <span x-text="t.message"></span>
+        <button @click="dismiss(t.id)" class="ml-auto opacity-60 hover:opacity-100">&times;</button>
+      </div>
+    </template>
+  </div>
+
+  <script>
+    function toastManager() {
+      return {
+        toasts: [],
+        _nextId: 0,
+        init() {
+          // Listen for HX-Trigger header from HTMX responses.
+          document.body.addEventListener('showToast', (e) => this.addToast(e.detail));
+        },
+        addToast(detail) {
+          const id = this._nextId++;
+          const level = detail.level || 'info';
+          this.toasts.push({ id, message: detail.message, level });
+          setTimeout(() => this.dismiss(id), 4000);
+        },
+        dismiss(id) {
+          this.toasts = this.toasts.filter(t => t.id !== id);
+        }
+      }
+    }
+
+    function handleHxToast(event) {
+      const trigger = event.detail.xhr?.getResponseHeader('HX-Trigger');
+      if (!trigger) return;
+      try {
+        const data = JSON.parse(trigger);
+        if (data.showToast) {
+          window.dispatchEvent(new CustomEvent('show-toast', { detail: data.showToast }));
+        }
+      } catch(e) {}
+    }
+  </script>
 </body>
 </html>

@@ -21,7 +21,7 @@ _engine = None
 def engine():
     """Lazy engine constructor.
 
-    Deferred so test setup can override ``AIO_CONFIG_PATH`` *before* the
+    Deferred so test setup can override ``DRAGONTAG_CONFIG_PATH`` *before* the
     SQLite file is created. ``SQLModel.metadata.create_all`` is idempotent
     so it's safe to call on every boot.
     """

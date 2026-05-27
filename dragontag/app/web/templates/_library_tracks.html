@@ -2,6 +2,7 @@
 <table class="w-full text-sm">
   <thead>
     <tr class="text-left text-[#8a8a8a] border-b border-[#4a4a4a]">
+      <th class="pb-2 pr-2 w-6"></th>
       <th class="pb-2 pr-4">#</th>
       <th class="pb-2 pr-4">Title</th>
       <th class="pb-2 pr-4">Artist</th>
@@ -14,6 +15,9 @@
   <tbody>
     {% for t in tracks %}
     <tr class="border-b border-[#4a4a4a] hover:bg-[#0c0c0c]">
+      <td class="py-1 pr-2">
+        <input type="checkbox" name="track_ids" value="{{ t.id }}">
+      </td>
       <td class="py-1 pr-4 text-[#8a8a8a]">{{ t.track_num or "—" }}</td>
       <td class="py-1 pr-4">{{ t.title or "—" }}</td>
       <td class="py-1 pr-4 text-[#cfcfcf]">{{ t.artist or "—" }}</td>

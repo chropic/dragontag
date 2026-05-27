@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Library — dragontag{% endblock %}
+{% block title %}dragontag | Library{% endblock %}
 {% block content %}
 <div class="flex items-center justify-between mb-4">
   <h2 class="text-xl font-mono font-semibold">Library</h2>
@@ -41,13 +41,13 @@
     <input type="hidden" name="folder_id" value="{{ active_id }}">
   </div>
 
-  {# Scan card #}
+  {# Scan folder card #}
   <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-2">
-    <h3 class="font-mono font-semibold text-sm">Index folder</h3>
+    <h3 class="font-mono font-semibold text-sm">Scan folder</h3>
     <p class="text-xs text-[#8a8a8a]">Read tags from all files in the selected folder and update the library DB.</p>
     <form method="post" action="/library/scan">
       <input type="hidden" name="folder_id" value="{{ active_id }}">
-      <button class="mt-1 px-3 py-1 bg-[#131313] hover:bg-[#131313]/80 text-sm">Scan now</button>
+      <button class="mt-1 px-3 py-1 bg-[#131313] border border-[#4a4a4a] hover:bg-[#1a1a1a] text-sm">Scan now</button>
     </form>
   </div>
 
@@ -61,25 +61,100 @@
     </form>
   </div>
 
-  {# Bulk re-tag card #}
+  {# Full library re-tag card #}
   <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-2">
-    <h3 class="font-mono font-semibold text-sm">Bulk re-tag</h3>
+    <h3 class="font-mono font-semibold text-sm">Full library re-tag</h3>
     <p class="text-xs text-[#8a8a8a]">Queue every audio file in a folder through the full identify → tag → move pipeline.</p>
     <form method="post" action="/library/bulk-retag" class="space-y-1">
       <input type="text" name="source_path" placeholder="/path/to/folder"
              class="w-full p-1 bg-black border border-[#4a4a4a] text-xs font-mono">
+      <div class="flex items-center gap-2 text-xs">
+        <label class="flex items-center gap-1">
+          <input type="checkbox" name="dry_run" {% if settings.dry_run %}checked{% endif %}> Dry run
+        </label>
+      </div>
       <button class="px-3 py-1 bg-white text-black hover:bg-[#cfcfcf] text-sm">Enqueue all</button>
     </form>
   </div>
 
+  {# Individual actions #}
+  <div class="lg:col-span-3 bg-[#0c0c0c] p-4 border border-[#4a4a4a]">
+    <h3 class="font-mono font-semibold text-sm mb-3">Individual actions for this folder</h3>
+    <div class="flex flex-wrap gap-2 items-center">
+
+      <form method="post" action="/library/fetch-lyrics" class="inline">
+        <input type="hidden" name="folder_id" value="{{ active_id }}">
+        <button class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white">Fetch lyrics only</button>
+      </form>
+
+      <form method="post" action="/library/tag-advisories" class="inline">
+        <input type="hidden" name="folder_id" value="{{ active_id }}">
+        <button class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white">Tag advisories only</button>
+      </form>
+
+      <form method="post" action="/library/fetch-covers" class="inline">
+        <input type="hidden" name="folder_id" value="{{ active_id }}">
+        <button class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white">Fetch cover art only</button>
+      </form>
+
+      {# Fetch lyrics toggle — submits to /settings preserving all other values #}
+      <form method="post" action="/settings" class="inline ml-auto">
+        <input type="hidden" name="score_threshold" value="{{ settings.score_threshold }}">
+        <input type="hidden" name="filename_template_single" value="{{ settings.filename_template_single }}">
+        <input type="hidden" name="filename_template_multidisc" value="{{ settings.filename_template_multidisc }}">
+        <input type="hidden" name="multidisc_folder_template" value="{{ settings.multidisc_folder_template }}">
+        <input type="hidden" name="genre_limit" value="{{ settings.genre_limit }}">
+        <input type="hidden" name="genre_casing" value="{{ settings.genre_casing }}">
+        <input type="hidden" name="sep_ARTIST" value="{{ settings.separators.ARTIST }}">
+        <input type="hidden" name="sep_album_artist" value="{{ settings.separators.album_artist }}">
+        <input type="hidden" name="sep_ARTISTS" value="{{ settings.separators.ARTISTS }}">
+        <input type="hidden" name="sep_ARTISTSORT" value="{{ settings.separators.ARTISTSORT }}">
+        <input type="hidden" name="sep_ALBUMARTISTSORT" value="{{ settings.separators.ALBUMARTISTSORT }}">
+        <input type="hidden" name="sep_GENRE" value="{{ settings.separators.GENRE }}">
+        <input type="hidden" name="sep_LABEL" value="{{ settings.separators.LABEL }}">
+        <input type="hidden" name="sep_ISRC" value="{{ settings.separators.ISRC }}">
+        <input type="hidden" name="sep_COMPOSER" value="{{ settings.separators.COMPOSER }}">
+        <input type="hidden" name="sep_CONDUCTOR" value="{{ settings.separators.CONDUCTOR }}">
+        <input type="hidden" name="sep_LYRICIST" value="{{ settings.separators.LYRICIST }}">
+        <input type="hidden" name="sep_ARRANGER" value="{{ settings.separators.ARRANGER }}">
+        <input type="hidden" name="webhook_url" value="{{ settings.webhook_url }}">
+        {% if settings.acoustid_enabled %}<input type="hidden" name="acoustid_enabled" value="1">{% endif %}
+        {% if settings.watcher_enabled %}<input type="hidden" name="watcher_enabled" value="1">{% endif %}
+        {% if settings.dry_run %}<input type="hidden" name="dry_run" value="1">{% endif %}
+        <label class="flex items-center gap-2 text-sm cursor-pointer">
+          <input type="checkbox" name="lyrics_enabled" {% if settings.lyrics_enabled %}checked{% endif %}
+                 onchange="this.form.submit()">
+          Fetch lyrics on tagging
+        </label>
+      </form>
+    </div>
+  </div>
+
 </div>
 
-{# Track table #}
+{# Track table with checkboxes #}
+<form method="post" action="/library/retag-selected" id="retag-form">
 <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a]">
+  <div class="flex items-center gap-3 mb-3">
+    <label class="flex items-center gap-2 text-sm text-[#8a8a8a]">
+      <input type="checkbox" id="select-all" onchange="toggleAll(this)"> Select all
+    </label>
+    <button type="submit" class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white">Re-tag selected</button>
+    <label class="flex items-center gap-2 text-xs text-[#8a8a8a]">
+      <input type="checkbox" name="dry_run" {% if settings.dry_run %}checked{% endif %}> Dry run
+    </label>
+  </div>
   <div id="library-tracks">
     {% include "_library_tracks.html" %}
   </div>
 </div>
+</form>
 
 {% endif %}
+
+<script>
+  function toggleAll(cb) {
+    document.querySelectorAll('[name="track_ids"]').forEach(c => c.checked = cb.checked);
+  }
+</script>
 {% endblock %}

@@ -1,24 +1,71 @@
 {% extends "base.html" %}
+{% block title %}dragontag | Dashboard{% endblock %}
 {% block content %}
 <section class="space-y-6">
-  <div class="bg-[#0c0c0c] p-6 border border-[#4a4a4a]">
-    <h2 class="font-mono font-semibold text-lg mb-3">Drop audio files</h2>
-    <form action="/upload" method="post" enctype="multipart/form-data" class="space-y-3">
-      <input type="file" name="files" multiple class="block w-full text-sm text-[#cfcfcf]" />
-      <button class="px-4 py-2 bg-white text-black font-mono font-semibold hover:bg-[#cfcfcf] transition-colors">Upload &amp; queue</button>
-      <p class="text-xs text-[#8a8a8a]">FLAC, MP3, WAV, M4A. Files are saved to the watched drop folder and processed automatically.</p>
-    </form>
+
+  <!-- ASCII art banner -->
+  <pre class="font-mono text-[#2a2a2a] text-xs leading-tight select-none overflow-x-auto">
+    _                           _
+   | |                         | |
+ __| |_ __ __ _  __ _  ___  _ __ | |_ __ _  __ _
+/ _` | '__/ _` |/ _` |/ _ \| '_ \| __/ _` |/ _` |
+| (_| | | | (_| | (_| | (_) | | | | || (_| | (_| |
+ \__,_|_|  \__,_|\__, |\___/|_| |_|\__\__,_|\__, |
+                  __/ |                       __/ |
+                 |___/                       |___/
+  </pre>
+
+  <!-- Stats bar -->
+  <div class="grid grid-cols-3 gap-4">
+    <div class="bg-[#0c0c0c] border border-[#4a4a4a] p-4">
+      <p class="text-[#8a8a8a] text-xs font-mono uppercase tracking-widest mb-1">Tracks</p>
+      <p class="font-mono font-bold text-2xl">{{ total_tracks }}</p>
+    </div>
+    <div class="bg-[#0c0c0c] border border-[#4a4a4a] p-4">
+      <p class="text-[#8a8a8a] text-xs font-mono uppercase tracking-widest mb-1">Albums</p>
+      <p class="font-mono font-bold text-2xl">{{ total_albums }}</p>
+    </div>
+    <div class="bg-[#0c0c0c] border border-[#4a4a4a] p-4">
+      <p class="text-[#8a8a8a] text-xs font-mono uppercase tracking-widest mb-1">Artists</p>
+      <p class="font-mono font-bold text-2xl">{{ total_artists }}</p>
+    </div>
   </div>
 
+  <!-- Upload + folder tagger -->
+  <div class="bg-[#0c0c0c] p-6 border border-[#4a4a4a]">
+    <h2 class="font-mono font-semibold text-lg mb-4">Tag audio files</h2>
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <!-- File upload -->
+      <div>
+        <p class="text-xs text-[#8a8a8a] mb-2">Upload individual files</p>
+        <form action="/upload" method="post" enctype="multipart/form-data" class="space-y-2">
+          <input type="file" name="files" multiple class="block w-full text-sm text-[#cfcfcf]" />
+          <button class="px-4 py-2 bg-white text-black font-mono font-semibold hover:bg-[#cfcfcf]">Upload &amp; queue</button>
+        </form>
+        <p class="text-xs text-[#8a8a8a] mt-1">FLAC, MP3, WAV, M4A accepted.</p>
+      </div>
+      <!-- Folder tagger -->
+      <div>
+        <p class="text-xs text-[#8a8a8a] mb-2">Tag a folder on the server</p>
+        <form action="/library/bulk-retag" method="post" class="space-y-2">
+          <input type="text" name="source_path" placeholder="/path/to/folder"
+                 class="block w-full bg-black border border-[#4a4a4a] p-2 text-sm font-mono text-white" />
+          <button class="px-4 py-2 bg-white text-black font-mono font-semibold hover:bg-[#cfcfcf]">Full library re-tag</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent jobs (condensed, last 10) -->
   <div class="bg-[#0c0c0c] p-6 border border-[#4a4a4a]">
     <div class="flex items-center justify-between mb-3">
-      <h2 class="font-mono font-semibold text-lg">Recent jobs</h2>
-      <button hx-get="/jobs/table" hx-target="#jobs-table" hx-swap="innerHTML"
-              class="text-sm text-[#cfcfcf] hover:text-white">Refresh</button>
+      <h2 class="font-mono font-semibold text-lg">Recent jobs <span class="text-[#8a8a8a] text-sm font-normal">({{ total_jobs }} total)</span></h2>
+      <a href="/jobs" class="text-sm text-[#cfcfcf] hover:text-white">View all →</a>
     </div>
-    <div id="jobs-table" hx-get="/jobs/table?page={{ page }}" hx-trigger="load, every 5s" hx-swap="innerHTML">
+    <div id="jobs-table" hx-get="/jobs/table" hx-trigger="load, every 5s" hx-swap="innerHTML">
       {% include "_jobs_table.html" %}
     </div>
   </div>
+
 </section>
 {% endblock %}

@@ -35,8 +35,13 @@ High-confidence matches flow through completely hands-free. Everything else land
 | **Lyrics + advisory** | Synced LRC or plain text from LRCLIB, embedded per-format; explicit content auto-tagged as `ITUNESADVISORY` |
 | **Dry-run mode** | Preview destination paths and assembled tags without touching any files |
 | **Webhook notifications** | Discord-compatible webhook fires on job completion or error |
-| **Paginated dashboard** | Live-refreshing job list with inline log expansion, pagination, and one-click re-queue |
+| **Jobs page** | Full queue view with bulk controls (cancel, clear, requeue) and per-row actions |
+| **Library actions** | Scan folder, organize, full library re-tag, and individual actions (fetch lyrics/advisories/covers only) |
+| **Smart formatting** | Optional Title Case conversion and qualifier parenthesization (e.g. "Song Live" → "Song (Live)") |
+| **Toast notifications** | Global in-app success/error toasts on every action |
+| **In-app docs** | Built-in documentation page at `/docs` |
 | **SQLite-backed state** | All jobs and history survive container restarts |
+| **Alembic migrations** | Schema changes managed with Alembic for safe upgrades |
 | **First-run wizard** | Set credentials and AcoustID key from the browser on first boot — no Docker secrets required |
 
 ---
@@ -84,13 +89,17 @@ Open **http://localhost:7593** and log in. The first boot redirects you to `/set
 
 | Variable | Purpose |
 |---|---|
-| `AIO_USERNAME` | Web UI login username (default `admin`) |
-| `AIO_PASSWORD_FILE` | Path to argon2-hashed password file (Docker secret recommended) |
-| `AIO_SESSION_SECRET_FILE` | Session signing secret. Falls back to an ephemeral random value |
-| `AIO_ACOUSTID_KEY_FILE` | Path to AcoustID API key file. Optional |
-| `AIO_LIBRARY_PATH` | Override default `/library` mount |
-| `AIO_DROP_PATH` | Override default `/drop` mount |
-| `AIO_CONFIG_PATH` | Override default `/config` mount |
+| `DRAGONTAG_USERNAME` | Web UI login username (default `admin`) |
+| `DRAGONTAG_PASSWORD_FILE` | Path to argon2-hashed password file (Docker secret recommended) |
+| `DRAGONTAG_PASSWORD` | Plain-text password (dev/testing only — avoid in production) |
+| `DRAGONTAG_SESSION_SECRET_FILE` | Session signing secret. Falls back to an ephemeral random value |
+| `DRAGONTAG_ACOUSTID_KEY_FILE` | Path to AcoustID API key file. Optional |
+| `DRAGONTAG_LIBRARY_PATH` | Override default `/library` mount |
+| `DRAGONTAG_DROP_PATH` | Override default `/drop` mount |
+| `DRAGONTAG_CONFIG_PATH` | Override default `/config` mount |
+| `TZ` | Timezone for displayed timestamps, e.g. `America/New_York` |
+
+> **Migration note:** All environment variables have been renamed from the `AIO_` prefix to `DRAGONTAG_`. Update your `docker-compose.yml` and any shell scripts accordingly.
 
 ### Settings UI
 
@@ -169,6 +178,7 @@ The canonical schema is defined in [`schema.py`](dragontag/app/tagging/schema.py
 | `ITUNESADVISORY` | `0` clean · `1` explicit (auto-classified from lyrics) |
 | `ACOUSTID_ID` | From AcoustID match or pre-existing tag |
 | `MUSICBRAINZ_TRACKID` · `_RELEASETRACKID` · `_ALBUMID` · `_ALBUMARTISTID` · `_ARTISTID` · `_RELEASEGROUPID` | Full MB provenance |
+| `TAGGER` | Attribution tag: `tagged via dragontag/x.y.z` |
 
 **Other formats** map this schema into their native containers:
 
@@ -191,9 +201,21 @@ pip install -e ".[dev]"
 pytest -v
 
 # Run the dev server against local paths
-AIO_LIBRARY_PATH=./library AIO_DROP_PATH=./drop AIO_CONFIG_PATH=./config \
-AIO_USERNAME=dev AIO_PASSWORD=dev \
+DRAGONTAG_LIBRARY_PATH=./library DRAGONTAG_DROP_PATH=./drop DRAGONTAG_CONFIG_PATH=./config \
+DRAGONTAG_USERNAME=dev DRAGONTAG_PASSWORD=dev \
 uvicorn dragontag.app.main:app --reload --port 7593
+```
+
+### Database migrations (Alembic)
+
+Schema migrations are managed with Alembic. The `alembic/` directory is pre-configured to read the same DB path as the app.
+
+```bash
+# Create a new migration after changing models.py
+DRAGONTAG_CONFIG_PATH=./config alembic revision --autogenerate -m "describe your change"
+
+# Apply pending migrations
+DRAGONTAG_CONFIG_PATH=./config alembic upgrade head
 ```
 
 ### Project layout

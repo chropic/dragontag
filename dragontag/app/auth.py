@@ -1,6 +1,6 @@
 """Session-cookie auth backed by an argon2 password hash.
 
-The hash is supplied via a Docker secret file (see ``AIO_PASSWORD_FILE``). A
+The hash is supplied via a Docker secret file (see ``DRAGONTAG_PASSWORD_FILE``). A
 plain-text password is also accepted (useful for local dev) — we detect which
 mode we're in by checking the ``$argon2`` prefix on the stored value.
 

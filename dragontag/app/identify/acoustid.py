@@ -6,7 +6,7 @@ Chromaprint fingerprint via the ``fpcalc`` binary (installed in the Docker
 image) and asks the AcoustID API which MB recording IDs it matches.
 
 The API requires an application key — we read it from the
-``AIO_ACOUSTID_KEY_FILE`` Docker secret. If no key is configured, this module
+``DRAGONTAG_ACOUSTID_KEY_FILE`` Docker secret. If no key is configured, this module
 quietly returns an empty list and the pipeline routes the job to review.
 """
 from __future__ import annotations

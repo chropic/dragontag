@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" fill="#000"/>
+  <!-- Pixel-art D shape -->
+  <rect x="6"  y="4"  width="14" height="3"  fill="#fff"/>
+  <rect x="6"  y="4"  width="3"  height="24" fill="#fff"/>
+  <rect x="6"  y="25" width="14" height="3"  fill="#fff"/>
+  <rect x="20" y="7"  width="3"  height="3"  fill="#fff"/>
+  <rect x="23" y="10" width="3"  height="12" fill="#fff"/>
+  <rect x="20" y="22" width="3"  height="3"  fill="#fff"/>
+</svg>

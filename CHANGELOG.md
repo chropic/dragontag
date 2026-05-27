@@ -172,3 +172,61 @@ Six new fields added to `TrackTags` and written to all supported formats (FLAC/M
 - Scrubbed internal references (local paths, dev-only defaults)
 - README updated: new feature bullets, corrected tag convention docs, cleaned roadmap
 - Removed `TASKS.md` and `SESSION_HANDOFF.md`
+
+---
+
+## TODO 05.27.2026 — Infrastructure, UI & feature sweep
+**Branch:** `claude/youthful-galileo-Xe7Ys`
+
+### Infrastructure
+- **Alembic migrations** — `alembic/` directory scaffolded with custom `env.py` reading `SQLModel.metadata` and the same dynamic DB URL as the app; `render_as_batch=True` for SQLite compatibility; `alembic>=1.13` added to project dependencies
+- **Env var rename: `AIO_` → `DRAGONTAG_`** — all environment variables now use the `DRAGONTAG_` prefix; updated in `config.py`, `Dockerfile`, `docker-compose.yml`, `tests/conftest.py`, and `README.md`; migration note added to README
+
+### Bug fixes
+- **Duplicate queue** — `pipeline.enqueue()` now checks for an existing active job (queued/identifying/tagging/moving) at the same source path before creating a new one; prevents double-enqueue when upload handler and watcher both fire for the same drop-folder write
+- **MusicBrainz `release-groups` include** — removed `"release-groups"` from `fetch_recording()` includes list; this string is not valid for `get_recording_by_id` and caused API errors; release-group data is already available via `rel.get("release-group")` from `fetch_release()` which correctly includes it
+- **RELEASETYPE fallback** — when MB omits `release-group.type`, pipeline now infers it from track count: 1 → `Single`, 2–6 → `EP`, 7+ → `Album`; similarly defaults `release_status` to `"Official"` when absent; eliminates the most common "missing RELEASETYPE" review-queue trigger
+
+### Processing
+- **Upload validation** — `uploads.py` now validates extension against `{.flac, .mp3, .wav, .m4a, .mp4}`, checks MIME type, and rejects executables (`.sh`, `.py`, `.exe`, `.php`, etc.) and zero-byte files before writing to disk; returns HTTP 422 with descriptive error
+- **Attribution tag** — new `TAGGER` field on `TrackTags` with value `tagged via dragontag/<version>` (read from `importlib.metadata`); written as Vorbis comment `TAGGER`, ID3 `TXXX:TAGGER`, and MP4 freeform atom `----:com.apple.iTunes:TAGGER`
+- **Smart formatting** — new `tagging/formatter.py` module with `to_title_case()` (music-aware, preserves articles/prepositions), `fix_qualifiers()` (wraps bare "Live"/"Remix"/"Intro" at end of titles in parentheses), and `fix_grammar()` (collapses double spaces, trims trailing punctuation); applied in pipeline after tag assembly when `format_title_case` or `format_fix_qualifiers` settings are enabled
+- **Partial tag write helpers** — new `tagging/partial.py` module with format-aware functions that update a single field without wiping existing tags: `write_lyrics()`, `write_advisory()`, `read_lyrics()`, `write_cover()`; used by the new individual library action routes
+
+### UI / UX
+- **Toast notification system** — Alpine.js `toastManager()` in `base.html`; HTMX responses fire `HX-Trigger: {"showToast": {...}}` headers; toasts auto-dismiss after 4 s; used for settings save, library actions, retag, webhook test
+- **Active page indicator** — nav links receive `font-bold border-b border-white` when `active_page` context var matches; passed from every route
+- **Taller header** — nav padding increased to `py-5 px-6`; brand link slightly larger
+- **ASCII art banner** — monochrome `dragontag` ASCII art added to dashboard page
+- **Favicon** — `static/favicon.svg` added; pixel-art "D" mark; linked in `<head>`
+- **TZ-aware timestamps** — `_format_local()` helper converts UTC datetimes to the host timezone via `zoneinfo.ZoneInfo(os.environ.get("TZ", "UTC"))`; used for all job timestamps in `_jobs_table.html`
+- **Dynamic page titles** — all templates set `{% block title %}dragontag | {Page}{% endblock %}`
+
+### Library page
+- **Terminology** — "Index folder" → "Scan folder"; "Bulk re-tag" → "Full library re-tag"
+- **Dry run relocated** — `dry_run` checkbox removed from Settings; per-operation dry-run checkbox added directly to the "Full library re-tag" form on the Library page
+- **Lyrics toggle relocated** — `lyrics_enabled` checkbox removed from Settings; inline toggle placed in the Library page individual-actions bar; submits to `/settings` via hidden-input form preserving all other setting values
+- **Individual action routes** — three new POST routes: `/library/fetch-lyrics`, `/library/tag-advisories`, `/library/fetch-covers`; each iterates tracks in the selected folder and updates only the relevant tag field using `partial.py` helpers without re-running the full pipeline
+- **Granular re-tag controls** — track table now has per-row checkboxes and a "Select all" toggle; new `POST /library/retag-selected` route accepts a list of track IDs and enqueues each through the full pipeline
+
+### Settings page
+- **Centered layout** — settings form wrapped in `max-w-2xl mx-auto`
+- **Threshold tooltip** — `title="..."` attribute on the auto-apply threshold label explains the tradeoff
+- **Smart formatting section** — two new checkboxes (`format_title_case`, `format_fix_qualifiers`) persisted to `UserSettings` and `settings.json`
+- **Token palette + live preview** — filename template inputs show clickable token chips that insert `{token}` into the field; a live preview updates as you type using JS substitution with example values
+- **Save confirmation** — settings POST redirects with `?saved=1`; GET handler returns `HX-Trigger` toast; inline "✓ Saved" indicator also shown
+- **Webhook test button** — `POST /settings/test-webhook` fires a dummy payload to the configured webhook URL and returns a toast response
+
+### New pages
+- **Jobs page (`/jobs`)** — dedicated full queue view with stats bar (pending / done today / errors); bulk controls: cancel all queued, clear completed, clear errors; per-row cancel/requeue actions; linked from nav and dashboard
+- **Docs page (`/docs`)** — in-app documentation with sections for pipeline overview, configuration reference (all `DRAGONTAG_*` vars), file formats, template tokens, review queue reasons, and webhook setup; linked from nav
+
+### Dashboard
+- **Condensed job list** — shows last 10 jobs only; "View all →" link to `/jobs`
+- **Library stats panel** — aggregate query returns total tracks, albums, artists; displayed in a stats grid
+- **Folder tagger** — path input + "Enqueue all" button calls existing `bulk.enqueue_folder()` flow
+
+### Files changed
+New: `alembic/env.py`, `alembic/versions/` (empty), `alembic.ini`, `dragontag/app/tagging/formatter.py`, `dragontag/app/tagging/partial.py`, `dragontag/app/web/static/favicon.svg`, `dragontag/app/web/templates/jobs.html`, `dragontag/app/web/templates/docs.html`
+
+Modified: `dragontag/app/config.py`, `dragontag/app/ingest/pipeline.py`, `dragontag/app/ingest/uploads.py`, `dragontag/app/identify/musicbrainz.py`, `dragontag/app/tagging/schema.py`, `dragontag/app/tagging/writers/_id3common.py`, `dragontag/app/tagging/writers/mp4.py`, `dragontag/app/main.py`, `dragontag/app/web/templates/base.html`, `dragontag/app/web/templates/dashboard.html`, `dragontag/app/web/templates/settings.html`, `dragontag/app/web/templates/library.html`, `dragontag/app/web/templates/_library_tracks.html`, `dragontag/app/web/templates/_jobs_table.html`, `Dockerfile`, `docker-compose.yml`, `tests/conftest.py`, `pyproject.toml`, `README.md`

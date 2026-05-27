@@ -9,7 +9,7 @@ rest of the persisted state.
 request threads. SQLModel/SQLAlchemy serialize writes internally.
 """
 from __future__ import annotations
-
+from sqlalchemy.exc import OperationalError
 from sqlalchemy import text
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -39,17 +39,13 @@ def engine():
     return _engine
 
 
-def _migrate(engine) -> None:
-    """Idempotent schema migrations for columns added after initial create_all.
-
-    SQLModel/create_all never ALTER TABLEs existing tables, so any column added
-    to a model after first boot requires an explicit migration here.
-    """
-    with engine.connect() as conn:
-        existing_cols = {r[1] for r in conn.execute(text("PRAGMA table_info('track')"))}
-        if "advisory" not in existing_cols:
+def _migrate(engine):
+    with engine.begin() as conn:
+        try:
             conn.execute(text("ALTER TABLE track ADD COLUMN advisory INTEGER"))
-            conn.commit()
+        except OperationalError as e:
+            # This will catch both "no such table" and "duplicate column name" errors
+            pass
 
 
 def _seed_library_folder() -> None:

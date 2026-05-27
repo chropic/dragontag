@@ -16,7 +16,7 @@
       <button hx-get="/jobs/table" hx-target="#jobs-table" hx-swap="innerHTML"
               class="text-sm text-[#cfcfcf] hover:text-white">Refresh</button>
     </div>
-    <div id="jobs-table" hx-get="/jobs/table" hx-trigger="load, every 5s" hx-swap="innerHTML">
+    <div id="jobs-table" hx-get="/jobs/table?page={{ page }}" hx-trigger="load, every 5s" hx-swap="innerHTML">
       {% include "_jobs_table.html" %}
     </div>
   </div>

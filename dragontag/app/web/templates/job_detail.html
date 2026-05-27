@@ -1,6 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
 <a href="/" class="text-[#8a8a8a] hover:text-white text-sm">&larr; Back</a>
+{% if job.status.value in ("done", "error", "skipped") %}
+<form method="post" action="/jobs/{{ job.id }}/requeue" class="inline ml-4">
+  <button class="text-sm px-3 py-1 border border-[#4a4a4a] text-[#cfcfcf] hover:bg-[#4a4a4a]">Re-queue</button>
+</form>
+{% endif %}
 <h2 class="font-mono font-semibold text-xl mt-2">{{ job.original_name }}</h2>
 <dl class="mt-4 grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
   <dt class="text-[#8a8a8a]">Status</dt><dd>{{ job.status.value }}</dd>

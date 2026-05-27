@@ -123,6 +123,11 @@ class UserSettings(BaseModel):
     # user can inspect and commit individually.
     dry_run: bool = False
 
+    # ----- webhook notifications -----
+    webhook_url: str = ""
+    webhook_on_done: bool = True
+    webhook_on_error: bool = True
+
     # ----- MusicBrainz client -----
     musicbrainz_user_agent: str = (
         "dragontag/0.1.0 ( https://github.com/chropic/dragontag )"

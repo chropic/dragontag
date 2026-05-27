@@ -107,6 +107,23 @@
     </div>
   </div>
 
+  <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-2">
+    <h3 class="font-mono font-semibold">Webhook notifications</h3>
+    <label class="block">
+      <span class="text-[#8a8a8a]">Webhook URL (Discord or generic)</span>
+      <input name="webhook_url" value="{{ settings.webhook_url }}" placeholder="https://discord.com/api/webhooks/..."
+             class="mt-1 w-full p-1 bg-black border border-[#4a4a4a] font-mono text-xs">
+    </label>
+    <label class="flex items-center gap-2">
+      <input type="checkbox" name="webhook_on_done" {% if settings.webhook_on_done %}checked{% endif %}>
+      Notify on successful job completion
+    </label>
+    <label class="flex items-center gap-2">
+      <input type="checkbox" name="webhook_on_error" {% if settings.webhook_on_error %}checked{% endif %}>
+      Notify on pipeline errors
+    </label>
+  </div>
+
   <button class="px-4 py-2 bg-white text-black hover:bg-[#cfcfcf]">Save</button>
 </form>
 {% endblock %}

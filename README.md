@@ -256,7 +256,7 @@ pytest -v
 
 ## Roadmap
 
-- [ ] Webhook / Discord notifications for completed batches
+- [x] Webhook / Discord notifications for completed batches
 
 ---
 

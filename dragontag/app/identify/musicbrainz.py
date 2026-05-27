@@ -16,6 +16,7 @@ from user settings — MB requires a contact URL/email in it.
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -25,6 +26,21 @@ from ..config import settings
 from ..tagging.schema import TrackTags
 
 _configured = False
+
+
+def _mb_retry(fn, *args, retries: int = 2, backoff: float = 2.0, **kwargs):
+    """Call ``fn`` with exponential backoff on ``WebServiceError``.
+
+    Re-raises after exhausting retries so callers that must succeed (e.g.
+    ``fetch_release``) can let the pipeline's outer handler surface the error.
+    """
+    for attempt in range(retries + 1):
+        try:
+            return fn(*args, **kwargs)
+        except mb.WebServiceError:
+            if attempt == retries:
+                raise
+            time.sleep(backoff * (2 ** attempt))
 
 
 def _ensure_configured() -> None:
@@ -96,7 +112,7 @@ def search_candidates(
 
     query = " AND ".join(q_parts)
     try:
-        res = mb.search_recordings(query=query, limit=limit)
+        res = _mb_retry(mb.search_recordings, query=query, limit=limit)
     except mb.WebServiceError:
         # Transient MB failure — return empty so the pipeline can fall back
         # to AcoustID instead of raising.
@@ -140,7 +156,8 @@ def fetch_release(release_id: str) -> dict[str, Any]:
     intentionally generous.
     """
     _ensure_configured()
-    return mb.get_release_by_id(
+    return _mb_retry(
+        mb.get_release_by_id,
         release_id,
         includes=[
             "artists",
@@ -157,7 +174,8 @@ def fetch_release(release_id: str) -> dict[str, Any]:
 
 def fetch_recording(recording_id: str) -> dict[str, Any]:
     _ensure_configured()
-    return mb.get_recording_by_id(
+    return _mb_retry(
+        mb.get_recording_by_id,
         recording_id,
         includes=[
             "artists",

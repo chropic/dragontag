@@ -143,6 +143,22 @@ Six new fields added to `TrackTags` and written to all supported formats (FLAC/M
 
 ---
 
+## Pre-ship features
+**Branch:** `task/pre-ship-features` → PR #10
+
+- **Health check** — public `GET /health` returns `{"status": "ok"}` (no auth); Docker `HEALTHCHECK` stanza added to image
+- **MusicBrainz retry** — `_mb_retry` wraps `search_recordings`, `fetch_release`, and `fetch_recording` with exponential backoff (2 × 2s) on `WebServiceError`
+- **Session cookie max-age** — `SessionMiddleware` now sets a 7-day cookie lifetime
+- **Re-queue jobs** — `POST /jobs/{id}/requeue` resets a `done`/`error`/`skipped` job and puts it back through the full pipeline; Re-queue button added to job detail page
+- **Dashboard pagination** — `/` and `/jobs/table` accept `?page=N`; prev/next controls rendered in the jobs table partial
+- **Dashboard log surface** — inline log toggle per job row; HTMX loads log text on demand from `GET /jobs/{id}/log`
+- **Discord webhook notifications** — `post_done` / `post_error` fire-and-forget in daemon threads; `webhook_url`, `webhook_on_done`, `webhook_on_error` settings with UI section
+
+### Files changed
+`dragontag/app/main.py`, `dragontag/app/config.py`, `dragontag/app/ingest/pipeline.py`, `dragontag/app/identify/musicbrainz.py`, `Dockerfile`, `dragontag/app/web/templates/dashboard.html`, `dragontag/app/web/templates/_jobs_table.html`, `dragontag/app/web/templates/job_detail.html`, `dragontag/app/web/templates/settings.html`, `README.md`, new: `dragontag/app/notify.py`
+
+---
+
 ## Tasks 12, 13, 15, 16 — Polish & release
 **Branch:** `task/polish-release`
 

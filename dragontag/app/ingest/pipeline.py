@@ -271,6 +271,23 @@ def _commit_tag_path(s, job: Job, src: Path, tags, *, score: float) -> None:
         tags.cover_mime = cover.mime
         _append_log(job, f"Fetched cover {cover.width}x{cover.height} ({cover.mime})")
 
+    # ----- lyrics + advisory -----
+    if settings().lyrics_enabled:
+        from ..tagging import lyrics_fetcher
+        from ..tagging.advisory import is_explicit
+        fetched = lyrics_fetcher.fetch(
+            artist=tags.artist_display,
+            title=tags.title,
+            album=tags.album,
+        )
+        if fetched is not None:
+            tags.lyrics = fetched
+            tags.advisory = 1 if is_explicit(fetched) else 0
+            rating = "explicit" if tags.advisory else "clean"
+            _append_log(job, f"Lyrics fetched ({rating})")
+        else:
+            _append_log(job, "No lyrics found")
+
     _set(job, status=JobStatus.tagging, score=score)
     job.chosen_tags_json = _tags_to_dict(tags)
     s.add(job)

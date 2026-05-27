@@ -87,6 +87,12 @@ class TrackTags:
     cover_bytes: bytes | None = None
     cover_mime: str = "image/jpeg"
 
+    # --- lyrics & advisory ---
+    # lyrics: plain text or LRC synced format; fetched by tagging/lyrics_fetcher.py
+    # advisory: 0=clean, 1=explicit, None=no lyrics available
+    lyrics: str | None = None
+    advisory: int | None = None
+
     def to_vorbis(self, sep) -> dict[str, str]:
         """Render to ``{VorbisFieldName: string-value}`` for FLAC/OGG writers.
 
@@ -184,5 +190,10 @@ class TrackTags:
                 self.mb_artist_ids, sep.MUSICBRAINZ_ARTISTID
             )
         put("MUSICBRAINZ_RELEASEGROUPID", self.mb_release_group_id)
+
+        # ----- lyrics & advisory -----
+        put("LYRICS", self.lyrics)
+        if self.advisory is not None:
+            d["ITUNESADVISORY"] = str(self.advisory)
 
         return d

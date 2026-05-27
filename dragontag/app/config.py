@@ -113,6 +113,11 @@ class UserSettings(BaseModel):
     # smaller fingerprint-fallback cover from clobbering a hand-curated one.
     cover_min_overwrite_pixels: int = 1000
 
+    # ----- lyrics -----
+    # Fetch lyrics from LRCLIB and embed them in the audio file.
+    # Also runs the explicit-content classifier and writes ITUNESADVISORY.
+    lyrics_enabled: bool = True
+
     # ----- MusicBrainz client -----
     musicbrainz_user_agent: str = (
         "dragontag/0.1.0 ( https://github.com/local/dragontag )"

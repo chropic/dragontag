@@ -20,7 +20,33 @@
       <button name="action" value="skip" class="px-3 py-1 rounded bg-slate-700 hover:bg-slate-600">Skip</button>
     </form>
   {% else %}
-    <form method="post" action="/review/{{ j.id }}/apply" class="mt-3 space-y-2 text-sm">
+    <form method="post" action="/review/{{ j.id }}/apply" enctype="multipart/form-data" class="mt-3 space-y-3 text-sm">
+
+      {# ---- dry-run preview: tag table + computed destination ---- #}
+      {% if j.review_reason and j.review_reason.value == "dry_run" %}
+      <div class="bg-slate-900/60 rounded border border-slate-700 p-3">
+        <div class="text-slate-400 text-xs mb-2 font-semibold uppercase tracking-wide">Dry-run preview</div>
+        {% if j.destination_path %}
+        <div class="mb-2 text-xs"><span class="text-slate-400">Destination: </span><span class="text-slate-200 font-mono">{{ j.destination_path }}</span></div>
+        {% endif %}
+        {% if j.chosen_tags_json %}
+        <table class="w-full text-xs border-collapse">
+          {% for k, v in j.chosen_tags_json.items() %}
+          {% if v is not none and v != "" and v != [] and v != false and k != "cover_mime" %}
+          <tr class="border-t border-slate-700/50">
+            <td class="py-0.5 pr-3 text-slate-400 font-mono whitespace-nowrap">{{ k }}</td>
+            <td class="py-0.5 text-slate-200 break-all">
+              {%- if v is iterable and v is not string -%}{{ v | join(", ") }}{%- else -%}{{ v }}{%- endif -%}
+            </td>
+          </tr>
+          {% endif %}
+          {% endfor %}
+        </table>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {# ---- candidate radio list ---- #}
       {% set cands = j.candidates_json.get("items", []) if j.candidates_json else [] %}
       {% if cands %}
       <div class="space-y-1">
@@ -37,7 +63,6 @@
       <input type="hidden" name="recording_id" value="">
       <input type="hidden" name="release_id" value="">
       <script>
-        // pick -> split into recording_id / release_id on submit
         (function () {
           const form = document.currentScript.previousElementSibling.closest('form');
           form.addEventListener('submit', () => {
@@ -55,6 +80,48 @@
       <input name="release_id" placeholder="MB release id" class="p-1 rounded bg-slate-900 border border-slate-700 w-72">
       {% endif %}
 
+      {# ---- cover art picker ---- #}
+      {% if cands %}
+      <div class="space-y-2">
+        <div class="text-slate-400 text-xs font-semibold uppercase tracking-wide">Cover art</div>
+        <div class="flex gap-2 flex-wrap" id="covers-{{ j.id }}">
+          {% for c in cands %}
+          <button type="button"
+            data-url="https://coverartarchive.org/release/{{ c.release_id }}/front"
+            onclick="selectCover(this, 'covers-{{ j.id }}', 'cover_url_{{ j.id }}')"
+            class="cover-btn rounded overflow-hidden border-2 border-transparent focus:outline-none {% if loop.first %}border-indigo-500{% endif %}"
+            title="{{ c.album }}">
+            <img src="https://coverartarchive.org/release/{{ c.release_id }}/front-250"
+                 onerror="this.closest('button').style.display='none'"
+                 class="w-20 h-20 object-cover block">
+          </button>
+          {% endfor %}
+        </div>
+        <input type="hidden" name="cover_art_url" id="cover_url_{{ j.id }}"
+               value="https://coverartarchive.org/release/{{ cands[0].release_id }}/front">
+        <label class="flex items-center gap-2 text-xs text-slate-400">
+          <span>Custom cover:</span>
+          <input type="file" name="cover_art_file" accept="image/*"
+                 onchange="if(this.value) document.getElementById('cover_url_{{ j.id }}').value=''"
+                 class="text-xs text-slate-300">
+        </label>
+      </div>
+      <script>
+        function selectCover(btn, groupId, urlInputId) {
+          document.querySelectorAll('#' + groupId + ' .cover-btn').forEach(function(b) {
+            b.classList.remove('border-indigo-500');
+            b.classList.add('border-transparent');
+          });
+          btn.classList.remove('border-transparent');
+          btn.classList.add('border-indigo-500');
+          document.getElementById(urlInputId).value = btn.dataset.url;
+          // Clear custom file input when picking from strip
+          var fileInput = btn.closest('form').querySelector('input[type=file][name=cover_art_file]');
+          if (fileInput) fileInput.value = '';
+        }
+      </script>
+      {% endif %}
+
       <div class="flex items-center gap-2">
         <label class="text-slate-400">RELEASETYPE override:</label>
         <select name="release_type_override" class="p-1 rounded bg-slate-900 border border-slate-700">
@@ -62,9 +129,19 @@
           <option>Album</option><option>Single</option><option>EP</option>
           <option>Compilation</option><option>Soundtrack</option><option>Other</option>
         </select>
+        {% if j.review_reason and j.review_reason.value == "dry_run" %}
+        <button class="ml-auto px-3 py-1 rounded bg-emerald-700 hover:bg-emerald-600">Commit</button>
+        {% else %}
         <button class="ml-auto px-3 py-1 rounded bg-emerald-700 hover:bg-emerald-600">Apply</button>
+        {% endif %}
       </div>
     </form>
+
+    {% if j.review_reason and j.review_reason.value == "dry_run" %}
+    <form method="post" action="/review/{{ j.id }}/resolve_conflict" class="mt-2">
+      <button name="action" value="skip" class="text-xs px-3 py-1 rounded bg-slate-700 hover:bg-slate-600">Skip (discard)</button>
+    </form>
+    {% endif %}
   {% endif %}
 </div>
 {% else %}

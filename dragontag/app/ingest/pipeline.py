@@ -251,6 +251,21 @@ def _process_inner(s, job: Job) -> None:
         s.commit()
         return
 
+    if settings().dry_run:
+        lib_root = _pick_library_folder()
+        dest = build_destination(tags, src.suffix, library_root=lib_root)
+        job.chosen_tags_json = _tags_to_dict(tags)
+        _set(
+            job,
+            destination_path=str(dest),
+            score=best_total,
+            status=JobStatus.needs_review,
+            review_reason=ReviewReason.dry_run,
+        )
+        s.add(job)
+        s.commit()
+        return
+
     _commit_tag_path(s, job, src, tags, score=best_total)
 
 
@@ -263,13 +278,17 @@ def _commit_tag_path(s, job: Job, src: Path, tags, *, score: float) -> None:
     """
 
     # ----- cover art (best resolution available) -----
-    cover = fetch_for_release(tags.mb_album_id) if tags.mb_album_id else None
-    if not cover and tags.mb_release_group_id:
-        cover = fetch_for_release_group(tags.mb_release_group_id)
-    if cover:
-        tags.cover_bytes = cover.data
-        tags.cover_mime = cover.mime
-        _append_log(job, f"Fetched cover {cover.width}x{cover.height} ({cover.mime})")
+    # Skip the CAA fetch when the caller already supplied cover bytes
+    # (e.g. the review UI cover-art picker or a custom upload).
+    cover = None
+    if not tags.cover_bytes:
+        cover = fetch_for_release(tags.mb_album_id) if tags.mb_album_id else None
+        if not cover and tags.mb_release_group_id:
+            cover = fetch_for_release_group(tags.mb_release_group_id)
+        if cover:
+            tags.cover_bytes = cover.data
+            tags.cover_mime = cover.mime
+            _append_log(job, f"Fetched cover {cover.width}x{cover.height} ({cover.mime})")
 
     # ----- lyrics + advisory -----
     if settings().lyrics_enabled:
@@ -332,6 +351,9 @@ def _commit_tag_path(s, job: Job, src: Path, tags, *, score: float) -> None:
             min_overwrite_pixels=settings().cover_min_overwrite_pixels,
             new_width=cover.width,
         )
+    elif tags.cover_bytes:
+        # User-supplied art (picker or custom upload): always write sidecar.
+        write_cover_jpg(dest.parent, tags.cover_bytes, min_overwrite_pixels=0, new_width=0)
 
     track = _upsert_track(s, dest, tags, lib_root)
     job.track_id = track.id
@@ -379,6 +401,7 @@ def _upsert_track(s, dest: Path, tags, lib_root: Path):
         existing.disc_num = tags.disc
         existing.mb_track_id = tags.mb_track_id
         existing.mb_album_id = tags.mb_album_id
+        existing.advisory = tags.advisory
         existing.last_seen = now
         s.add(existing)
         s.commit()
@@ -396,6 +419,7 @@ def _upsert_track(s, dest: Path, tags, lib_root: Path):
         disc_num=tags.disc,
         mb_track_id=tags.mb_track_id,
         mb_album_id=tags.mb_album_id,
+        advisory=tags.advisory,
         indexed_at=now,
         last_seen=now,
     )

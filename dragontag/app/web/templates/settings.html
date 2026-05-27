@@ -21,6 +21,10 @@
       <input type="checkbox" name="lyrics_enabled" {% if settings.lyrics_enabled %}checked{% endif %}>
       Fetch lyrics from LRCLIB and embed in files (also auto-tags explicit content)
     </label>
+    <label class="flex items-center gap-2">
+      <input type="checkbox" name="dry_run" {% if settings.dry_run %}checked{% endif %}>
+      Dry-run mode — preview tags and destination without writing or moving files
+    </label>
   </div>
 
   <div class="bg-slate-800 p-4 rounded border border-slate-700 space-y-2">

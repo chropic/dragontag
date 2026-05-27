@@ -1,5 +1,7 @@
 # dragontag
 
+![CI](https://github.com/chropic/dragontag/actions/workflows/ci.yml/badge.svg)
+
 A self-hosted, Docker-deployable music tagger and library organizer.
 
 Drop audio files into a watched folder (or upload them through the web UI). The app
@@ -42,7 +44,7 @@ manually on every new file.
 ## Quick start (Docker)
 
 ```bash
-git clone https://github.com/<you>/dragontag.git
+git clone https://github.com/chropic/dragontag.git
 cd dragontag
 
 # 1. Hash a password and stash it as a Docker secret
@@ -55,12 +57,18 @@ echo 'your-acoustid-key' > secrets/acoustid_key.txt
 # 3. Edit docker-compose.yml — point /library and /drop at your actual paths
 $EDITOR docker-compose.yml
 
-# 4. Up
+# 4. The container runs as uid 1000; make sure your host paths are writable by it:
+sudo chown -R 1000:1000 /srv/music/library /srv/music/drop ./config
+
+# 5. Up (pulls the published image from GHCR automatically)
 docker compose up -d
 ```
 
 Open <http://localhost:7593>, log in with the username from `AIO_USERNAME` (default
 `charlie` in the sample compose file) and the password you hashed.
+
+> **Building locally** — replace the `image:` line in `docker-compose.yml` with
+> `build: .` to build from source instead of pulling.
 
 ### Volumes
 
@@ -244,10 +252,10 @@ pytest -v
 
 ## Roadmap
 
-- [ ] Per-job cover-art picker (currently picks the first front image with best res)
-- [ ] Optional dry-run mode that previews destination & tags without writing
-- [ ] Bulk operations (re-tag everything from a given source folder)
-- [ ] Lyrics + `ITUNESADVISORY` toggleable from settings
+- [x] Per-job cover-art picker — choose from MB candidates or upload a custom image
+- [x] Dry-run mode — previews destination & tags without writing or moving
+- [x] Bulk operations — re-tag everything from a given source folder
+- [x] Lyrics + `ITUNESADVISORY` fetched from LRCLIB, toggleable in settings
 - [ ] Webhook / Discord notifications for completed batches
 
 ---

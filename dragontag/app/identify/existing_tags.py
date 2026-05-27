@@ -53,5 +53,8 @@ def read(path: Path) -> dict[str, Any]:
     )
     out["mb_track_id"] = first("MUSICBRAINZ_TRACKID", "musicbrainz_trackid")
     out["mb_album_id"] = first("MUSICBRAINZ_ALBUMID", "musicbrainz_albumid")
+    out["track"] = first("TRACKNUMBER", "tracknumber", "track", "TRCK", "trkn")
+    out["disc"] = first("DISCNUMBER", "discnumber", "disc", "TPOS", "disk")
+    out["disc_total"] = first("DISCTOTAL", "TOTALDISCS", "totaldiscs", "disctotal")
 
     return out

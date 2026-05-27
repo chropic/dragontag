@@ -25,7 +25,7 @@ from pathlib import Path
 
 from sqlmodel import select
 
-from ..config import settings
+from ..config import env, settings
 from ..db import session
 from ..identify import acoustid as acid
 from ..identify import existing_tags, filename_parse
@@ -291,7 +291,8 @@ def _commit_tag_path(s, job: Job, src: Path, tags, *, score: float) -> None:
     s.add(job)
     s.commit()
 
-    dest = build_destination(tags, src.suffix)
+    lib_root = _pick_library_folder()
+    dest = build_destination(tags, src.suffix, library_root=lib_root)
     result = move(src, dest, overwrite=False)
     if not result.moved and result.conflict:
         # Don't auto-overwrite — kick to review so the user decides.
@@ -315,10 +316,76 @@ def _commit_tag_path(s, job: Job, src: Path, tags, *, score: float) -> None:
             new_width=cover.width,
         )
 
+    track = _upsert_track(s, dest, tags, lib_root)
+    job.track_id = track.id
     _set(job, status=JobStatus.done, destination_path=str(dest))
     _append_log(job, f"Done -> {dest}")
     s.add(job)
     s.commit()
+
+
+def _pick_library_folder() -> Path:
+    """Return the path of the first enabled LibraryFolder (by priority, then id).
+
+    Falls back to env().library_path if the table is somehow empty — this
+    should not happen after the DB seed in db.py, but guards against it.
+    """
+    from ..models import LibraryFolder
+    with session() as s:
+        folder = s.exec(
+            select(LibraryFolder)
+            .where(LibraryFolder.enabled == True)  # noqa: E712
+            .order_by(LibraryFolder.priority, LibraryFolder.id)
+        ).first()
+    return Path(folder.path) if folder else env().library_path
+
+
+def _upsert_track(s, dest: Path, tags, lib_root: Path):
+    """Create or update the Track row for a successfully moved file."""
+    from ..models import LibraryFolder, Track
+    from datetime import datetime as _dt
+
+    folder_row = s.exec(
+        select(LibraryFolder).where(LibraryFolder.path == str(lib_root))
+    ).first()
+    folder_id = folder_row.id if folder_row else None
+
+    now = _dt.utcnow()
+    existing = s.exec(select(Track).where(Track.path == str(dest))).first()
+    if existing:
+        existing.library_folder_id = folder_id
+        existing.title = tags.title
+        existing.artist = tags.artist_display
+        existing.album = tags.album
+        existing.album_artist = tags.album_artist_display
+        existing.track_num = tags.track
+        existing.disc_num = tags.disc
+        existing.mb_track_id = tags.mb_track_id
+        existing.mb_album_id = tags.mb_album_id
+        existing.last_seen = now
+        s.add(existing)
+        s.commit()
+        s.refresh(existing)
+        return existing
+
+    track = Track(
+        path=str(dest),
+        library_folder_id=folder_id,
+        title=tags.title,
+        artist=tags.artist_display,
+        album=tags.album,
+        album_artist=tags.album_artist_display,
+        track_num=tags.track,
+        disc_num=tags.disc,
+        mb_track_id=tags.mb_track_id,
+        mb_album_id=tags.mb_album_id,
+        indexed_at=now,
+        last_seen=now,
+    )
+    s.add(track)
+    s.commit()
+    s.refresh(track)
+    return track
 
 
 def _tags_to_dict(tags) -> dict:

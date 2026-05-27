@@ -11,8 +11,45 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from sqlalchemy import JSON
+from sqlalchemy import JSON, String
 from sqlmodel import Column, Field, SQLModel
+
+
+class LibraryFolder(SQLModel, table=True):
+    """A configured root directory that receives tagged files."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    path: str                          # absolute path on disk
+    label: str = ""                    # user-friendly display name
+    enabled: bool = True
+    priority: int = 0                  # lower value = preferred when routing
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Track(SQLModel, table=True):
+    """One row per audio file known to be in a library folder."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    library_folder_id: int | None = Field(default=None, foreign_key="libraryfolder.id")
+
+    # Unique absolute path — the canonical identifier for this file.
+    path: str = Field(sa_column=Column(String, unique=True, nullable=False))
+
+    # Denormalized tag snapshot for fast display / path computation.
+    title: str | None = None
+    artist: str | None = None
+    album: str | None = None
+    album_artist: str | None = None
+    track_num: int | None = None
+    track_total: int | None = None
+    disc_num: int | None = None
+    disc_total: int | None = None
+    duration: float | None = None
+    mb_track_id: str | None = None
+    mb_album_id: str | None = None
+
+    last_seen: datetime = Field(default_factory=datetime.utcnow)
+    indexed_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class JobStatus(str, Enum):
@@ -78,3 +115,6 @@ class Job(SQLModel, table=True):
 
     # Final landing path, or the would-be path when blocked on a conflict.
     destination_path: str | None = None
+
+    # FK to the Track row created/updated when this job completed.
+    track_id: int | None = Field(default=None, foreign_key="track.id")

@@ -1,27 +1,27 @@
 services:
-  aio-tagger:
+  dragontag:
     build: .
-    image: aio-tagger:latest
-    container_name: aio-tagger
+    image: dragontag:latest
+    container_name: dragontag
     ports:
-      - "8080:8080"
+      - "7593:7593"
     volumes:
       - /srv/music/library:/library
       - /srv/music/drop:/drop
       - ./config:/config
     secrets:
-      - aio_tagger_password
+      - dragontag_password
       - acoustid_api_key
     environment:
       - AIO_USERNAME=charlie
-      - AIO_PASSWORD_FILE=/run/secrets/aio_tagger_password
+      - AIO_PASSWORD_FILE=/run/secrets/dragontag_password
       - AIO_ACOUSTID_KEY_FILE=/run/secrets/acoustid_api_key
-      - AIO_SESSION_SECRET_FILE=/run/secrets/aio_tagger_password
+      - AIO_SESSION_SECRET_FILE=/run/secrets/dragontag_password
       - TZ=America/New_York
     restart: unless-stopped
 
 secrets:
-  aio_tagger_password:
+  dragontag_password:
     file: ./secrets/password.txt
   acoustid_api_key:
     file: ./secrets/acoustid_key.txt

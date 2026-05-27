@@ -1,6 +1,6 @@
 """Verify the canonical schema produces the exact Vorbis Comment shape from the reference doc."""
-from aio_tagger.app.config import Separators
-from aio_tagger.app.tagging.schema import TrackTags
+from dragontag.app.config import Separators
+from dragontag.app.tagging.schema import TrackTags
 
 
 def test_vorbis_render_matches_reference():

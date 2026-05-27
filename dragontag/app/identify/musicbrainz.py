@@ -34,7 +34,7 @@ def _ensure_configured() -> None:
     if _configured:
         return
     s = settings()
-    mb.set_useragent("aio-tagger", "0.1.0", s.musicbrainz_user_agent)
+    mb.set_useragent("dragontag", "0.1.0", s.musicbrainz_user_agent)
     mb.set_hostname(s.musicbrainz_server)
     mb.set_rate_limit(True)
     _configured = True

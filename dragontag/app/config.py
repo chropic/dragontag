@@ -106,7 +106,7 @@ class UserSettings(BaseModel):
 
     # ----- MusicBrainz client -----
     musicbrainz_user_agent: str = (
-        "aio-tagger/0.1.0 ( https://github.com/local/aio-tagger )"
+        "dragontag/0.1.0 ( https://github.com/local/dragontag )"
     )
     musicbrainz_server: str = "musicbrainz.org"
 

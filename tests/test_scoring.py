@@ -1,4 +1,4 @@
-from aio_tagger.app.identify.scoring import score_candidate
+from dragontag.app.identify.scoring import score_candidate
 
 
 def test_perfect_match_scores_high():

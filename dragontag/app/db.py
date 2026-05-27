@@ -26,7 +26,7 @@ def engine():
     """
     global _engine
     if _engine is None:
-        db_path = env().config_path / "aio-tagger.db"
+        db_path = env().config_path / "dragontag.db"
         _engine = create_engine(
             f"sqlite:///{db_path}",
             echo=False,

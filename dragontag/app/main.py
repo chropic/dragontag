@@ -35,7 +35,7 @@ from .models import Job, JobStatus
 
 logging.basicConfig(level=logging.INFO)
 
-app = FastAPI(title="aio-tagger")
+app = FastAPI(title="dragontag")
 
 # Cookie-signing secret comes from the session-secret Docker secret. The
 # middleware itself implements signed but unencrypted cookies — fine for

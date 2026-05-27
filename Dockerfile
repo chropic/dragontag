@@ -11,15 +11,15 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY pyproject.toml /app/
-COPY aio_tagger /app/aio_tagger
+COPY dragontag /app/dragontag
 
 RUN pip install --upgrade pip && pip install .
 
 VOLUME ["/library", "/drop", "/config"]
-EXPOSE 8080
+EXPOSE 7593
 
 ENV AIO_LIBRARY_PATH=/library \
     AIO_DROP_PATH=/drop \
     AIO_CONFIG_PATH=/config
 
-CMD ["uvicorn", "aio_tagger.app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "dragontag.app.main:app", "--host", "0.0.0.0", "--port", "7593"]

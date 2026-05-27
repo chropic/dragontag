@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from aio_tagger.app.library.paths import sanitize_segment, build_destination
-from aio_tagger.app.tagging.schema import TrackTags
+from dragontag.app.library.paths import sanitize_segment, build_destination
+from dragontag.app.tagging.schema import TrackTags
 
 
 def test_sanitize_strips_only_forbidden():

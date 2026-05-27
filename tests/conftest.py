@@ -3,7 +3,7 @@ import os
 import tempfile
 from pathlib import Path
 
-_tmp = Path(tempfile.mkdtemp(prefix="aio-tagger-tests-"))
+_tmp = Path(tempfile.mkdtemp(prefix="dragontag-tests-"))
 os.environ.setdefault("AIO_CONFIG_PATH", str(_tmp / "config"))
 os.environ.setdefault("AIO_LIBRARY_PATH", str(_tmp / "library"))
 os.environ.setdefault("AIO_DROP_PATH", str(_tmp / "drop"))

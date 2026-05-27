@@ -1,4 +1,4 @@
-# aio-tagger
+# dragontag
 
 A self-hosted, Docker-deployable music tagger and library organizer.
 
@@ -42,12 +42,12 @@ manually on every new file.
 ## Quick start (Docker)
 
 ```bash
-git clone https://github.com/<you>/aio-tagger.git
-cd aio-tagger
+git clone https://github.com/<you>/dragontag.git
+cd dragontag
 
 # 1. Hash a password and stash it as a Docker secret
 mkdir -p secrets config
-python -m aio_tagger.tools.hash_password 'your-password' > secrets/password.txt
+python -m dragontag.tools.hash_password 'your-password' > secrets/password.txt
 
 # 2. (Optional) drop your AcoustID API key in:
 echo 'your-acoustid-key' > secrets/acoustid_key.txt
@@ -59,7 +59,7 @@ $EDITOR docker-compose.yml
 docker compose up -d
 ```
 
-Open <http://localhost:8080>, log in with the username from `AIO_USERNAME` (default
+Open <http://localhost:7593>, log in with the username from `AIO_USERNAME` (default
 `charlie` in the sample compose file) and the password you hashed.
 
 ### Volumes
@@ -68,7 +68,7 @@ Open <http://localhost:8080>, log in with the username from `AIO_USERNAME` (defa
 |---|---|
 | `/library` | Destination library root. Files land at `Library/Artist/Album/[Disc N/]<filename>`. |
 | `/drop`    | Watched ingest folder. Anything dropped here gets queued automatically. |
-| `/config`  | SQLite DB (`aio-tagger.db`), `settings.json`, logs. |
+| `/config`  | SQLite DB (`dragontag.db`), `settings.json`, logs. |
 
 ### Environment variables
 
@@ -114,7 +114,7 @@ conflicts get **replace / rename / skip** buttons.
 ## Tag convention
 
 The default Vorbis-Comment shape (FLAC) matches this exact layout — see
-[`schema.py`](aio_tagger/app/tagging/schema.py):
+[`schema.py`](dragontag/app/tagging/schema.py):
 
 | Tag | Source / Notes |
 |---|---|
@@ -167,8 +167,8 @@ All editable from the **Settings** page (and persisted to `/config/settings.json
 ## Development
 
 ```bash
-git clone https://github.com/<you>/aio-tagger.git
-cd aio-tagger
+git clone https://github.com/<you>/dragontag.git
+cd dragontag
 python -m venv .venv
 source .venv/bin/activate            # or .venv\Scripts\activate on Windows
 pip install -e ".[dev]"
@@ -179,13 +179,13 @@ pytest
 # Run the server against ad-hoc local paths
 AIO_LIBRARY_PATH=./library AIO_DROP_PATH=./drop AIO_CONFIG_PATH=./config \
 AIO_USERNAME=dev AIO_PASSWORD='dev' \
-uvicorn aio_tagger.app.main:app --reload --port 8080
+uvicorn dragontag.app.main:app --reload --port 7593
 ```
 
 ### Project layout
 
 ```
-aio_tagger/
+dragontag/
   app/
     main.py                FastAPI routes + HTMX wiring
     config.py              Env + secret-file + JSON settings layers

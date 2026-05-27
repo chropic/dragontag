@@ -122,3 +122,37 @@ Six new fields added to `TrackTags` and written to all supported formats (FLAC/M
 
 ### Files changed
 `Dockerfile`, `docker-compose.yml`, `README.md`, new: `.github/workflows/ci.yml`
+
+---
+
+## Tasks 10, 11 — First-run setup wizard + terminal24 theme
+**Branch:** `task/10-11-theme-wizard` → PR #8
+
+### Task 10 — First-run setup wizard
+- `/setup` GET/POST routes: credentials + AcoustID key configuration on first boot
+- `config.py` resolve functions fall back to wizard-written files in config dir
+- Standalone `setup.html` template matching terminal24 theme
+
+### Task 11 — terminal24 theme
+- Full terminal24 visual overhaul across all templates
+- IBM Plex Mono/Sans, CRT scanlines, `#0c0c0c` cards, zero border-radius
+- Pastel status badges (green/red/amber on black)
+
+### Files changed
+`dragontag/app/config.py`, `dragontag/app/main.py`, all templates in `dragontag/app/web/templates/`, new: `dragontag/app/web/templates/setup.html`
+
+---
+
+## Tasks 12, 13, 15, 16 — Polish & release
+**Branch:** `task/polish-release`
+
+- Scanner batches DB commits (50 files per transaction instead of per-file)
+- Lazy imports for Pillow and requests (faster cold startup)
+- DB indexes on `Job.updated_at` and `Track.library_folder_id`
+- Event-driven watcher settle loop (no busy-poll when idle)
+- Deduplicated filename uniquification utility in `library/paths.py`
+- Type annotations added to pipeline internals
+- Legacy `aio-*` thread names renamed to `dragontag-*`
+- Scrubbed internal references (local paths, dev-only defaults)
+- README updated: new feature bullets, corrected tag convention docs, cleaned roadmap
+- Removed `TASKS.md` and `SESSION_HANDOFF.md`

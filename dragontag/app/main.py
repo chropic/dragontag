@@ -23,6 +23,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import or_
 from sqlmodel import select
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -32,6 +33,7 @@ from .db import session
 from .identify import musicbrainz as mbq
 from .ingest import pipeline, uploads, watcher
 from .library.mover import move
+from .library.paths import unique_path
 from .models import Job, JobStatus, LibraryFolder, ReviewReason, Track
 
 logging.basicConfig(level=logging.INFO)
@@ -290,13 +292,8 @@ def resolve_conflict(
         if action == "replace":
             res = move(src, dest, overwrite=True)
         else:  # "rename" — append "-1", "-2", … until a free slot is found
-            i = 1
-            cand = dest.with_stem(f"{dest.stem}-{i}")
-            while cand.exists():
-                i += 1
-                cand = dest.with_stem(f"{dest.stem}-{i}")
-            res = move(src, cand, overwrite=False)
-            dest = cand
+            dest = unique_path(dest)
+            res = move(src, dest, overwrite=False)
 
         if res.moved:
             job.status = JobStatus.done
@@ -416,7 +413,6 @@ def _query_tracks(s, folder_id: int | None, q: str) -> list:
         stmt = stmt.where(Track.library_folder_id == folder_id)
     if q:
         like = f"%{q}%"
-        from sqlalchemy import or_
         stmt = stmt.where(
             or_(Track.title.ilike(like), Track.artist.ilike(like), Track.album.ilike(like))
         )

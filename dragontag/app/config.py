@@ -125,7 +125,7 @@ class UserSettings(BaseModel):
 
     # ----- MusicBrainz client -----
     musicbrainz_user_agent: str = (
-        "dragontag/0.1.0 ( https://github.com/local/dragontag )"
+        "dragontag/0.1.0 ( https://github.com/chropic/dragontag )"
     )
     musicbrainz_server: str = "musicbrainz.org"
 

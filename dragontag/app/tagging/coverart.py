@@ -12,7 +12,6 @@ import io
 from dataclasses import dataclass
 
 import requests
-from PIL import Image
 
 _CAA_BASE = "https://coverartarchive.org"
 
@@ -66,6 +65,7 @@ def _pick_and_download(images: list[dict]) -> CoverArt | None:
             # Probe dimensions/mime via Pillow so we can store them for the
             # ``cover.jpg`` overwrite policy.
             try:
+                from PIL import Image
                 with Image.open(io.BytesIO(data)) as im:
                     w, h = im.size
                     mime = "image/png" if im.format == "PNG" else "image/jpeg"

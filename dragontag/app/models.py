@@ -30,7 +30,7 @@ class Track(SQLModel, table=True):
     """One row per audio file known to be in a library folder."""
 
     id: int | None = Field(default=None, primary_key=True)
-    library_folder_id: int | None = Field(default=None, foreign_key="libraryfolder.id")
+    library_folder_id: int | None = Field(default=None, foreign_key="libraryfolder.id", index=True)
 
     # Unique absolute path — the canonical identifier for this file.
     path: str = Field(sa_column=Column(String, unique=True, nullable=False))
@@ -98,7 +98,7 @@ class Job(SQLModel, table=True):
 
     status: JobStatus = Field(default=JobStatus.queued, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
     review_reason: ReviewReason | None = None
     score: float | None = None  # final confidence score of the chosen candidate

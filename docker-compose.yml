@@ -1,7 +1,7 @@
 services:
   dragontag:
-    build: .
-    image: dragontag:latest
+    image: ghcr.io/chropic/dragontag:main
+    # build: .   # uncomment to build from local source instead of pulling
     container_name: dragontag
     ports:
       - "7593:7593"
@@ -19,6 +19,26 @@ services:
       - AIO_SESSION_SECRET_FILE=/run/secrets/dragontag_password
       - TZ=America/New_York
     restart: unless-stopped
+    # -------------------------------------------------------------------------
+    # Security hardening — capability audit:
+    #   All I/O is unprivileged file operations on volumes + a high-numbered
+    #   port (7593 > 1024, so CAP_NET_BIND_SERVICE is not needed). Zero
+    #   capabilities are required; we drop ALL and add none back.
+    #   read_only prevents writes to the container layer; /tmp is a tmpfs for
+    #   Python and fpcalc scratch space.
+    #
+    #   Host volume dirs must be owned/writable by uid 1000 (the dragontag
+    #   user created inside the image) before first boot:
+    #     sudo chown -R 1000:1000 /srv/music/library /srv/music/drop ./config
+    # -------------------------------------------------------------------------
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
 
 secrets:
   dragontag_password:

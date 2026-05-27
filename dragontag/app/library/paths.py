@@ -86,3 +86,15 @@ def build_destination(
 
     filename = render_filename(tags, source_ext)
     return Path(*parts) / filename
+
+
+def unique_path(p: Path) -> Path:
+    """Return ``p`` if it doesn't exist, otherwise append -1, -2, … until free."""
+    if not p.exists():
+        return p
+    i = 1
+    while True:
+        cand = p.with_stem(f"{p.stem}-{i}")
+        if not cand.exists():
+            return cand
+        i += 1

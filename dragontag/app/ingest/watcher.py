@@ -4,8 +4,8 @@ Watchdog fires events as soon as a write happens, which is too eager: a file
 being copied via SMB can fire dozens of ``on_modified`` events while it's
 still mid-transfer, and reading it then would either fail or get partial
 audio. We defend against that with a *settle window*: each event timestamps
-the file in a dict, and a separate thread polls the dict every second,
-enqueueing files whose last-modified event is older than
+the file in a dict, and a background thread waits for an Event signal before
+draining files whose last-modified event is older than
 ``watcher_settle_seconds`` (default 2s).
 """
 from __future__ import annotations
@@ -29,13 +29,11 @@ class _Handler(FileSystemEventHandler):
     """Coalesces create/modify/move events per-path with a settle timestamp."""
 
     def __init__(self) -> None:
-        # path -> timestamp of most recent event for that path
         self._pending: dict[Path, float] = {}
         self._lock = threading.Lock()
+        self._has_pending = threading.Event()
 
     def _is_ignored(self, p: Path) -> bool:
-        # Two filters: user-configured glob patterns (``*.part`` etc.) and
-        # the hard extension whitelist (we don't even *try* to process .txt).
         name = p.name
         for pat in settings().watcher_ignore_patterns:
             if fnmatch.fnmatch(name, pat):
@@ -53,9 +51,6 @@ class _Handler(FileSystemEventHandler):
         self._touch(Path(event.src_path))
 
     def on_moved(self, event):
-        # A move *into* the drop folder appears as ``on_moved`` with the
-        # destination in ``dest_path``. Filebrowser-style atomic writes also
-        # land here.
         if event.is_directory:
             return
         self._touch(Path(event.dest_path))
@@ -65,23 +60,28 @@ class _Handler(FileSystemEventHandler):
             return
         with self._lock:
             self._pending[p] = time.time()
+        self._has_pending.set()
 
     def settle_loop(self) -> None:
-        """Background loop: every second, enqueue anything that's been quiet."""
+        """Background loop: wait for file events, then drain after settle window."""
         while True:
-            time.sleep(1.0)
-            settle = settings().watcher_settle_seconds
+            signalled = self._has_pending.wait(timeout=5.0)
+            self._has_pending.clear()
+            if not signalled:
+                continue
+            time.sleep(settings().watcher_settle_seconds)
             now = time.time()
+            settle = settings().watcher_settle_seconds
             ready: list[Path] = []
             with self._lock:
                 for p, t in list(self._pending.items()):
                     if now - t >= settle:
                         ready.append(p)
                         del self._pending[p]
+                if self._pending:
+                    self._has_pending.set()
             for p in ready:
                 if not p.exists():
-                    # File could have been deleted/moved before the settle
-                    # window expired (e.g. user dragged it back out).
                     continue
                 try:
                     job = pipeline.enqueue(p)
@@ -105,7 +105,7 @@ def start() -> None:
     _observer = Observer()
     _observer.schedule(handler, str(drop), recursive=True)
     _observer.start()
-    threading.Thread(target=handler.settle_loop, name="aio-watcher-settle", daemon=True).start()
+    threading.Thread(target=handler.settle_loop, name="dragontag-watcher-settle", daemon=True).start()
     log.info("Watcher started on %s", drop)
 
 

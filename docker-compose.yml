@@ -13,7 +13,7 @@ services:
       - dragontag_password
       - acoustid_api_key
     environment:
-      - AIO_USERNAME=charlie
+      - AIO_USERNAME=admin
       - AIO_PASSWORD_FILE=/run/secrets/dragontag_password
       - AIO_ACOUSTID_KEY_FILE=/run/secrets/acoustid_api_key
       - AIO_SESSION_SECRET_FILE=/run/secrets/dragontag_password

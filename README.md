@@ -35,6 +35,12 @@ manually on every new file.
   embedded in the file *and* written as `cover.jpg` next to it.
 - **Docker-native** — `/library`, `/drop`, `/config` volumes; password and AcoustID
   key are loaded from Docker secret files (argon2-hashed).
+- **Dry-run mode** — preview destination paths and tags without writing or moving
+  files. Jobs land in the review queue for inspection before committing.
+- **LRCLIB lyrics + explicit auto-tagger** — fetches synced or plain-text lyrics
+  and embeds them; classifies explicit content and writes `ITUNESADVISORY`.
+- **First-run setup wizard** — configure credentials and AcoustID key from the
+  browser on first boot, no Docker secrets required.
 - **Web UI** — dashboard with live-refreshing job list, review queue with candidate
   picker + `RELEASETYPE` override, conflict resolver, settings page.
 - **SQLite-backed state** — jobs and history survive container restarts.
@@ -65,7 +71,7 @@ docker compose up -d
 ```
 
 Open <http://localhost:7593>, log in with the username from `AIO_USERNAME` (default
-`charlie` in the sample compose file) and the password you hashed.
+`admin` in the sample compose file) and the password you hashed.
 
 > **Building locally** — replace the `image:` line in `docker-compose.yml` with
 > `build: .` to build from source instead of pulling.
@@ -144,8 +150,6 @@ The default Vorbis-Comment shape (FLAC) matches this exact layout — see
 | `ACOUSTID_ID` | From AcoustID match or pre-existing tag |
 | `MUSICBRAINZ_TRACKID` / `…_RELEASETRACKID` / `…_ALBUMID` / `…_ALBUMARTISTID` / `…_ARTISTID` / `…_RELEASEGROUPID` | Full MB integration |
 
-Lyrics and `ITUNESADVISORY` are intentionally skipped.
-
 Other formats map this canonical schema into their native tags:
 
 - **MP3 / WAV** — ID3v2.4 standard frames (`TIT2`, `TPE1`, `TPE2`, `TALB`,
@@ -175,7 +179,7 @@ All editable from the **Settings** page (and persisted to `/config/settings.json
 ## Development
 
 ```bash
-git clone https://github.com/<you>/dragontag.git
+git clone https://github.com/chropic/dragontag.git
 cd dragontag
 python -m venv .venv
 source .venv/bin/activate            # or .venv\Scripts\activate on Windows
@@ -252,10 +256,6 @@ pytest -v
 
 ## Roadmap
 
-- [x] Per-job cover-art picker — choose from MB candidates or upload a custom image
-- [x] Dry-run mode — previews destination & tags without writing or moving
-- [x] Bulk operations — re-tag everything from a given source folder
-- [x] Lyrics + `ITUNESADVISORY` fetched from LRCLIB, toggleable in settings
 - [ ] Webhook / Discord notifications for completed batches
 
 ---

@@ -1,7 +1,6 @@
 """Explicit-content classifier.
 
-Uses word-boundary regex matching against a predefined list of explicit words.
-Logic ported from L:\\Files\\Repos\\autoadvisory\\app\\advisory.py.
+Word-boundary regex classifier for explicit content detection.
 """
 from __future__ import annotations
 

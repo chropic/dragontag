@@ -20,6 +20,8 @@ from ..models import Track
 
 log = logging.getLogger(__name__)
 
+_BATCH_SIZE = 50
+
 
 def scan_folder(folder_path: Path, folder_id: int) -> int:
     """Walk folder_path, upsert a Track row for every supported audio file.
@@ -27,19 +29,33 @@ def scan_folder(folder_path: Path, folder_id: int) -> int:
     Returns the count of files processed.
     """
     count = 0
+    batch: list[Path] = []
     for p in sorted(folder_path.rglob("*")):
         if not p.is_file() or p.suffix.lower() not in SUPPORTED_EXTS:
             continue
-        try:
-            with session() as s:
-                _upsert_from_disk(s, p, folder_id)
-        except Exception:
-            log.exception("scanner: failed to index %s", p)
-        count += 1
-        if count % 100 == 0:
-            log.info("scanner: %d files indexed in %s", count, folder_path)
+        batch.append(p)
+        if len(batch) >= _BATCH_SIZE:
+            _flush_batch(batch, folder_id)
+            count += len(batch)
+            batch = []
+            if count % 500 == 0:
+                log.info("scanner: %d files indexed in %s", count, folder_path)
+    if batch:
+        _flush_batch(batch, folder_id)
+        count += len(batch)
     log.info("scanner: finished %s — %d files", folder_path, count)
     return count
+
+
+def _flush_batch(paths: list[Path], folder_id: int) -> None:
+    with session() as s:
+        for p in paths:
+            try:
+                _upsert_from_disk(s, p, folder_id)
+            except Exception:
+                log.exception("scanner: failed to index %s", p)
+                s.rollback()
+        s.commit()
 
 
 def _upsert_from_disk(s, path: Path, folder_id: int) -> Track:
@@ -65,12 +81,9 @@ def _upsert_from_disk(s, path: Path, folder_id: int) -> Track:
         for k, v in fields.items():
             setattr(existing, k, v)
         s.add(existing)
-        s.commit()
         return existing
     track = Track(path=str(path), indexed_at=now, **fields)
     s.add(track)
-    s.commit()
-    s.refresh(track)
     return track
 
 

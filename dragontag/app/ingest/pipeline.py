@@ -23,7 +23,7 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
-from sqlmodel import select
+from sqlmodel import Session, select
 
 from ..config import env, settings
 from ..db import session
@@ -35,6 +35,7 @@ from ..library.mover import move, write_cover_jpg
 from ..library.paths import build_destination
 from ..models import Job, JobStatus, ReviewReason
 from ..tagging.coverart import fetch_for_release, fetch_for_release_group
+from ..tagging.schema import TrackTags
 from ..tagging.writers import write_tags
 
 log = logging.getLogger(__name__)
@@ -97,7 +98,7 @@ def process(job_id: int) -> None:
             s.commit()
 
 
-def _process_inner(s, job: Job) -> None:
+def _process_inner(s: Session, job: Job) -> None:
     src = Path(job.source_path)
     if not src.exists():
         _set(job, status=JobStatus.error, error="Source file not found")
@@ -269,7 +270,7 @@ def _process_inner(s, job: Job) -> None:
     _commit_tag_path(s, job, src, tags, score=best_total)
 
 
-def _commit_tag_path(s, job: Job, src: Path, tags, *, score: float) -> None:
+def _commit_tag_path(s: Session, job: Job, src: Path, tags: TrackTags, *, score: float) -> None:
     """Final 'happy path' actions: cover art + write + move.
 
     Also reachable from the review UI's apply handler (after the user picks a
@@ -379,17 +380,16 @@ def _pick_library_folder() -> Path:
     return Path(folder.path) if folder else env().library_path
 
 
-def _upsert_track(s, dest: Path, tags, lib_root: Path):
+def _upsert_track(s: Session, dest: Path, tags: TrackTags, lib_root: Path) -> "Track":
     """Create or update the Track row for a successfully moved file."""
     from ..models import LibraryFolder, Track
-    from datetime import datetime as _dt
 
     folder_row = s.exec(
         select(LibraryFolder).where(LibraryFolder.path == str(lib_root))
     ).first()
     folder_id = folder_row.id if folder_row else None
 
-    now = _dt.utcnow()
+    now = datetime.utcnow()
     existing = s.exec(select(Track).where(Track.path == str(dest))).first()
     if existing:
         existing.library_folder_id = folder_id
@@ -467,7 +467,7 @@ def start_worker() -> None:
     global _worker_started
     if _worker_started:
         return
-    t = threading.Thread(target=_worker_loop, name="aio-pipeline", daemon=True)
+    t = threading.Thread(target=_worker_loop, name="dragontag-pipeline", daemon=True)
     t.start()
     _worker_started = True
 

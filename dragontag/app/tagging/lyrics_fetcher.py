@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import logging
 
-import requests
-
 log = logging.getLogger(__name__)
 
 _BASE = "https://lrclib.net/api"
@@ -38,6 +36,7 @@ def fetch(
 
 
 def _fetch_inner(artist, title, album, duration) -> str | None:
+    import requests
     params: dict = {"track_name": title, "artist_name": artist}
     if album:
         params["album_name"] = album

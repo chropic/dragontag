@@ -14,6 +14,7 @@ from typing import Iterable
 from fastapi import UploadFile
 
 from ..config import env
+from ..library.paths import unique_path
 from . import pipeline
 
 
@@ -27,14 +28,7 @@ async def save_uploads(files: Iterable[UploadFile]) -> list[int]:
         # Defensive: ``upload.filename`` is browser-supplied, so strip any
         # path components so the user can't write outside the drop folder.
         name = Path(upload.filename or "uploaded").name
-        target = drop / name
-
-        # Uniquify on collision — appending ``-1``, ``-2``, … keeps each
-        # upload separate even if the user uploads the same name twice.
-        i = 1
-        while target.exists():
-            target = drop / f"{Path(name).stem}-{i}{Path(name).suffix}"
-            i += 1
+        target = unique_path(drop / name)
 
         # Stream chunks rather than loading the whole file into memory —
         # FLACs from a high-bitrate rip can easily be 100MB+.

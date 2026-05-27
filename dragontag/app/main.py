@@ -94,7 +94,7 @@ def require_auth(request: Request) -> None:
 def login_page(request: Request):
     if env().resolve_password() is None:
         return RedirectResponse("/setup", status_code=303)
-    return templates.TemplateResponse("login.html", {"request": request, "error": None})
+    return templates.TemplateResponse(request, "login.html", {"request": request, "error": None})
 
 
 @app.post("/login")
@@ -106,6 +106,7 @@ def login_submit(request: Request, username: str = Form(...), password: str = Fo
         return RedirectResponse("/", status_code=303)
     # Generic error — don't leak whether the username or password was wrong.
     return templates.TemplateResponse(
+        request,
         "login.html",
         {"request": request, "error": "Invalid credentials"},
         status_code=401,
@@ -122,7 +123,7 @@ def setup_page(request: Request):
     """Show the first-run wizard. Redirects away once a password is configured."""
     if env().resolve_password() is not None:
         return RedirectResponse("/login", status_code=303)
-    return templates.TemplateResponse("setup.html", {"request": request, "error": None, "username": env().username})
+    return templates.TemplateResponse(request, "setup.html", {"request": request, "error": None, "username": env().username})
 
 
 @app.post("/setup")
@@ -149,6 +150,7 @@ def setup_submit(
 
     if error:
         return templates.TemplateResponse(
+            request,
             "setup.html",
             {"request": request, "error": error, "username": env().username},
             status_code=422,
@@ -188,7 +190,7 @@ def dashboard(request: Request, _: None = Depends(require_auth), page: int = 1):
             .offset((page - 1) * _PER_PAGE).limit(_PER_PAGE)
         ).all()
     total_pages = max(1, (total + _PER_PAGE - 1) // _PER_PAGE)
-    return templates.TemplateResponse("dashboard.html", {
+    return templates.TemplateResponse(request, "dashboard.html", {
         "request": request, "jobs": jobs, "page": page, "total_pages": total_pages,
     })
 
@@ -204,7 +206,7 @@ def jobs_table(request: Request, _: None = Depends(require_auth), page: int = 1)
             .offset((page - 1) * _PER_PAGE).limit(_PER_PAGE)
         ).all()
     total_pages = max(1, (total + _PER_PAGE - 1) // _PER_PAGE)
-    return templates.TemplateResponse("_jobs_table.html", {
+    return templates.TemplateResponse(request, "_jobs_table.html", {
         "request": request, "jobs": jobs, "page": page, "total_pages": total_pages,
     })
 
@@ -221,7 +223,7 @@ def job_detail(job_id: int, request: Request, _: None = Depends(require_auth)):
         job = s.get(Job, job_id)
         if not job:
             raise HTTPException(404)
-    return templates.TemplateResponse("job_detail.html", {"request": request, "job": job})
+    return templates.TemplateResponse(request, "job_detail.html", {"request": request, "job": job})
 
 
 @app.post("/jobs/{job_id}/requeue")
@@ -266,7 +268,7 @@ def review(request: Request, _: None = Depends(require_auth)):
             .where(Job.status == JobStatus.needs_review)
             .order_by(Job.updated_at.desc())
         ).all()
-    return templates.TemplateResponse("review.html", {"request": request, "items": items})
+    return templates.TemplateResponse(request, "review.html", {"request": request, "items": items})
 
 
 @app.post("/review/{job_id}/apply")
@@ -364,7 +366,7 @@ def resolve_conflict(
 @app.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, _: None = Depends(require_auth)):
     return templates.TemplateResponse(
-        "settings.html", {"request": request, "settings": settings()}
+        request, "settings.html", {"request": request, "settings": settings()}
     )
 
 
@@ -453,6 +455,7 @@ def library(request: Request, _: None = Depends(require_auth), folder_id: int | 
         active_id = folder_id or (folders[0].id if folders else None)
         tracks = _query_tracks(s, active_id, q)
     return templates.TemplateResponse(
+        request,
         "library.html",
         {"request": request, "folders": folders, "active_id": active_id, "tracks": tracks, "q": q},
     )
@@ -463,7 +466,7 @@ def library_tracks(request: Request, _: None = Depends(require_auth), folder_id:
     """HTMX partial: filtered track table."""
     with session() as s:
         tracks = _query_tracks(s, folder_id, q)
-    return templates.TemplateResponse("_library_tracks.html", {"request": request, "tracks": tracks})
+    return templates.TemplateResponse(request, "_library_tracks.html", {"request": request, "tracks": tracks})
 
 
 def _query_tracks(s, folder_id: int | None, q: str) -> list:
@@ -483,7 +486,7 @@ def _query_tracks(s, folder_id: int | None, q: str) -> list:
 def library_folders(request: Request, _: None = Depends(require_auth)):
     with session() as s:
         folders = s.exec(select(LibraryFolder).order_by(LibraryFolder.priority, LibraryFolder.id)).all()
-    return templates.TemplateResponse("library_folders.html", {"request": request, "folders": folders})
+    return templates.TemplateResponse(request, "library_folders.html", {"request": request, "folders": folders})
 
 
 @app.post("/library/folders")

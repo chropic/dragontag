@@ -40,12 +40,62 @@
   </div>
 
   <div class="bg-slate-800 p-4 rounded border border-slate-700 space-y-2">
+    <h3 class="font-semibold">Genre options</h3>
+    <label class="block">
+      <span class="text-slate-400">Max genres (0 = no limit)</span>
+      <input type="number" name="genre_limit" min="0" value="{{ settings.genre_limit }}"
+             class="mt-1 p-1 rounded bg-slate-900 border border-slate-700 w-24">
+    </label>
+    <label class="block">
+      <span class="text-slate-400">Genre casing</span>
+      <select name="genre_casing" class="mt-1 p-1 rounded bg-slate-900 border border-slate-700">
+        <option value="title" {% if settings.genre_casing == "title" %}selected{% endif %}>Title Case</option>
+        <option value="lower" {% if settings.genre_casing == "lower" %}selected{% endif %}>lowercase</option>
+        <option value="as-is" {% if settings.genre_casing == "as-is" %}selected{% endif %}>as-is (raw MB tags)</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="bg-slate-800 p-4 rounded border border-slate-700 space-y-2">
     <h3 class="font-semibold">Multi-value separators</h3>
     <div class="grid grid-cols-2 gap-2">
-      <label>ARTIST <input name="sep_ARTIST" value="{{ settings.separators.ARTIST }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
-      <label>album_artist <input name="sep_album_artist" value="{{ settings.separators.album_artist }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
-      <label>ARTISTS <input name="sep_ARTISTS" value="{{ settings.separators.ARTISTS }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
-      <label>GENRE <input name="sep_GENRE" value="{{ settings.separators.GENRE }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
+      {% set sep = settings.separators %}
+      <label>ARTIST <input name="sep_ARTIST" value="{{ sep.ARTIST }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
+      <label>album_artist <input name="sep_album_artist" value="{{ sep.album_artist }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
+      <label>ARTISTS <input name="sep_ARTISTS" value="{{ sep.ARTISTS }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
+      <label>ARTISTSORT <input name="sep_ARTISTSORT" value="{{ sep.ARTISTSORT }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
+      <label>ALBUMARTISTSORT <input name="sep_ALBUMARTISTSORT" value="{{ sep.ALBUMARTISTSORT }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
+      <label>GENRE <input name="sep_GENRE" value="{{ sep.GENRE }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
+      <label>LABEL <input name="sep_LABEL" value="{{ sep.LABEL }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
+      <label>ISRC <input name="sep_ISRC" value="{{ sep.ISRC }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
+      <label>COMPOSER <input name="sep_COMPOSER" value="{{ sep.COMPOSER }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
+      <label>CONDUCTOR <input name="sep_CONDUCTOR" value="{{ sep.CONDUCTOR }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
+      <label>LYRICIST <input name="sep_LYRICIST" value="{{ sep.LYRICIST }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
+      <label>ARRANGER <input name="sep_ARRANGER" value="{{ sep.ARRANGER }}" class="p-1 rounded bg-slate-900 border border-slate-700 w-24 ml-2 font-mono"></label>
+    </div>
+  </div>
+
+  <div class="bg-slate-800 p-4 rounded border border-slate-700 space-y-2">
+    <h3 class="font-semibold">Skip fields</h3>
+    <p class="text-xs text-slate-500">Checked fields will not be written to audio files.</p>
+    {% set skipped = settings.skip_fields %}
+    <div class="grid grid-cols-2 gap-1">
+      {% for field_name in [
+        "acoustid_id", "arranger", "artist_sort", "album_artist_sort",
+        "barcode", "catalog_number", "compilation", "composers",
+        "conductor", "disc", "disc_total", "genres", "isrcs",
+        "labels", "language", "lyricist", "mb_album_artist_ids",
+        "mb_album_id", "mb_artist_ids", "mb_release_group_id",
+        "mb_releasetrack_id", "mb_track_id", "media", "original_date",
+        "original_year", "release_country", "release_status",
+        "release_type", "script", "track_total"
+      ] %}
+      <label class="flex items-center gap-2">
+        <input type="checkbox" name="skip_fields" value="{{ field_name }}"
+               {% if field_name in skipped %}checked{% endif %}>
+        <code class="text-xs">{{ field_name }}</code>
+      </label>
+      {% endfor %}
     </div>
   </div>
 

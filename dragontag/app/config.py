@@ -63,6 +63,9 @@ class Separators(BaseModel):
     MUSICBRAINZ_ARTISTID: str = ";"
     MUSICBRAINZ_ALBUMARTISTID: str = ";"
     COMPOSER: str = ";"
+    CONDUCTOR: str = ";"
+    LYRICIST: str = ";"
+    ARRANGER: str = ";"
     default: str = ";"
 
 
@@ -80,6 +83,12 @@ class UserSettings(BaseModel):
 
     # ----- tag rendering -----
     separators: Separators = Field(default_factory=Separators)
+    # genre_limit: max genres written (0 = no limit)
+    genre_limit: int = 3
+    # genre_casing: "title" (Title Case), "lower" (lowercase), "as-is" (raw MB tags)
+    genre_casing: str = "title"
+    # skip_fields: list of TrackTags attribute names to omit when writing tags
+    skip_fields: list[str] = Field(default_factory=list)
 
     # ----- library layout -----
     # Placeholders accepted by ``Path.format`` calls in library/paths.py:

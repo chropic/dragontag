@@ -13,6 +13,10 @@ def test_vorbis_render_matches_reference():
         album="gluee",
         album_artist_display="Bladee",
         album_artist_sort=["Bladee"],
+        composers=["Some Composer"],
+        conductor=["Some Conductor"],
+        lyricist=["Some Lyricist"],
+        arranger=["Some Arranger"],
         date="2014-01-27",
         original_date="2014-01-27",
         original_year="2014",
@@ -23,6 +27,9 @@ def test_vorbis_render_matches_reference():
         media="Digital Media",
         barcode="7071245142858",
         isrcs=["SE4LC1400201"],
+        catalog_number="REV-001",
+        language="eng",
+        compilation=True,
         release_country="XW",
         release_status="official",
         release_type="Album",
@@ -40,7 +47,7 @@ def test_vorbis_render_matches_reference():
     )
     out = t.to_vorbis(sep)
 
-    # Lowercase + casing exactly as in flac_metadata.md
+    # --- core fields ---
     assert out["TITLE"] == "deletee (intro)"
     assert out["ARTIST"] == "Bladee//Thaiboy Digital"
     assert out["ARTISTS"] == "Bladee;Thaiboy Digital"
@@ -75,3 +82,31 @@ def test_vorbis_render_matches_reference():
         "cd689e77-dfdd-4f81-b50c-5e5a3f5e38a4;68d311c0-525f-4f72-a044-84e54565d02d"
     )
     assert out["MUSICBRAINZ_RELEASEGROUPID"] == "c3669980-9a4b-4cb5-89e5-e4efb144972e"
+
+    # --- new fields ---
+    assert out["COMPOSER"] == "Some Composer"
+    assert out["CONDUCTOR"] == "Some Conductor"
+    assert out["LYRICIST"] == "Some Lyricist"
+    assert out["ARRANGER"] == "Some Arranger"
+    assert out["CATALOGNUMBER"] == "REV-001"
+    assert out["LANGUAGE"] == "eng"
+    assert out["COMPILATION"] == "1"
+
+
+def test_new_fields_omitted_when_empty():
+    sep = Separators()
+    t = TrackTags(title="test")
+    out = t.to_vorbis(sep)
+    assert "CONDUCTOR" not in out
+    assert "LYRICIST" not in out
+    assert "ARRANGER" not in out
+    assert "CATALOGNUMBER" not in out
+    assert "LANGUAGE" not in out
+    assert "COMPILATION" not in out
+
+
+def test_compilation_false_not_written():
+    sep = Separators()
+    t = TrackTags(title="test", compilation=False)
+    out = t.to_vorbis(sep)
+    assert "COMPILATION" not in out

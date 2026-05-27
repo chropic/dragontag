@@ -37,7 +37,7 @@ def lookup(path: Path) -> list[AcoustIDMatch]:
     if not key:
         return []
     try:
-        results = list(acoustid.match(key, str(path)))
+        duration, fingerprint = acoustid.fingerprint_file(str(path))
     except acoustid.NoBackendError:
         # fpcalc isn't installed / on PATH. Shouldn't happen in our Docker
         # image (we apt-get libchromaprint-tools) but possible in local dev.
@@ -45,16 +45,19 @@ def lookup(path: Path) -> list[AcoustIDMatch]:
     except acoustid.FingerprintGenerationError:
         # File is too short / corrupt / not actually audio.
         return []
+
+    try:
+        response = acoustid.lookup(key, fingerprint, duration, meta="recordings")
     except acoustid.WebServiceError:
         return []
 
     out: list[AcoustIDMatch] = []
-    for score, recording_id, *_ in results:
-        # ``acoustid.match`` (the high-level helper) doesn't expose the
-        # AcoustID UUID directly — we'd need ``acoustid.lookup`` for that.
-        # Leaving acoustid_id empty here is fine: the pipeline uses MB to
-        # build the rest of the tags.
-        out.append(
-            AcoustIDMatch(acoustid_id="", score=float(score), recording_id=recording_id)
-        )
+    for result in response.get("results") or []:
+        aid = result.get("id", "")
+        score = float(result.get("score", 0))
+        for recording in result.get("recordings") or []:
+            rid = recording.get("id")
+            if rid:
+                out.append(AcoustIDMatch(acoustid_id=aid, score=score, recording_id=rid))
+    out.sort(key=lambda x: x.score, reverse=True)
     return out

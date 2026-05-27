@@ -21,7 +21,21 @@ def write_tags(path: Path, tags: TrackTags) -> None:
     for — that's preferable to silently doing nothing.
     """
     ext = path.suffix.lower().lstrip(".")
-    sep = settings().separators  # snapshot now so a settings save mid-write doesn't shift things
+    s = settings()
+    sep = s.separators  # snapshot now so a settings save mid-write doesn't shift things
+
+    # Zero out any fields the user has opted to skip. Writers already omit
+    # None / empty-list / False values, so this cleanly suppresses them.
+    for field_name in s.skip_fields:
+        if not hasattr(tags, field_name):
+            continue
+        current = getattr(tags, field_name)
+        if isinstance(current, list):
+            setattr(tags, field_name, [])
+        elif isinstance(current, bool):
+            setattr(tags, field_name, False)
+        else:
+            setattr(tags, field_name, None)
 
     if ext == "flac":
         from .flac import write as f

@@ -164,6 +164,7 @@ def _process_inner(s, job: Job) -> None:
                         score=m.score,
                         recording_id=m.recording_id,
                         release_id=rel["id"],
+                        acoustid_id=m.acoustid_id,
                         raw_recording=rec,
                         raw_release=rel,
                     )
@@ -220,6 +221,8 @@ def _process_inner(s, job: Job) -> None:
     # ----- step 6: fully resolve the chosen candidate -----
     try:
         tags = mbq.assemble_tags(release_id=best.release_id, recording_id=best.recording_id)
+        if best.acoustid_id:
+            tags.acoustid_id = best.acoustid_id
     except Exception as e:
         _append_log(job, f"assemble_tags failed: {e}")
         _set(

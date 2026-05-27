@@ -16,6 +16,7 @@ Routes are grouped:
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, UploadFile
@@ -31,7 +32,7 @@ from .db import session
 from .identify import musicbrainz as mbq
 from .ingest import pipeline, uploads, watcher
 from .library.mover import move
-from .models import Job, JobStatus
+from .models import Job, JobStatus, LibraryFolder, Track
 
 logging.basicConfig(level=logging.INFO)
 
@@ -300,3 +301,119 @@ def settings_update(
     }
     store().update(patch)
     return RedirectResponse("/settings", status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# Library
+# ---------------------------------------------------------------------------
+
+
+@app.get("/library", response_class=HTMLResponse)
+def library(request: Request, _: None = Depends(require_auth), folder_id: int | None = None, q: str = ""):
+    with session() as s:
+        folders = s.exec(select(LibraryFolder).order_by(LibraryFolder.priority, LibraryFolder.id)).all()
+        active_id = folder_id or (folders[0].id if folders else None)
+        tracks = _query_tracks(s, active_id, q)
+    return templates.TemplateResponse(
+        "library.html",
+        {"request": request, "folders": folders, "active_id": active_id, "tracks": tracks, "q": q},
+    )
+
+
+@app.get("/library/tracks", response_class=HTMLResponse)
+def library_tracks(request: Request, _: None = Depends(require_auth), folder_id: int | None = None, q: str = ""):
+    """HTMX partial: filtered track table."""
+    with session() as s:
+        tracks = _query_tracks(s, folder_id, q)
+    return templates.TemplateResponse("_library_tracks.html", {"request": request, "tracks": tracks})
+
+
+def _query_tracks(s, folder_id: int | None, q: str) -> list:
+    stmt = select(Track)
+    if folder_id is not None:
+        stmt = stmt.where(Track.library_folder_id == folder_id)
+    if q:
+        like = f"%{q}%"
+        from sqlalchemy import or_
+        stmt = stmt.where(
+            or_(Track.title.ilike(like), Track.artist.ilike(like), Track.album.ilike(like))
+        )
+    stmt = stmt.order_by(Track.album, Track.disc_num, Track.track_num, Track.title)
+    return s.exec(stmt).all()
+
+
+@app.get("/library/folders", response_class=HTMLResponse)
+def library_folders(request: Request, _: None = Depends(require_auth)):
+    with session() as s:
+        folders = s.exec(select(LibraryFolder).order_by(LibraryFolder.priority, LibraryFolder.id)).all()
+    return templates.TemplateResponse("library_folders.html", {"request": request, "folders": folders})
+
+
+@app.post("/library/folders")
+def library_folders_add(
+    request: Request,
+    _: None = Depends(require_auth),
+    path: str = Form(...),
+    label: str = Form(""),
+    priority: int = Form(0),
+):
+    with session() as s:
+        s.add(LibraryFolder(path=path.strip(), label=label.strip(), priority=priority))
+        s.commit()
+    return RedirectResponse("/library/folders", status_code=303)
+
+
+@app.post("/library/folders/{folder_id}/delete")
+def library_folders_delete(folder_id: int, request: Request, _: None = Depends(require_auth)):
+    with session() as s:
+        f = s.get(LibraryFolder, folder_id)
+        if f:
+            s.delete(f)
+            s.commit()
+    return RedirectResponse("/library/folders", status_code=303)
+
+
+@app.post("/library/scan")
+def library_scan(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
+    with session() as s:
+        f = s.get(LibraryFolder, folder_id)
+        if not f:
+            raise HTTPException(404)
+        folder_path, fid = Path(f.path), f.id
+
+    def _run():
+        from .library.scanner import scan_folder
+        scan_folder(folder_path, fid)
+
+    threading.Thread(target=_run, daemon=True, name="scanner").start()
+    return RedirectResponse("/library", status_code=303)
+
+
+@app.post("/library/organize")
+def library_organize(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
+    with session() as s:
+        f = s.get(LibraryFolder, folder_id)
+        if not f:
+            raise HTTPException(404)
+        fid = f.id
+
+    def _run():
+        from .library.organizer import organize_folder
+        organize_folder(fid)
+
+    threading.Thread(target=_run, daemon=True, name="organizer").start()
+    return RedirectResponse("/library", status_code=303)
+
+
+@app.post("/library/bulk-retag")
+def library_bulk_retag(
+    request: Request,
+    _: None = Depends(require_auth),
+    source_path: str = Form(...),
+):
+    from .ingest.bulk import enqueue_folder
+    try:
+        enqueue_folder(Path(source_path.strip()))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return RedirectResponse("/", status_code=303)

@@ -10,7 +10,7 @@ request threads. SQLModel/SQLAlchemy serialize writes internally.
 """
 from __future__ import annotations
 
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
 from .config import env
 
@@ -33,7 +33,22 @@ def engine():
             connect_args={"check_same_thread": False},
         )
         SQLModel.metadata.create_all(_engine)
+        _seed_library_folder()
     return _engine
+
+
+def _seed_library_folder() -> None:
+    """Insert a default LibraryFolder from env().library_path if the table is empty.
+
+    Keeps single-library deployments working transparently after the upgrade.
+    Called once per engine construction (i.e. once per process).
+    """
+    from .models import LibraryFolder
+    with Session(_engine) as s:
+        if s.exec(select(LibraryFolder)).first():
+            return
+        s.add(LibraryFolder(path=str(env().library_path), label="Default library"))
+        s.commit()
 
 
 def session() -> Session:

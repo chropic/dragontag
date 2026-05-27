@@ -1,21 +1,21 @@
 {% extends "base.html" %}
 {% block content %}
-<a href="/" class="text-slate-400 hover:text-white text-sm">&larr; Back</a>
-<h2 class="text-xl font-semibold mt-2">{{ job.original_name }}</h2>
+<a href="/" class="text-[#8a8a8a] hover:text-white text-sm">&larr; Back</a>
+<h2 class="font-mono font-semibold text-xl mt-2">{{ job.original_name }}</h2>
 <dl class="mt-4 grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-  <dt class="text-slate-400">Status</dt><dd>{{ job.status.value }}</dd>
-  <dt class="text-slate-400">Score</dt><dd>{{ "%.3f"|format(job.score) if job.score is not none else "—" }}</dd>
-  <dt class="text-slate-400">Reason</dt><dd>{{ job.review_reason.value if job.review_reason else "" }}</dd>
-  <dt class="text-slate-400">Source</dt><dd class="truncate">{{ job.source_path }}</dd>
-  <dt class="text-slate-400">Destination</dt><dd class="truncate">{{ job.destination_path or "" }}</dd>
+  <dt class="text-[#8a8a8a]">Status</dt><dd>{{ job.status.value }}</dd>
+  <dt class="text-[#8a8a8a]">Score</dt><dd>{{ "%.3f"|format(job.score) if job.score is not none else "—" }}</dd>
+  <dt class="text-[#8a8a8a]">Reason</dt><dd>{{ job.review_reason.value if job.review_reason else "" }}</dd>
+  <dt class="text-[#8a8a8a]">Source</dt><dd class="truncate font-mono text-xs">{{ job.source_path }}</dd>
+  <dt class="text-[#8a8a8a]">Destination</dt><dd class="truncate font-mono text-xs">{{ job.destination_path or "" }}</dd>
 </dl>
 {% if job.error %}
-<pre class="mt-4 bg-red-900/30 p-3 rounded text-xs overflow-auto">{{ job.error }}</pre>
+<pre class="mt-4 bg-[#ffb4b4]/10 border border-[#ffb4b4]/30 p-3 text-[#ffb4b4] text-xs overflow-auto">{{ job.error }}</pre>
 {% endif %}
-<h3 class="mt-6 font-semibold">Log</h3>
-<pre class="bg-slate-800 p-3 rounded text-xs whitespace-pre-wrap">{{ job.log }}</pre>
+<h3 class="mt-6 font-mono font-semibold">Log</h3>
+<pre class="bg-[#0c0c0c] border border-[#4a4a4a] p-3 text-xs whitespace-pre-wrap text-[#cfcfcf]">{{ job.log }}</pre>
 {% if job.chosen_tags_json %}
-<h3 class="mt-6 font-semibold">Chosen tags</h3>
-<pre class="bg-slate-800 p-3 rounded text-xs overflow-auto">{{ job.chosen_tags_json|tojson(indent=2) }}</pre>
+<h3 class="mt-6 font-mono font-semibold">Chosen tags</h3>
+<pre class="bg-[#0c0c0c] border border-[#4a4a4a] p-3 text-xs overflow-auto text-[#cfcfcf]">{{ job.chosen_tags_json|tojson(indent=2) }}</pre>
 {% endif %}
 {% endblock %}

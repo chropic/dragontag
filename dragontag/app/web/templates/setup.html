@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>First-run setup — dragontag</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        borderRadius: { none:'0', sm:'0', DEFAULT:'0', md:'0', lg:'0', xl:'0', full:'9999px' },
+        extend: {
+          fontFamily: {
+            mono: ['IBM Plex Mono', 'JetBrains Mono', 'monospace'],
+            sans: ['IBM Plex Sans', 'system-ui', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 9999;
+      background: linear-gradient(180deg,rgba(255,255,255,.04) 0,rgba(255,255,255,.04) 1px,transparent 1px,transparent 4px);
+      background-size: 100% 4px;
+    }
+  </style>
+</head>
+<body class="bg-black text-white font-sans min-h-screen flex items-center justify-center p-6">
+  <div class="w-full max-w-md space-y-6">
+
+    <div>
+      <h1 class="font-mono font-semibold text-2xl tracking-tight">dragontag</h1>
+      <p class="text-[#8a8a8a] text-sm mt-1">First-run setup — configure credentials before use.</p>
+    </div>
+
+    {% if error %}
+    <div class="border border-[#ffb4b4] bg-[#ffb4b4]/10 p-3 text-[#ffb4b4] text-sm">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="/setup" class="space-y-5">
+
+      <div class="border border-[#4a4a4a] p-4 space-y-3">
+        <h2 class="font-mono font-semibold text-sm uppercase tracking-widest text-[#cfcfcf]">Credentials</h2>
+
+        <div>
+          <label class="block text-xs text-[#8a8a8a] mb-1">
+            Username
+            <span class="ml-1 font-mono text-[#4a4a4a]">(set via <code>AIO_USERNAME</code> env var)</span>
+          </label>
+          <div class="p-2 bg-[#0c0c0c] border border-[#4a4a4a] text-[#8a8a8a] font-mono text-sm select-none">
+            {{ username }}
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs text-[#8a8a8a] mb-1" for="password">Password</label>
+          <input id="password" name="password" type="password" required autocomplete="new-password"
+                 class="w-full p-2 bg-black border border-[#4a4a4a] text-white placeholder-[#8a8a8a] focus:outline-none focus:border-[#a8a8a8]"
+                 placeholder="choose a strong password">
+        </div>
+
+        <div>
+          <label class="block text-xs text-[#8a8a8a] mb-1" for="password_confirm">Confirm password</label>
+          <input id="password_confirm" name="password_confirm" type="password" required autocomplete="new-password"
+                 class="w-full p-2 bg-black border border-[#4a4a4a] text-white placeholder-[#8a8a8a] focus:outline-none focus:border-[#a8a8a8]"
+                 placeholder="repeat password">
+        </div>
+      </div>
+
+      <div class="border border-[#4a4a4a] p-4 space-y-3">
+        <h2 class="font-mono font-semibold text-sm uppercase tracking-widest text-[#cfcfcf]">AcoustID <span class="text-[#4a4a4a] font-normal normal-case tracking-normal">optional</span></h2>
+        <p class="text-xs text-[#8a8a8a]">
+          Enables audio fingerprint fallback when MusicBrainz text search finds nothing.
+          Get a free key at <span class="font-mono text-[#cfcfcf]">acoustid.org/login</span>.
+        </p>
+        <div>
+          <label class="block text-xs text-[#8a8a8a] mb-1" for="acoustid_key">API key</label>
+          <input id="acoustid_key" name="acoustid_key" type="text" autocomplete="off"
+                 class="w-full p-2 bg-black border border-[#4a4a4a] text-white placeholder-[#8a8a8a] font-mono focus:outline-none focus:border-[#a8a8a8]"
+                 placeholder="leave blank to skip">
+        </div>
+      </div>
+
+      <div class="border border-[#4a4a4a] p-4 space-y-1 text-xs text-[#8a8a8a]">
+        <h2 class="font-mono font-semibold text-sm uppercase tracking-widest text-[#cfcfcf] mb-2">Volumes</h2>
+        <div class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono">
+          <span class="text-[#cfcfcf]">/library</span><span>destination for tagged files</span>
+          <span class="text-[#cfcfcf]">/drop</span><span>watched ingest folder</span>
+          <span class="text-[#cfcfcf]">/config</span><span>database, settings, this password hash</span>
+        </div>
+        <p class="pt-2">Paths are set by Docker volume mounts — edit <span class="font-mono text-[#cfcfcf]">docker-compose.yml</span> to change them. More library folders can be added later from the Library page.</p>
+      </div>
+
+      <button type="submit"
+              class="w-full p-2 bg-white text-black font-mono font-semibold hover:bg-[#cfcfcf] transition-colors">
+        Save and continue to login
+      </button>
+
+    </form>
+  </div>
+</body>
+</html>

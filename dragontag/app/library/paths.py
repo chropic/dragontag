@@ -56,9 +56,19 @@ def render_filename(tags: TrackTags, ext: str) -> str:
     )
 
 
-def build_destination(tags: TrackTags, source_ext: str) -> Path:
-    """Return the full absolute destination path for a tagged track."""
-    base = env().library_path
+def build_destination(
+    tags: TrackTags,
+    source_ext: str,
+    *,
+    library_root: Path | None = None,
+) -> Path:
+    """Return the full absolute destination path for a tagged track.
+
+    ``library_root`` overrides ``env().library_path`` when multiple library
+    folders are configured. Existing callers that pass no keyword argument
+    continue to get the env default.
+    """
+    base = library_root if library_root is not None else env().library_path
     # Prefer album_artist (band on the cover) over artist_display
     # (featured-credits string) for the folder name — it keeps "Artist feat.
     # Guest" tracks under the main artist's folder.

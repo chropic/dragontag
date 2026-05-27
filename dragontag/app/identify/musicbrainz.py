@@ -181,7 +181,6 @@ def fetch_recording(recording_id: str) -> dict[str, Any]:
             "artists",
             "isrcs",
             "releases",
-            "release-groups",
             "artist-credits",
             "artist-rels",
             "work-rels",

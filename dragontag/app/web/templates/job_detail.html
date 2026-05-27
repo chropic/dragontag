@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% block title %}dragontag | Job #{{ job.id }}{% endblock %}
 {% block content %}
 <a href="/" class="text-[#8a8a8a] hover:text-white text-sm">&larr; Back</a>
 {% if job.status.value in ("done", "error", "skipped") %}

@@ -20,6 +20,12 @@ Notable convention details captured here:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from importlib.metadata import version as _pkg_version
+
+try:
+    _DRAGONTAG_VERSION = _pkg_version("dragontag")
+except Exception:
+    _DRAGONTAG_VERSION = "dev"
 
 
 @dataclass
@@ -92,6 +98,9 @@ class TrackTags:
     # advisory: 0=clean, 1=explicit, None=no lyrics available
     lyrics: str | None = None
     advisory: int | None = None
+
+    # --- tagger attribution ---
+    tagger: str = field(default_factory=lambda: f"tagged via dragontag/{_DRAGONTAG_VERSION}")
 
     def to_vorbis(self, sep) -> dict[str, str]:
         """Render to ``{VorbisFieldName: string-value}`` for FLAC/OGG writers.
@@ -195,5 +204,8 @@ class TrackTags:
         put("LYRICS", self.lyrics)
         if self.advisory is not None:
             d["ITUNESADVISORY"] = str(self.advisory)
+
+        # ----- attribution -----
+        put("TAGGER", self.tagger)
 
         return d

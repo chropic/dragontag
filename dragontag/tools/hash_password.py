@@ -5,7 +5,7 @@ Usage::
     python -m dragontag.tools.hash_password 'my-password' > secrets/password.txt
 
 The output is a single argon2 hash string; the web app reads it via the
-``AIO_PASSWORD_FILE`` env var (set in ``docker-compose.yml``).
+``DRAGONTAG_PASSWORD_FILE`` env var (set in ``docker-compose.yml``).
 """
 import sys
 

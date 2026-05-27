@@ -13,10 +13,10 @@ services:
       - dragontag_password
       - acoustid_api_key
     environment:
-      - AIO_USERNAME=admin
-      - AIO_PASSWORD_FILE=/run/secrets/dragontag_password
-      - AIO_ACOUSTID_KEY_FILE=/run/secrets/acoustid_api_key
-      - AIO_SESSION_SECRET_FILE=/run/secrets/dragontag_password
+      - DRAGONTAG_USERNAME=admin
+      - DRAGONTAG_PASSWORD_FILE=/run/secrets/dragontag_password
+      - DRAGONTAG_ACOUSTID_KEY_FILE=/run/secrets/acoustid_api_key
+      - DRAGONTAG_SESSION_SECRET_FILE=/run/secrets/dragontag_password
       - TZ=America/New_York
     restart: unless-stopped
     # -------------------------------------------------------------------------

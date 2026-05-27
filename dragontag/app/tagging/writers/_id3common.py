@@ -70,6 +70,7 @@ TXXX_FIELDS = (
     "TOTALDISCS",
     "CATALOGNUMBER",
     "ARRANGER",
+    "TAGGER",
 )
 
 

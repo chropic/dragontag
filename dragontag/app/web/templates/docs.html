@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}dragontag | Docs{% endblock %}
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-8">
+<h2 class="text-xl font-mono font-semibold mb-2">Documentation</h2>
+<p class="text-[#8a8a8a] text-sm">A reference for everything dragontag does.</p>
+
+<section class="space-y-3">
+  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">Overview</h3>
+  <p class="text-sm text-[#cfcfcf]">dragontag is a self-hosted audio tagger and library organizer powered by MusicBrainz and AcoustID. Drop audio files into the watched folder (or upload them via the UI) and the pipeline identifies, tags, and moves them into your library automatically.</p>
+</section>
+
+<section class="space-y-3">
+  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">How it works</h3>
+  <pre class="text-xs text-[#cfcfcf] bg-[#0c0c0c] border border-[#4a4a4a] p-4 overflow-x-auto">
+Drop file → Read existing tags + filename clues
+         → MusicBrainz text search
+         → [if empty] AcoustID fingerprint fallback
+         → Score candidates → Pick best
+         → [score ≥ threshold] Fetch full MB data
+         → Fetch cover art (Cover Art Archive)
+         → Fetch lyrics (LRCLIB) + detect advisory
+         → Write tags to file
+         → Move to library destination
+         → [score &lt; threshold or missing data] → Review queue
+  </pre>
+</section>
+
+<section class="space-y-3">
+  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">Configuration</h3>
+  <p class="text-xs text-[#8a8a8a] mb-2">Set via environment variables in <code>docker-compose.yml</code>:</p>
+  <table class="w-full text-xs">
+    <thead class="text-[#8a8a8a] border-b border-[#4a4a4a]">
+      <tr><th class="text-left pb-2 pr-4">Variable</th><th class="text-left pb-2 pr-4">Default</th><th class="text-left pb-2">Description</th></tr>
+    </thead>
+    <tbody class="text-[#cfcfcf]">
+      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">DRAGONTAG_USERNAME</td><td class="py-1 pr-4">admin</td><td class="py-1">Web UI login username</td></tr>
+      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">DRAGONTAG_PASSWORD_FILE</td><td class="py-1 pr-4">—</td><td class="py-1">Path to argon2 hash (Docker secret)</td></tr>
+      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">DRAGONTAG_PASSWORD</td><td class="py-1 pr-4">—</td><td class="py-1">Plain-text password (dev only)</td></tr>
+      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">DRAGONTAG_ACOUSTID_KEY_FILE</td><td class="py-1 pr-4">—</td><td class="py-1">AcoustID API key file</td></tr>
+      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">DRAGONTAG_SESSION_SECRET_FILE</td><td class="py-1 pr-4">—</td><td class="py-1">Session signing secret file</td></tr>
+      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">DRAGONTAG_LIBRARY_PATH</td><td class="py-1 pr-4">/library</td><td class="py-1">Library root directory</td></tr>
+      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">DRAGONTAG_DROP_PATH</td><td class="py-1 pr-4">/drop</td><td class="py-1">Watched ingest folder</td></tr>
+      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">DRAGONTAG_CONFIG_PATH</td><td class="py-1 pr-4">/config</td><td class="py-1">Config directory (DB + settings.json)</td></tr>
+      <tr><td class="py-1 pr-4 font-mono">TZ</td><td class="py-1 pr-4">UTC</td><td class="py-1">Timezone for displayed timestamps</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="space-y-3">
+  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">File formats</h3>
+  <p class="text-sm text-[#cfcfcf]">Supported: <code class="text-xs">.flac</code> <code class="text-xs">.mp3</code> <code class="text-xs">.wav</code> <code class="text-xs">.m4a</code> <code class="text-xs">.mp4</code></p>
+  <p class="text-sm text-[#8a8a8a]">FLAC uses Vorbis Comments. MP3/WAV use ID3v2.4 with TXXX frames for custom fields. MP4/M4A use standard atoms with <code class="text-xs">----:com.apple.iTunes:&lt;NAME&gt;</code> for custom fields — compatible with MusicBrainz Picard.</p>
+</section>
+
+<section class="space-y-3">
+  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">Library organization templates</h3>
+  <p class="text-sm text-[#cfcfcf]">Configured in Settings → Filename templates. Available tokens:</p>
+  <table class="w-full text-xs">
+    <thead class="text-[#8a8a8a] border-b border-[#4a4a4a]">
+      <tr><th class="text-left pb-2 pr-4">Token</th><th class="text-left pb-2">Example</th></tr>
+    </thead>
+    <tbody class="text-[#cfcfcf]">
+      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">{track:02d}</td><td class="py-1">01, 02, 12</td></tr>
+      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">{disc}</td><td class="py-1">1, 2</td></tr>
+      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">{title}</td><td class="py-1">Song Title</td></tr>
+      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">{artist}</td><td class="py-1">Artist Name</td></tr>
+      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">{ext}</td><td class="py-1">flac, mp3</td></tr>
+      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">{tracktotal}</td><td class="py-1">12</td></tr>
+      <tr><td class="py-1 pr-4 font-mono">{disctotal}</td><td class="py-1">2</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="space-y-3">
+  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">Review queue</h3>
+  <p class="text-sm text-[#cfcfcf]">Jobs land in the Review queue when:</p>
+  <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
+    <li><strong>Low score</strong> — Best candidate scored below the auto-apply threshold</li>
+    <li><strong>No match</strong> — Neither MusicBrainz text search nor AcoustID returned candidates</li>
+    <li><strong>Missing RELEASETYPE</strong> — MB release-group has no primary-type (a heuristic fallback tries first)</li>
+    <li><strong>Destination conflict</strong> — Target path already exists</li>
+    <li><strong>Dry run</strong> — Dry-run mode is active; no files are written</li>
+  </ul>
+  <p class="text-sm text-[#8a8a8a]">From the Review page you can pick a different candidate, override the RELEASETYPE, upload custom cover art, or approve/skip the job.</p>
+</section>
+
+<section class="space-y-3">
+  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">Webhook setup</h3>
+  <p class="text-sm text-[#cfcfcf]">Configure a Discord webhook (or any HTTP endpoint) in Settings → Webhook notifications. Use the <strong>Test</strong> button to verify connectivity. Payloads are Discord-compatible embeds sent via HTTP POST.</p>
+</section>
+
+</div>
+{% endblock %}

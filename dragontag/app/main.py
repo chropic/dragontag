@@ -15,11 +15,15 @@ Routes are grouped:
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -35,6 +39,31 @@ from .ingest import pipeline, uploads, watcher
 from .library.mover import move
 from .library.paths import unique_path
 from .models import Job, JobStatus, LibraryFolder, ReviewReason, Track
+
+
+def _local_tz() -> ZoneInfo:
+    tz = os.environ.get("TZ", "UTC")
+    try:
+        return ZoneInfo(tz)
+    except (ZoneInfoNotFoundError, KeyError):
+        return ZoneInfo("UTC")
+
+
+def _format_local(dt: datetime | None) -> str:
+    """Format a UTC datetime as a local-timezone string using the TZ env var."""
+    if dt is None:
+        return "—"
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    local = dt.astimezone(_local_tz())
+    return local.strftime("%Y-%m-%d %H:%M")
+
+
+def _toast_response(redirect_url: str, message: str, level: str = "success") -> Response:
+    """Return a redirect that also carries an HX-Trigger showToast header."""
+    resp = RedirectResponse(redirect_url, status_code=303)
+    resp.headers["HX-Trigger"] = json.dumps({"showToast": {"message": message, "level": level}})
+    return resp
 
 logging.basicConfig(level=logging.INFO)
 
@@ -56,6 +85,7 @@ _static_dir = Path(__file__).parent / "web" / "static"
 app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "web" / "templates"))
+templates.env.globals["format_local"] = _format_local
 
 
 @app.on_event("startup")
@@ -185,13 +215,22 @@ def dashboard(request: Request, _: None = Depends(require_auth), page: int = 1):
     page = max(1, page)
     with session() as s:
         total = s.exec(select(func.count(Job.id))).one()
-        jobs = s.exec(
-            select(Job).order_by(Job.updated_at.desc())
-            .offset((page - 1) * _PER_PAGE).limit(_PER_PAGE)
+        # Show only 10 recent jobs on the dashboard; the /jobs page shows all.
+        recent_jobs = s.exec(
+            select(Job).order_by(Job.updated_at.desc()).limit(10)
         ).all()
-    total_pages = max(1, (total + _PER_PAGE - 1) // _PER_PAGE)
+        # Library stats
+        total_tracks = s.exec(select(func.count(Track.id))).one()
+        total_albums = s.exec(select(func.count(func.distinct(Track.album)))).one()
+        total_artists = s.exec(select(func.count(func.distinct(Track.artist)))).one()
     return templates.TemplateResponse(request, "dashboard.html", {
-        "request": request, "jobs": jobs, "page": page, "total_pages": total_pages,
+        "request": request,
+        "jobs": recent_jobs,
+        "total_jobs": total,
+        "total_tracks": total_tracks,
+        "total_albums": total_albums,
+        "total_artists": total_artists,
+        "active_page": "dashboard",
     })
 
 
@@ -217,13 +256,84 @@ async def upload(request: Request, _: None = Depends(require_auth), files: list[
     return RedirectResponse("/", status_code=303)
 
 
+@app.get("/jobs", response_class=HTMLResponse)
+def jobs_page(request: Request, _: None = Depends(require_auth), page: int = 1):
+    """Full job queue page with all controls."""
+    page = max(1, page)
+    with session() as s:
+        total = s.exec(select(func.count(Job.id))).one()
+        jobs = s.exec(
+            select(Job).order_by(Job.updated_at.desc())
+            .offset((page - 1) * _PER_PAGE).limit(_PER_PAGE)
+        ).all()
+        pending = s.exec(select(func.count(Job.id)).where(Job.status.in_([
+            JobStatus.queued, JobStatus.identifying, JobStatus.tagging, JobStatus.moving
+        ]))).one()
+        done_today = s.exec(select(func.count(Job.id)).where(Job.status == JobStatus.done)).one()
+        errors = s.exec(select(func.count(Job.id)).where(Job.status == JobStatus.error)).one()
+    total_pages = max(1, (total + _PER_PAGE - 1) // _PER_PAGE)
+    return templates.TemplateResponse(request, "jobs.html", {
+        "request": request,
+        "jobs": jobs,
+        "page": page,
+        "total_pages": total_pages,
+        "pending": pending,
+        "done_today": done_today,
+        "errors": errors,
+        "active_page": "jobs",
+    })
+
+
+@app.post("/jobs/clear-completed")
+def jobs_clear_completed(request: Request, _: None = Depends(require_auth)):
+    with session() as s:
+        rows = s.exec(select(Job).where(Job.status == JobStatus.done)).all()
+        for r in rows:
+            s.delete(r)
+        s.commit()
+    return _toast_response("/jobs", f"Cleared {len(rows)} completed job(s).")
+
+
+@app.post("/jobs/clear-errors")
+def jobs_clear_errors(request: Request, _: None = Depends(require_auth)):
+    with session() as s:
+        rows = s.exec(select(Job).where(Job.status == JobStatus.error)).all()
+        for r in rows:
+            s.delete(r)
+        s.commit()
+    return _toast_response("/jobs", f"Cleared {len(rows)} error job(s).")
+
+
+@app.post("/jobs/cancel-queued")
+def jobs_cancel_queued(request: Request, _: None = Depends(require_auth)):
+    with session() as s:
+        rows = s.exec(select(Job).where(Job.status == JobStatus.queued)).all()
+        for r in rows:
+            r.status = JobStatus.skipped
+            s.add(r)
+        s.commit()
+    return _toast_response("/jobs", f"Cancelled {len(rows)} queued job(s).")
+
+
+@app.post("/jobs/{job_id}/cancel")
+def job_cancel(job_id: int, request: Request, _: None = Depends(require_auth)):
+    with session() as s:
+        job = s.get(Job, job_id)
+        if not job or job.status != JobStatus.queued:
+            raise HTTPException(400, "only queued jobs can be cancelled")
+        job.status = JobStatus.skipped
+        s.add(job)
+        s.commit()
+    return RedirectResponse("/jobs", status_code=303)
+
+
 @app.get("/jobs/{job_id}", response_class=HTMLResponse)
 def job_detail(job_id: int, request: Request, _: None = Depends(require_auth)):
     with session() as s:
         job = s.get(Job, job_id)
         if not job:
             raise HTTPException(404)
-    return templates.TemplateResponse(request, "job_detail.html", {"request": request, "job": job})
+    return templates.TemplateResponse(request, "job_detail.html", {"request": request, "job": job, "active_page": "jobs"})
 
 
 @app.post("/jobs/{job_id}/requeue")
@@ -268,7 +378,34 @@ def review(request: Request, _: None = Depends(require_auth)):
             .where(Job.status == JobStatus.needs_review)
             .order_by(Job.updated_at.desc())
         ).all()
-    return templates.TemplateResponse(request, "review.html", {"request": request, "items": items})
+    return templates.TemplateResponse(request, "review.html", {"request": request, "items": items, "active_page": "review"})
+
+
+@app.post("/review/bulk-apply")
+async def review_bulk_apply(
+    request: Request,
+    _: None = Depends(require_auth),
+    job_ids: list[int] = Form(...),
+):
+    """Apply the top candidate for each selected review job."""
+    applied = 0
+    with session() as s:
+        for job_id in job_ids:
+            job = s.get(Job, job_id)
+            if not job or job.status != JobStatus.needs_review:
+                continue
+            candidates = (job.candidates_json or {}).get("items", [])
+            if not candidates:
+                continue
+            best = candidates[0]
+            try:
+                tags = mbq.assemble_tags(release_id=best["release_id"], recording_id=best["recording_id"])
+                from .ingest.pipeline import _commit_tag_path
+                _commit_tag_path(s, job, Path(job.source_path), tags, score=job.score or 1.0)
+                applied += 1
+            except Exception:
+                pass
+    return _toast_response("/review", f"Applied {applied} job(s).")
 
 
 @app.post("/review/{job_id}/apply")
@@ -364,9 +501,14 @@ def resolve_conflict(
 
 
 @app.get("/settings", response_class=HTMLResponse)
-def settings_page(request: Request, _: None = Depends(require_auth)):
+def settings_page(request: Request, _: None = Depends(require_auth), saved: str = ""):
     return templates.TemplateResponse(
-        request, "settings.html", {"request": request, "settings": settings()}
+        request, "settings.html", {
+            "request": request,
+            "settings": settings(),
+            "active_page": "settings",
+            "saved": bool(saved),
+        }
     )
 
 
@@ -377,6 +519,8 @@ def settings_update(
     acoustid_enabled: str | None = Form(None),
     lyrics_enabled: str | None = Form(None),
     dry_run: str | None = Form(None),
+    format_title_case: str | None = Form(None),
+    format_fix_qualifiers: str | None = Form(None),
     score_threshold: float = Form(...),
     filename_template_single: str = Form(...),
     filename_template_multidisc: str = Form(...),
@@ -412,6 +556,8 @@ def settings_update(
         "acoustid_enabled": bool(acoustid_enabled),
         "lyrics_enabled": bool(lyrics_enabled),
         "dry_run": bool(dry_run),
+        "format_title_case": bool(format_title_case),
+        "format_fix_qualifiers": bool(format_fix_qualifiers),
         "score_threshold": score_threshold,
         "filename_template_single": filename_template_single,
         "filename_template_multidisc": filename_template_multidisc,
@@ -440,7 +586,34 @@ def settings_update(
         "webhook_on_error": bool(webhook_on_error),
     }
     store().update(patch)
-    return RedirectResponse("/settings", status_code=303)
+    back = request.headers.get("referer", "/settings")
+    sep = "&" if "?" in back else "?"
+    resp = RedirectResponse(f"{back}{sep}saved=1", status_code=303)
+    resp.headers["HX-Trigger"] = json.dumps({"showToast": {"message": "Settings saved.", "level": "success"}})
+    return resp
+
+
+@app.post("/settings/test-webhook")
+def settings_test_webhook(request: Request, _: None = Depends(require_auth)):
+    """Fire a sample payload to the configured webhook URL."""
+    url = settings().webhook_url
+    if not url:
+        return HTMLResponse(
+            '<span class="text-[#ffb4b4]">No webhook URL configured.</span>',
+            status_code=200,
+        )
+    from .notify import post_done
+    dummy_job = Job(
+        id=0, source_path="test.flac", original_name="test.flac",
+        status=JobStatus.done, score=1.0,
+    )
+    from .tagging.schema import TrackTags
+    dummy_tags = TrackTags(title="Test Track", artist_display="dragontag Test", album="Test Album")
+    try:
+        post_done(dummy_job, dummy_tags)
+        return HTMLResponse('<span class="text-[#c7f0c7]">Webhook fired successfully.</span>')
+    except Exception as e:
+        return HTMLResponse(f'<span class="text-[#ffb4b4]">Webhook error: {e}</span>')
 
 
 # ---------------------------------------------------------------------------
@@ -457,7 +630,15 @@ def library(request: Request, _: None = Depends(require_auth), folder_id: int | 
     return templates.TemplateResponse(
         request,
         "library.html",
-        {"request": request, "folders": folders, "active_id": active_id, "tracks": tracks, "q": q},
+        {
+            "request": request,
+            "folders": folders,
+            "active_id": active_id,
+            "tracks": tracks,
+            "q": q,
+            "active_page": "library",
+            "settings": settings(),
+        },
     )
 
 
@@ -486,7 +667,7 @@ def _query_tracks(s, folder_id: int | None, q: str) -> list:
 def library_folders(request: Request, _: None = Depends(require_auth)):
     with session() as s:
         folders = s.exec(select(LibraryFolder).order_by(LibraryFolder.priority, LibraryFolder.id)).all()
-    return templates.TemplateResponse(request, "library_folders.html", {"request": request, "folders": folders})
+    return templates.TemplateResponse(request, "library_folders.html", {"request": request, "folders": folders, "active_page": "library"})
 
 
 @app.post("/library/folders")
@@ -526,7 +707,7 @@ def library_scan(request: Request, _: None = Depends(require_auth), folder_id: i
         scan_folder(folder_path, fid)
 
     threading.Thread(target=_run, daemon=True, name="scanner").start()
-    return RedirectResponse("/library", status_code=303)
+    return _toast_response("/library", "Folder scan started.")
 
 
 @app.post("/library/organize")
@@ -542,7 +723,7 @@ def library_organize(request: Request, _: None = Depends(require_auth), folder_i
         organize_folder(fid)
 
     threading.Thread(target=_run, daemon=True, name="organizer").start()
-    return RedirectResponse("/library", status_code=303)
+    return _toast_response("/library", "Folder organization started.")
 
 
 @app.post("/library/bulk-retag")
@@ -550,10 +731,135 @@ def library_bulk_retag(
     request: Request,
     _: None = Depends(require_auth),
     source_path: str = Form(...),
+    dry_run: str | None = Form(None),
 ):
     from .ingest.bulk import enqueue_folder
+    # Allow per-request dry_run override; fall back to global setting.
+    if dry_run is not None:
+        store().update({"dry_run": bool(dry_run)})
     try:
         enqueue_folder(Path(source_path.strip()))
     except ValueError as e:
         raise HTTPException(400, str(e))
-    return RedirectResponse("/", status_code=303)
+    return _toast_response("/", "Full library re-tag queued.")
+
+
+@app.post("/library/retag-selected")
+def library_retag_selected(
+    request: Request,
+    _: None = Depends(require_auth),
+    track_ids: list[int] = Form(default=[]),
+    dry_run: str | None = Form(None),
+):
+    """Enqueue specific tracks by their Track.id for re-tagging."""
+    if dry_run is not None:
+        store().update({"dry_run": bool(dry_run)})
+    queued = 0
+    with session() as s:
+        for tid in track_ids:
+            track = s.get(Track, tid)
+            if not track:
+                continue
+            p = Path(track.path)
+            if not p.exists():
+                continue
+            job = pipeline.enqueue(p)
+            pipeline.submit(job.id)
+            queued += 1
+    return _toast_response("/library", f"Queued {queued} track(s) for re-tagging.")
+
+
+@app.post("/library/fetch-lyrics")
+def library_fetch_lyrics(
+    request: Request,
+    _: None = Depends(require_auth),
+    folder_id: int = Form(...),
+):
+    """Fetch and embed lyrics for all tracks in a folder without re-tagging."""
+    with session() as s:
+        tracks = s.exec(select(Track).where(Track.library_folder_id == folder_id)).all()
+    track_paths = [(t.title, t.artist, t.album, Path(t.path)) for t in tracks if Path(t.path).exists()]
+
+    def _run():
+        from .tagging import lyrics_fetcher
+        from .tagging.advisory import is_explicit
+        from .tagging.partial import write_lyrics
+        for title, artist, album, p in track_paths:
+            try:
+                fetched = lyrics_fetcher.fetch(artist=artist, title=title, album=album)
+                if fetched:
+                    advisory = 1 if is_explicit(fetched) else 0
+                    write_lyrics(p, fetched, advisory)
+            except Exception:
+                pass
+
+    threading.Thread(target=_run, daemon=True, name="fetch-lyrics").start()
+    return _toast_response("/library", f"Fetching lyrics for {len(track_paths)} tracks.")
+
+
+@app.post("/library/tag-advisories")
+def library_tag_advisories(
+    request: Request,
+    _: None = Depends(require_auth),
+    folder_id: int = Form(...),
+):
+    """Re-evaluate advisory rating from existing embedded lyrics."""
+    with session() as s:
+        tracks = s.exec(select(Track).where(Track.library_folder_id == folder_id)).all()
+    track_paths = [Path(t.path) for t in tracks if Path(t.path).exists()]
+
+    def _run():
+        from .tagging.advisory import is_explicit
+        from .tagging.partial import read_lyrics, write_advisory
+        for p in track_paths:
+            try:
+                lyrics = read_lyrics(p)
+                if not lyrics:
+                    continue
+                write_advisory(p, 1 if is_explicit(lyrics) else 0)
+            except Exception:
+                pass
+
+    threading.Thread(target=_run, daemon=True, name="tag-advisories").start()
+    return _toast_response("/library", f"Tagging advisories for {len(track_paths)} tracks.")
+
+
+@app.post("/library/fetch-covers")
+def library_fetch_covers(
+    request: Request,
+    _: None = Depends(require_auth),
+    folder_id: int = Form(...),
+):
+    """Fetch and embed cover art for tracks that have MB IDs."""
+    with session() as s:
+        tracks = s.exec(select(Track).where(
+            Track.library_folder_id == folder_id,
+            Track.mb_album_id.is_not(None),
+        )).all()
+    track_data = [(Path(t.path), t.mb_album_id) for t in tracks if Path(t.path).exists()]
+
+    def _run():
+        from .tagging.coverart import fetch_for_release
+        from .tagging.partial import write_cover
+        from .library.mover import write_cover_jpg
+        for p, mb_album_id in track_data:
+            try:
+                cover = fetch_for_release(mb_album_id)
+                if not cover:
+                    continue
+                write_cover(p, cover.data, cover.mime)
+                write_cover_jpg(
+                    p.parent, cover.data,
+                    min_overwrite_pixels=settings().cover_min_overwrite_pixels,
+                    new_width=cover.width,
+                )
+            except Exception:
+                pass
+
+    threading.Thread(target=_run, daemon=True, name="fetch-covers").start()
+    return _toast_response("/library", f"Fetching covers for {len(track_data)} tracks.")
+
+
+@app.get("/docs", response_class=HTMLResponse)
+def docs(request: Request, _: None = Depends(require_auth)):
+    return templates.TemplateResponse(request, "docs.html", {"request": request, "active_page": "docs"})

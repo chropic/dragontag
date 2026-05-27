@@ -51,11 +51,31 @@ SUPPORTED_EXTS = {".flac", ".mp3", ".wav", ".m4a", ".mp4"}
 # ---------------------------------------------------------------------------
 
 
+_ACTIVE_STATUSES = [
+    JobStatus.queued,
+    JobStatus.identifying,
+    JobStatus.tagging,
+    JobStatus.moving,
+]
+
+
 def enqueue(path: Path) -> Job:
     """Persist a new ``Job`` and return it. Doesn't submit to the worker —
     callers call :func:`submit` after committing so the worker can see the row.
+
+    Deduplicates by source path: if an active job already exists for this path
+    it is returned as-is, preventing double-processing when the watcher fires
+    on a file that was just saved by the upload handler.
     """
     with session() as s:
+        existing = s.exec(
+            select(Job).where(
+                Job.source_path == str(path),
+                Job.status.in_(_ACTIVE_STATUSES),
+            )
+        ).first()
+        if existing:
+            return existing
         job = Job(source_path=str(path), original_name=path.name, status=JobStatus.queued)
         s.add(job)
         s.commit()
@@ -66,6 +86,15 @@ def enqueue(path: Path) -> Job:
 # ---------------------------------------------------------------------------
 # Pipeline mechanics
 # ---------------------------------------------------------------------------
+
+
+def _infer_release_type(track_total: int | None) -> str:
+    """Derive RELEASETYPE from track count when MB omits the primary-type."""
+    if track_total is None or track_total >= 7:
+        return "Album"
+    if track_total == 1:
+        return "Single"
+    return "EP"
 
 
 def _set(job: Job, **kwargs) -> None:
@@ -238,21 +267,39 @@ def _process_inner(s: Session, job: Job) -> None:
         s.commit()
         return
 
+    # ----- optional smart formatting -----
+    cfg = settings()
+    if cfg.format_title_case or cfg.format_fix_qualifiers:
+        from ..tagging.formatter import apply as _fmt
+        kw = dict(title_case=cfg.format_title_case, fix_quals=cfg.format_fix_qualifiers)
+        tags.title = _fmt(tags.title, **kw)
+        tags.album = _fmt(tags.album, **kw)
+        tags.artist_display = _fmt(tags.artist_display, **kw)
+        tags.album_artist_display = _fmt(tags.album_artist_display, **kw)
+        tags.composers = [_fmt(c, **kw) or c for c in tags.composers]
+
     # RELEASETYPE is the only field we treat as mandatory — the user's
     # convention demands one, and getting it wrong (e.g. tagging a single as
-    # an album) corrupts a lot of downstream tooling. Route to review.
+    # an album) corrupts a lot of downstream tooling.
+    # Apply a heuristic fallback before routing to review.
     if not tags.release_type:
-        _append_log(job, "RELEASETYPE missing from MB release-group; sending to review for override")
-        job.chosen_tags_json = _tags_to_dict(tags)
-        _set(
-            job,
-            status=JobStatus.needs_review,
-            review_reason=ReviewReason.missing_releasetype,
-            score=best_total,
-        )
-        s.add(job)
-        s.commit()
-        return
+        tags.release_type = _infer_release_type(tags.track_total)
+        _append_log(job, f"RELEASETYPE inferred as '{tags.release_type}' from track count={tags.track_total}")
+        if not tags.release_type:
+            _append_log(job, "RELEASETYPE missing from MB release-group; sending to review for override")
+            job.chosen_tags_json = _tags_to_dict(tags)
+            _set(
+                job,
+                status=JobStatus.needs_review,
+                review_reason=ReviewReason.missing_releasetype,
+                score=best_total,
+            )
+            s.add(job)
+            s.commit()
+            return
+
+    if not tags.release_status:
+        tags.release_status = "Official"
 
     if settings().dry_run:
         lib_root = _pick_library_folder()

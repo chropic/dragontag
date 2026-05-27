@@ -21,9 +21,9 @@ EXPOSE 7593
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:7593/health || exit 1
 
-ENV AIO_LIBRARY_PATH=/library \
-    AIO_DROP_PATH=/drop \
-    AIO_CONFIG_PATH=/config
+ENV DRAGONTAG_LIBRARY_PATH=/library \
+    DRAGONTAG_DROP_PATH=/drop \
+    DRAGONTAG_CONFIG_PATH=/config
 
 USER dragontag
 CMD ["uvicorn", "dragontag.app.main:app", "--host", "0.0.0.0", "--port", "7593"]

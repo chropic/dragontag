@@ -19,13 +19,17 @@ from mutagen.id3 import (
     APIC,
     ID3,
     TALB,
+    TCMP,
     TCOM,
     TCON,
     TDRC,
     TIT2,
+    TLAN,
     TMED,
+    TEXT,
     TPE1,
     TPE2,
+    TPE3,
     TPOS,
     TPUB,
     TRCK,
@@ -63,6 +67,8 @@ TXXX_FIELDS = (
     "TOTALTRACKS",
     "DISCTOTAL",
     "TOTALDISCS",
+    "CATALOGNUMBER",
+    "ARRANGER",
 )
 
 
@@ -90,6 +96,14 @@ def populate_id3(id3: ID3, tags: TrackTags, sep) -> None:
     add_frame(TDRC, "DATE")
     add_frame(TSOP, "ARTISTSORT")
     add_frame(TSO2, "ALBUMARTISTSORT")
+    add_frame(TLAN, "LANGUAGE")
+    # TPE3 = conductor, TEXT = lyricist (standard ID3v2.4 frames)
+    if tags.conductor:
+        id3.add(TPE3(encoding=3, text=sep.CONDUCTOR.join(tags.conductor)))
+    if tags.lyricist:
+        id3.add(TEXT(encoding=3, text=sep.LYRICIST.join(tags.lyricist)))
+    if tags.compilation:
+        id3.add(TCMP(encoding=3, text="1"))
 
     # TRCK/TPOS accept the "NN/TT" form directly — we just feed in what
     # ``to_vorbis`` already produced.

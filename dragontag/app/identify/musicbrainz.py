@@ -51,6 +51,7 @@ class Candidate:
     score: float                 # MB's own 0..1 search relevance score
     recording_id: str
     release_id: str
+    acoustid_id: str = ""        # non-empty when sourced from AcoustID fingerprint
     medium: dict[str, Any] = field(default_factory=dict)
     track: dict[str, Any] = field(default_factory=dict)
     raw_recording: dict[str, Any] = field(default_factory=dict)
@@ -164,6 +165,7 @@ def fetch_recording(recording_id: str) -> dict[str, Any]:
             "releases",
             "release-groups",
             "artist-credits",
+            "artist-rels",
             "work-rels",
             "work-level-rels",
             "tags",
@@ -265,37 +267,68 @@ def assemble_tags(*, release_id: str, recording_id: str) -> TrackTags:
     pt = rg.get("primary-type") or rg.get("type")
     tags.release_type = pt
 
-    # ----- labels / barcode / country / status / script -----
+    # ----- labels / catalog number / barcode / country / status / script / language -----
     labels: list[str] = []
     for li in rel.get("label-info-list") or []:
-        if isinstance(li, dict) and li.get("label"):
-            labels.append(li["label"].get("name"))
+        if isinstance(li, dict):
+            if li.get("label"):
+                labels.append(li["label"].get("name"))
+            if tags.catalog_number is None:
+                cn = li.get("catalog-number")
+                if cn:
+                    tags.catalog_number = cn
     tags.labels = [x for x in labels if x]
     tags.barcode = rel.get("barcode") or None
     tags.release_country = rel.get("country") or None
     tags.release_status = rel.get("status") or None
-    tags.script = (rel.get("text-representation") or {}).get("script")
+    text_rep = rel.get("text-representation") or {}
+    tags.script = text_rep.get("script")
+    tags.language = text_rep.get("language") or None
 
     # ----- ISRCs (recording-level) -----
     tags.isrcs = list(rec.get("isrc-list") or [])
 
-    # ----- genre = top user-tag from recording or release-group -----
-    # MB doesn't have a single canonical genre field; we use the
-    # community-voted tag with the highest count.
+    # ----- compilation flag -----
+    # True when release-group primary-type is Compilation or secondary-types include it.
+    secondary_types = rg.get("secondary-type-list") or []
+    tags.compilation = pt == "Compilation" or "Compilation" in secondary_types
+
+    # ----- genre = top user-tags from recording or release-group -----
+    # MB doesn't have a single canonical genre field; we use community-voted tags.
+    cfg = settings()
     src_tags = rec.get("tag-list") or rg.get("tag-list") or []
     if src_tags:
         sorted_tags = sorted(src_tags, key=lambda t: int(t.get("count", 0)), reverse=True)
-        # Title-case for display consistency (MB tags are usually lowercase).
-        tags.genres = [t["name"].title() for t in sorted_tags[:3]]
+        limit = cfg.genre_limit if cfg.genre_limit > 0 else None
+        raw_genres = [t["name"] for t in (sorted_tags[:limit] if limit else sorted_tags)]
+        casing = cfg.genre_casing
+        if casing == "lower":
+            tags.genres = [g.lower() for g in raw_genres]
+        elif casing == "as-is":
+            tags.genres = raw_genres
+        else:
+            tags.genres = [g.title() for g in raw_genres]
 
-    # ----- composers via recording → work → composer relation -----
+    # ----- recording-level artist relations (conductor, etc.) -----
+    for ar in rec.get("artist-relation-list") or []:
+        name = (ar.get("artist") or {}).get("name")
+        if name and ar.get("type") == "conductor":
+            tags.conductor.append(name)
+
+    # ----- roles via recording → work → artist relations -----
     composers: list[str] = []
     for wr in rec.get("work-relation-list") or []:
         for sub in (wr.get("work", {}) or {}).get("artist-relation-list") or []:
-            if sub.get("type") == "composer":
-                name = sub.get("artist", {}).get("name")
-                if name:
-                    composers.append(name)
+            rel_type = sub.get("type")
+            name = (sub.get("artist") or {}).get("name")
+            if not name:
+                continue
+            if rel_type == "composer":
+                composers.append(name)
+            elif rel_type == "lyricist":
+                tags.lyricist.append(name)
+            elif rel_type == "arranger":
+                tags.arranger.append(name)
     tags.composers = composers
 
     tags.mb_track_id = recording_id

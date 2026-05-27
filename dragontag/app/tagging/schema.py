@@ -51,12 +51,20 @@ class TrackTags:
     disc: int | None = None
     disc_total: int | None = None
 
+    # --- additional roles ---
+    conductor: list[str] = field(default_factory=list)
+    lyricist: list[str] = field(default_factory=list)
+    arranger: list[str] = field(default_factory=list)
+
     # --- descriptive ---
     genres: list[str] = field(default_factory=list)
     labels: list[str] = field(default_factory=list)
     media: str | None = None
     barcode: str | None = None
     isrcs: list[str] = field(default_factory=list)
+    catalog_number: str | None = None
+    language: str | None = None
+    compilation: bool = False
 
     # --- MB release-level metadata ---
     release_country: str | None = None
@@ -111,6 +119,12 @@ class TrackTags:
             d["ALBUMARTISTSORT"] = join(self.album_artist_sort, sep.ALBUMARTISTSORT)
         if self.composers:
             d["COMPOSER"] = join(self.composers, sep.COMPOSER)
+        if self.conductor:
+            d["CONDUCTOR"] = join(self.conductor, sep.CONDUCTOR)
+        if self.lyricist:
+            d["LYRICIST"] = join(self.lyricist, sep.LYRICIST)
+        if self.arranger:
+            d["ARRANGER"] = join(self.arranger, sep.ARRANGER)
 
         # ----- dates -----
         put("DATE", self.date)
@@ -145,6 +159,10 @@ class TrackTags:
         put("BARCODE", self.barcode)
         if self.isrcs:
             d["ISRC"] = join(self.isrcs, sep.ISRC)
+        put("CATALOGNUMBER", self.catalog_number)
+        put("LANGUAGE", self.language)
+        if self.compilation:
+            d["COMPILATION"] = "1"
 
         # ----- MB release-level -----
         put("RELEASECOUNTRY", self.release_country)

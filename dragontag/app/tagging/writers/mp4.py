@@ -65,6 +65,9 @@ def write(path: Path, tags: TrackTags, sep) -> None:
         # Freeform atoms expect bytes, not str.
         t[_ff(name)] = [value.encode("utf-8")]
 
+    if tags.compilation:
+        t["cpil"] = True
+
     v = tags.to_vorbis(sep)
     for k in (
         "ARTISTS",
@@ -80,6 +83,11 @@ def write(path: Path, tags: TrackTags, sep) -> None:
         "LABEL",
         "MEDIA",
         "ISRC",
+        "CATALOGNUMBER",
+        "LANGUAGE",
+        "CONDUCTOR",
+        "LYRICIST",
+        "ARRANGER",
         "ACOUSTID_ID",
         "MUSICBRAINZ_TRACKID",
         "MUSICBRAINZ_RELEASETRACKID",

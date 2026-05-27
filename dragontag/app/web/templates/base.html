@@ -4,19 +4,54 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>{% block title %}dragontag{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        borderRadius: {
+          none: '0', sm: '0', DEFAULT: '0', md: '0', lg: '0',
+          xl: '0', '2xl': '0', '3xl': '0', full: '9999px'
+        },
+        extend: {
+          fontFamily: {
+            mono: ['IBM Plex Mono', 'JetBrains Mono', 'monospace'],
+            sans: ['IBM Plex Sans', 'system-ui', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 9999;
+      background: linear-gradient(
+        180deg,
+        rgba(255,255,255,.04) 0,
+        rgba(255,255,255,.04) 1px,
+        transparent 1px,
+        transparent 4px
+      );
+      background-size: 100% 4px;
+    }
+  </style>
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
-<body class="bg-slate-900 text-slate-100 min-h-screen">
-  <nav class="bg-slate-800 px-4 py-3 flex items-center gap-4 border-b border-slate-700">
-    <a href="/" class="font-semibold">dragontag</a>
-    <a href="/" class="text-slate-300 hover:text-white">Dashboard</a>
-    <a href="/review" class="text-slate-300 hover:text-white">Review</a>
-    <a href="/library" class="text-slate-300 hover:text-white">Library</a>
-    <a href="/settings" class="text-slate-300 hover:text-white">Settings</a>
+<body class="bg-black text-white font-sans min-h-screen">
+  <nav class="bg-[#0c0c0c] px-4 py-3 flex items-center gap-4 border-b border-[#4a4a4a]">
+    <a href="/" class="font-mono font-semibold tracking-tight">dragontag</a>
+    <a href="/" class="text-[#cfcfcf] hover:text-white text-sm">Dashboard</a>
+    <a href="/review" class="text-[#cfcfcf] hover:text-white text-sm">Review</a>
+    <a href="/library" class="text-[#cfcfcf] hover:text-white text-sm">Library</a>
+    <a href="/settings" class="text-[#cfcfcf] hover:text-white text-sm">Settings</a>
     <form action="/logout" method="post" class="ml-auto">
-      <button class="text-slate-400 hover:text-white text-sm">Log out</button>
+      <button class="text-[#8a8a8a] hover:text-white text-sm">Log out</button>
     </form>
   </nav>
   <main class="max-w-6xl mx-auto p-6">

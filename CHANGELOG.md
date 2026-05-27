@@ -82,3 +82,43 @@ Six new fields added to `TrackTags` and written to all supported formats (FLAC/M
 
 ### Files changed
 `dragontag/app/tagging/schema.py`, `dragontag/app/config.py`, `dragontag/app/ingest/pipeline.py`, `dragontag/app/main.py`, `dragontag/app/tagging/writers/_id3common.py`, `dragontag/app/tagging/writers/mp4.py`, `dragontag/app/web/templates/settings.html`, new: `dragontag/app/tagging/lyrics_fetcher.py`, `dragontag/app/tagging/advisory.py`, `tests/test_lyrics_advisory.py`
+
+---
+
+## Tasks 5, 6 — Per-job UX & review flow + Track.advisory DB column
+**Branch:** `task/5-6-review-ux` → PR #5
+
+### Task 6 — Per-job detail page & dry-run review flow
+- `dry_run: bool = False` added to `UserSettings`; exposed as checkbox in settings UI
+- Pipeline's `_process_inner` detects `settings().dry_run` and routes to `needs_review` with `ReviewReason.dry_run` immediately after `assemble_tags()`, storing chosen tags and computed destination without writing/moving
+- `ReviewReason.dry_run` added to the enum
+- Review `/review/{id}/apply` now accepts optional `cover_art_url` (URL) and `cover_art_file` (upload); bytes override is applied before `_commit_tag_path`
+- Cover art guard added in `_commit_tag_path`: fetches from Cover Art Archive only when `tags.cover_bytes` is absent; user-supplied bytes written with `min_overwrite_pixels=0`
+
+### Task 5 — Track.advisory persisted to DB
+- `Track.advisory: int | None` column added to the `Track` SQLModel
+- Idempotent migration in `db.py` (`ALTER TABLE track ADD COLUMN advisory INTEGER`) guarded by `PRAGMA table_info`
+- `_upsert_track` now writes `advisory` on both insert and update paths
+
+### Files changed
+`dragontag/app/models.py`, `dragontag/app/db.py`, `dragontag/app/config.py`, `dragontag/app/ingest/pipeline.py`, `dragontag/app/main.py`, `dragontag/app/web/templates/settings.html`
+
+---
+
+## Tasks 9, 14 — Docker security hardening + GitHub Actions CI/CD
+**Branch:** `task/9-14-docker-ci` → PR #6
+
+### Task 9 — Least-privilege container
+- New system user `dragontag` (uid 1000) created in Dockerfile; `USER dragontag` set before `CMD`
+- `docker-compose.yml` updated: `user: "1000:1000"`, `read_only: true`, `tmpfs: [/tmp]`, `cap_drop: [ALL]`, `security_opt: [no-new-privileges:true]`
+- Image reference switched to `ghcr.io/chropic/dragontag:main`; `build: .` kept as comment for local dev
+- Inline comment block documents the capability audit and the `chown 1000:1000` prerequisite for host volume dirs
+
+### Task 14 — GitHub Actions CI/CD
+- New `.github/workflows/ci.yml` with two jobs:
+  - `test`: runs on every push + PR; `setup-python 3.12` → `pip install -e ".[dev]"` → `pytest -v`
+  - `docker`: depends on `test`; skipped on PRs; logs into GHCR with `GITHUB_TOKEN`; uses `docker/metadata-action` for branch/semver/SHA tags; `docker/build-push-action` with GHA layer cache
+- README: CI badge added; Quick Start updated to GHCR image + `chown` note; Roadmap items for PRs #1–#5 ticked
+
+### Files changed
+`Dockerfile`, `docker-compose.yml`, `README.md`, new: `.github/workflows/ci.yml`

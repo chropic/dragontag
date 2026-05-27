@@ -171,8 +171,16 @@ class Env(BaseSettings):
     config_path: Path = Path("/config")
 
     def resolve_password(self) -> str | None:
-        """Return either the secret-file content or the inline password."""
-        return _read_secret(self.password_file) or self.password
+        """Return the configured password, checking three sources in priority order:
+        Docker secret file → inline env var → wizard-written hash in config dir.
+        The config-dir fallback lets the first-run setup wizard set a password
+        without requiring a container restart or pre-configured secrets.
+        """
+        return (
+            _read_secret(self.password_file)
+            or self.password
+            or _read_secret(str(self.config_path / "password.hash"))
+        )
 
     def resolve_session_secret(self) -> str:
         """Return a session signing secret. Falls back to an ephemeral random
@@ -185,7 +193,11 @@ class Env(BaseSettings):
         return s
 
     def resolve_acoustid_key(self) -> str | None:
-        return _read_secret(self.acoustid_key_file) or self.acoustid_key
+        return (
+            _read_secret(self.acoustid_key_file)
+            or self.acoustid_key
+            or _read_secret(str(self.config_path / "acoustid.key"))
+        )
 
 
 class _Store:

@@ -1,14 +1,49 @@
 <!doctype html>
-<html><head>
-  <meta charset="utf-8"><title>Sign in — dragontag</title>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Sign in — dragontag</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        borderRadius: { none:'0', sm:'0', DEFAULT:'0', md:'0', lg:'0', xl:'0', full:'9999px' },
+        extend: {
+          fontFamily: {
+            mono: ['IBM Plex Mono', 'JetBrains Mono', 'monospace'],
+            sans: ['IBM Plex Sans', 'system-ui', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 9999;
+      background: linear-gradient(180deg,rgba(255,255,255,.04) 0,rgba(255,255,255,.04) 1px,transparent 1px,transparent 4px);
+      background-size: 100% 4px;
+    }
+  </style>
 </head>
-<body class="bg-slate-900 text-slate-100 min-h-screen flex items-center justify-center">
-  <form method="post" action="/login" class="bg-slate-800 p-8 rounded-lg w-80 space-y-3 border border-slate-700">
-    <h1 class="text-xl font-semibold">dragontag</h1>
-    {% if error %}<div class="text-red-400 text-sm">{{ error }}</div>{% endif %}
-    <input name="username" placeholder="username" class="w-full p-2 rounded bg-slate-900 border border-slate-700" />
-    <input name="password" placeholder="password" type="password" class="w-full p-2 rounded bg-slate-900 border border-slate-700" />
-    <button class="w-full p-2 rounded bg-indigo-600 hover:bg-indigo-500">Sign in</button>
+<body class="bg-black text-white font-sans min-h-screen flex items-center justify-center">
+  <form method="post" action="/login" class="bg-[#0c0c0c] p-8 w-80 space-y-3 border border-[#4a4a4a]">
+    <h1 class="font-mono font-semibold text-xl tracking-tight">dragontag</h1>
+    {% if error %}
+    <div class="text-[#ffb4b4] text-sm">{{ error }}</div>
+    {% endif %}
+    <input name="username" placeholder="username" autocomplete="username"
+           class="w-full p-2 bg-black border border-[#4a4a4a] text-white placeholder-[#8a8a8a] focus:outline-none focus:border-[#a8a8a8]" />
+    <input name="password" placeholder="password" type="password" autocomplete="current-password"
+           class="w-full p-2 bg-black border border-[#4a4a4a] text-white placeholder-[#8a8a8a] focus:outline-none focus:border-[#a8a8a8]" />
+    <button class="w-full p-2 bg-white text-black font-mono font-semibold hover:bg-[#cfcfcf] transition-colors">
+      Sign in
+    </button>
   </form>
-</body></html>
+</body>
+</html>

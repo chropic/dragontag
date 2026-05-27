@@ -67,11 +67,13 @@ def _startup() -> None:
 
 
 def require_auth(request: Request) -> None:
-    """FastAPI dependency: redirect unauthenticated users to /login.
+    """FastAPI dependency: redirect unauthenticated users to /login (or /setup on first boot).
 
     Raising HTTPException with a 303 + Location header is the FastAPI-idiomatic
     way to do a "stop processing this handler" redirect from a dependency.
     """
+    if env().resolve_password() is None:
+        raise HTTPException(status_code=303, headers={"Location": "/setup"})
     if not auth.is_authenticated(request):
         raise HTTPException(status_code=303, headers={"Location": "/login"})
 
@@ -83,11 +85,15 @@ def require_auth(request: Request) -> None:
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
+    if env().resolve_password() is None:
+        return RedirectResponse("/setup", status_code=303)
     return templates.TemplateResponse("login.html", {"request": request, "error": None})
 
 
 @app.post("/login")
 def login_submit(request: Request, username: str = Form(...), password: str = Form(...)):
+    if env().resolve_password() is None:
+        return RedirectResponse("/setup", status_code=303)
     if username == env().username and auth.verify(password):
         auth.login(request, username)
         return RedirectResponse("/", status_code=303)
@@ -97,6 +103,58 @@ def login_submit(request: Request, username: str = Form(...), password: str = Fo
         {"request": request, "error": "Invalid credentials"},
         status_code=401,
     )
+
+
+# ---------------------------------------------------------------------------
+# First-run setup wizard
+# ---------------------------------------------------------------------------
+
+
+@app.get("/setup", response_class=HTMLResponse)
+def setup_page(request: Request):
+    """Show the first-run wizard. Redirects away once a password is configured."""
+    if env().resolve_password() is not None:
+        return RedirectResponse("/login", status_code=303)
+    return templates.TemplateResponse("setup.html", {"request": request, "error": None, "username": env().username})
+
+
+@app.post("/setup")
+def setup_submit(
+    request: Request,
+    password: str = Form(...),
+    password_confirm: str = Form(...),
+    acoustid_key: str = Form(default=""),
+):
+    """Persist the initial password (and optional AcoustID key) then redirect to login.
+
+    Writes to the config volume so the credentials survive container restarts
+    without needing Docker secrets pre-configured. Docker-secret paths always
+    take priority over these files (see config.py resolve_password).
+    """
+    if env().resolve_password() is not None:
+        return RedirectResponse("/login", status_code=303)
+
+    error = None
+    if not password:
+        error = "Password cannot be empty."
+    elif password != password_confirm:
+        error = "Passwords do not match."
+
+    if error:
+        return templates.TemplateResponse(
+            "setup.html",
+            {"request": request, "error": error, "username": env().username},
+            status_code=422,
+        )
+
+    config_dir = env().config_path
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "password.hash").write_text(auth.hash_password(password), encoding="utf-8")
+
+    if acoustid_key.strip():
+        (config_dir / "acoustid.key").write_text(acoustid_key.strip(), encoding="utf-8")
+
+    return RedirectResponse("/login", status_code=303)
 
 
 @app.post("/logout")

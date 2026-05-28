@@ -1,0 +1,17 @@
+{% if cands %}
+<div class="space-y-0.5 border border-[#4a4a4a] p-1 bg-black text-xs">
+  <p class="text-[#8a8a8a] px-1 pb-1 font-mono uppercase tracking-wide">Search results — click to select</p>
+  {% for c in cands %}
+  <label class="flex items-center gap-2 p-1 hover:bg-[#131313] cursor-pointer">
+    <input type="radio" name="pick" value="{{ c.recording_id }}|{{ c.release_id }}">
+    <span class="font-mono text-[#8a8a8a]">{{ "%.2f"|format(c.score) }}</span>
+    <span class="text-[#cfcfcf]">{{ c.title }}</span>
+    <span class="text-[#8a8a8a]">— {{ c.album }}</span>
+    <a class="ml-auto text-[#cfcfcf] hover:underline" target="_blank"
+       href="https://musicbrainz.org/recording/{{ c.recording_id }}">MB ↗</a>
+  </label>
+  {% endfor %}
+</div>
+{% elif searched %}
+<p class="text-xs text-[#8a8a8a]">No results.</p>
+{% endif %}

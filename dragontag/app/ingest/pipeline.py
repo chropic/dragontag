@@ -132,10 +132,16 @@ def process(job_id: int) -> None:
 def _process_inner(s: Session, job: Job) -> None:
     src = Path(job.source_path)
     if not src.exists():
-        _set(job, status=JobStatus.error, error="Source file not found")
-        s.add(job)
-        s.commit()
-        return
+        # Requeued jobs have their source moved to the library; fall back to
+        # destination_path so the pipeline can re-tag the file in place.
+        if job.destination_path and Path(job.destination_path).exists():
+            src = Path(job.destination_path)
+            job.source_path = str(src)
+        else:
+            _set(job, status=JobStatus.error, error="Source file not found")
+            s.add(job)
+            s.commit()
+            return
 
     _set(job, status=JobStatus.identifying)
     _append_log(job, f"Identifying {src.name}")
@@ -152,6 +158,8 @@ def _process_inner(s: Session, job: Job) -> None:
         "duration": existing.get("duration"),
     }
     _append_log(job, f"Clues: {clues}")
+    s.add(job)
+    s.flush()
 
     # ----- step 1: short-circuit on existing MBIDs -----
     # If the file was already tagged by Picard (or by us), the MB IDs are the

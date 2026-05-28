@@ -15,6 +15,8 @@ Mapping strategy:
 """
 from __future__ import annotations
 
+from io import BytesIO
+
 from mutagen.id3 import (
     APIC,
     ID3,
@@ -42,6 +44,21 @@ from mutagen.id3 import (
 )
 
 from ..schema import TrackTags
+
+_MAX_COVER_PX = 1200
+
+
+def _cap_cover(data: bytes, mime: str) -> tuple[bytes, str]:
+    """Resize cover art to at most _MAX_COVER_PX on the longest side."""
+    from PIL import Image
+    img = Image.open(BytesIO(data))
+    if max(img.size) > _MAX_COVER_PX:
+        img.thumbnail((_MAX_COVER_PX, _MAX_COVER_PX), Image.LANCZOS)
+        out = BytesIO()
+        fmt = "JPEG" if "jpeg" in mime or "jpg" in mime else "PNG"
+        img.convert("RGB").save(out, format=fmt, quality=85)
+        return out.getvalue(), mime
+    return data, mime
 
 
 # Anything from the canonical Vorbis schema that doesn't have a dedicated
@@ -133,13 +150,14 @@ def populate_id3(id3: ID3, tags: TrackTags, sep) -> None:
     # ----- embedded front cover -----
     if tags.cover_bytes:
         id3.delall("APIC")
+        cover_data, cover_mime = _cap_cover(tags.cover_bytes, tags.cover_mime or "image/jpeg")
         id3.add(
             APIC(
                 encoding=3,
-                mime=tags.cover_mime,
+                mime=cover_mime,
                 type=3,  # front cover
                 desc="Cover (front)",
-                data=tags.cover_bytes,
+                data=cover_data,
             )
         )
 

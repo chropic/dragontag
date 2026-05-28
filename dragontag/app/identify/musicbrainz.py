@@ -16,6 +16,7 @@ from user settings — MB requires a contact URL/email in it.
 """
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -50,10 +51,23 @@ def _ensure_configured() -> None:
     if _configured:
         return
     s = settings()
-    mb.set_useragent("dragontag", "0.1.0", s.musicbrainz_user_agent)
+    try:
+        from importlib.metadata import version as _pkg_version
+        _version = _pkg_version("dragontag")
+    except Exception:
+        _version = "0.1.5"
+    mb.set_useragent("dragontag", _version, s.musicbrainz_user_agent)
     mb.set_hostname(s.musicbrainz_server)
     mb.set_rate_limit(True)
     _configured = True
+
+
+_TRACK_NUM_PREFIX = re.compile(r"^\d+[\.\-\s]+")
+
+
+def _strip_track_num(title: str) -> str:
+    """Remove leading track numbers like '01. ' or '14-' from a title."""
+    return _TRACK_NUM_PREFIX.sub("", title).strip()
 
 
 @dataclass
@@ -85,55 +99,60 @@ def search_candidates(
     artist: str | None,
     album: str | None,
     duration_sec: float | None = None,
-    limit: int = 5,
+    limit: int = 10,
 ) -> list[Candidate]:
     """Query MB recordings; return one ``Candidate`` per (recording, release) pair.
 
-    Returns ``[]`` if we have no title to search on (MB requires at least one
-    indexed field, and title is the most reliable signal we have).
+    Uses a progressive fallback strategy to maximise hit rate:
+    1. title + artist + album + duration
+    2. title + artist + duration (drop album if no results)
+    3. title + artist only (drop duration if still no results)
 
-    The query is built in Lucene syntax. We escape only the minimum to prevent
-    quote/backslash injection — over-aggressive escaping breaks artist names
-    that contain legitimate special characters.
+    Leading track-number prefixes (e.g. "01. ", "14-") are stripped from the
+    title before querying because they are not part of the MB recording title.
     """
     _ensure_configured()
     if not title:
         return []
 
-    q_parts: list[str] = [f'recording:"{_escape(title)}"']
-    if artist:
-        q_parts.append(f'artist:"{_escape(artist)}"')
-    if album:
-        q_parts.append(f'release:"{_escape(album)}"')
-    if duration_sec:
-        # MB stores duration in ms; ±2s window allows for codec/encoder skew.
-        ms = int(duration_sec * 1000)
-        q_parts.append(f"dur:[{ms - 2000} TO {ms + 2000}]")
+    clean_title = _strip_track_num(title)
 
-    query = " AND ".join(q_parts)
-    try:
-        res = _mb_retry(mb.search_recordings, query=query, limit=limit)
-    except mb.WebServiceError:
-        # Transient MB failure — return empty so the pipeline can fall back
-        # to AcoustID instead of raising.
-        return []
-
-    out: list[Candidate] = []
-    for rec in res.get("recording-list", []):
-        # MB returns recordings paired with the releases they appear on.
-        # We expand to one Candidate per (recording, release) so each can
-        # be ranked separately.
-        for rel in rec.get("release-list", []) or []:
-            out.append(
-                Candidate(
-                    score=float(rec.get("ext:score", 0)) / 100.0,
-                    recording_id=rec["id"],
-                    release_id=rel["id"],
-                    raw_recording=rec,
-                    raw_release=rel,
+    def _run_query(include_album: bool, include_dur: bool) -> list[Candidate]:
+        q_parts: list[str] = [f'recording:"{_escape(clean_title)}"']
+        if artist:
+            q_parts.append(f'artist:"{_escape(artist)}"')
+        if album and include_album:
+            q_parts.append(f'release:"{_escape(album)}"')
+        if duration_sec and include_dur:
+            ms = int(duration_sec * 1000)
+            q_parts.append(f"dur:[{ms - 2000} TO {ms + 2000}]")
+        try:
+            res = _mb_retry(mb.search_recordings, query=" AND ".join(q_parts), limit=limit)
+        except mb.WebServiceError:
+            return []
+        out: list[Candidate] = []
+        for rec in res.get("recording-list", []):
+            for rel in rec.get("release-list", []) or []:
+                out.append(
+                    Candidate(
+                        score=float(rec.get("ext:score", 0)) / 100.0,
+                        recording_id=rec["id"],
+                        release_id=rel["id"],
+                        raw_recording=rec,
+                        raw_release=rel,
+                    )
                 )
-            )
-    return out
+        return out
+
+    results = _run_query(include_album=True, include_dur=True)
+    # Only retry without album if album was actually part of the first query —
+    # otherwise the second call is identical to the first (wasted MB request).
+    if not results and album:
+        results = _run_query(include_album=False, include_dur=True)
+    # Same for duration: skip the third attempt if duration wasn't available.
+    if not results and duration_sec:
+        results = _run_query(include_album=False, include_dur=False)
+    return results
 
 
 def _escape(s: str) -> str:
@@ -262,6 +281,22 @@ def assemble_tags(*, release_id: str, recording_id: str) -> TrackTags:
                 break
         if track_position is not None:
             break
+
+    # Secondary fallback: match by recording title when the recording UUID
+    # isn't in the track-list (rare MB data inconsistency).
+    if track_position is None:
+        rec_title = rec.get("title")
+        for medium in rel.get("medium-list") or []:
+            for trk in medium.get("track-list") or []:
+                if trk.get("title") == rec_title:
+                    track_position = int(trk["position"])
+                    disc_position = int(medium.get("position", 1))
+                    track_total = int(
+                        medium.get("track-count") or len(medium.get("track-list") or [])
+                    )
+                    break
+            if track_position is not None:
+                break
 
     tags.track = track_position
     tags.track_total = track_total

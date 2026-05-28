@@ -15,6 +15,7 @@ from pathlib import Path
 from mutagen.mp4 import MP4, MP4Cover
 
 from ..schema import TrackTags
+from ._id3common import _cap_cover
 
 # Prefix for freeform atoms. Apple's ``----`` namespace + a mean (``com.apple.iTunes``)
 # is the de-facto place for custom string fields.
@@ -106,8 +107,9 @@ def write(path: Path, tags: TrackTags, sep) -> None:
 
     # ----- embedded front cover -----
     if tags.cover_bytes:
-        fmt = MP4Cover.FORMAT_PNG if tags.cover_mime == "image/png" else MP4Cover.FORMAT_JPEG
-        t["covr"] = [MP4Cover(tags.cover_bytes, imageformat=fmt)]
+        cover_data, cover_mime = _cap_cover(tags.cover_bytes, tags.cover_mime or "image/jpeg")
+        fmt = MP4Cover.FORMAT_PNG if cover_mime == "image/png" else MP4Cover.FORMAT_JPEG
+        t["covr"] = [MP4Cover(cover_data, imageformat=fmt)]
 
     # ----- lyrics & advisory -----
     if tags.lyrics:

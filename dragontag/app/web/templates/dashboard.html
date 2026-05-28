@@ -37,8 +37,13 @@
       <!-- File upload -->
       <div>
         <p class="text-xs text-[#8a8a8a] mb-2">Upload individual files</p>
-        <form action="/upload" method="post" enctype="multipart/form-data" class="space-y-2">
-          <input type="file" name="files" multiple class="block w-full text-sm text-[#cfcfcf]" />
+        <form id="upload-form" action="/upload" method="post" enctype="multipart/form-data" class="space-y-2">
+          <div id="upload-zone"
+               class="border border-dashed border-[#4a4a4a] p-4 transition-colors cursor-pointer"
+               onclick="document.getElementById('file-input').click()">
+            <p class="text-xs text-[#8a8a8a] text-center">Drop files here or click to browse</p>
+            <input id="file-input" type="file" name="files" multiple class="hidden" onchange="this.closest('form').submit()" />
+          </div>
           <button class="px-4 py-2 bg-white text-black font-mono font-semibold hover:bg-[#cfcfcf]">Upload &amp; queue</button>
         </form>
         <p class="text-xs text-[#8a8a8a] mt-1">FLAC, MP3, WAV, M4A accepted.</p>
@@ -47,8 +52,13 @@
       <div>
         <p class="text-xs text-[#8a8a8a] mb-2">Tag a folder on the server</p>
         <form action="/library/bulk-retag" method="post" class="space-y-2">
-          <input type="text" name="source_path" placeholder="/path/to/folder"
-                 class="block w-full bg-black border border-[#4a4a4a] p-2 text-sm font-mono text-white" />
+          <div class="flex gap-1">
+            <input id="source-path-input" type="text" name="source_path" placeholder="/path/to/folder"
+                   class="block flex-1 bg-black border border-[#4a4a4a] p-2 text-sm font-mono text-white" />
+            <button type="button" onclick="document.getElementById('source-path-input').value=''"
+                    class="px-2 border border-[#4a4a4a] text-[#8a8a8a] hover:text-white text-sm"
+                    title="Clear folder path">×</button>
+          </div>
           <button class="px-4 py-2 bg-white text-black font-mono font-semibold hover:bg-[#cfcfcf]">Full library re-tag</button>
         </form>
       </div>
@@ -118,4 +128,39 @@
   </div>
 
 </section>
+
+<script>
+  (function () {
+    const zone = document.getElementById('upload-zone');
+    const fileInput = document.getElementById('file-input');
+    const pathInput = document.getElementById('source-path-input');
+
+    zone.addEventListener('dragover', e => {
+      e.preventDefault();
+      zone.classList.add('border-white');
+    });
+    zone.addEventListener('dragleave', () => zone.classList.remove('border-white'));
+    zone.addEventListener('drop', e => {
+      e.preventDefault();
+      zone.classList.remove('border-white');
+      if (e.dataTransfer.files.length) {
+        fileInput.files = e.dataTransfer.files;
+        document.getElementById('upload-form').submit();
+      }
+    });
+
+    // Folder drag onto the path input area
+    if (pathInput) {
+      pathInput.addEventListener('dragover', e => e.preventDefault());
+      pathInput.addEventListener('drop', e => {
+        e.preventDefault();
+        const items = [...(e.dataTransfer.items || [])];
+        const dir = items.map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).find(en => en && en.isDirectory);
+        if (dir) {
+          pathInput.value = '/' + dir.fullPath.replace(/^\//, '');
+        }
+      });
+    }
+  })();
+</script>
 {% endblock %}

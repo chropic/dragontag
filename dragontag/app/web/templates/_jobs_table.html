@@ -1,3 +1,10 @@
+{% if total_pages is defined and total_pages > 1 %}
+<div class="flex justify-end items-center gap-2 mb-2 text-xs text-[#8a8a8a]">
+  {% if page > 1 %}<a href="?page={{ page - 1 }}" class="hover:text-white">← Prev</a>{% endif %}
+  <span>{{ page }} / {{ total_pages }}</span>
+  {% if page < total_pages %}<a href="?page={{ page + 1 }}" class="hover:text-white">Next →</a>{% endif %}
+</div>
+{% endif %}
 <table class="w-full text-sm">
   <thead class="text-[#8a8a8a] border-b border-[#4a4a4a]">
     <tr>
@@ -6,6 +13,7 @@
       <th class="text-left">Score</th>
       <th class="text-left">Updated</th>
       <th class="text-left">Log</th>
+      <th class="text-left">Actions</th>
     </tr>
   </thead>
   <tbody>
@@ -24,16 +32,33 @@
       <td>
         <button class="text-[#8a8a8a] hover:text-white text-xs"
                 hx-get="/jobs/{{ j.id }}/log"
-                hx-target="#log-{{ j.id }}"
+                hx-target="#log-cell-{{ j.id }}"
                 hx-swap="innerHTML"
                 hx-on:click="this.closest('tr').nextElementSibling.classList.toggle('hidden')">▶</button>
       </td>
+      <td class="py-1">
+        <div class="flex gap-1 flex-wrap">
+          {% if j.status.value in ('done', 'error', 'skipped') %}
+          <form method="post" action="/jobs/{{ j.id }}/requeue" class="inline">
+            <button class="text-xs px-2 py-0.5 border border-[#4a4a4a] hover:border-white">Requeue</button>
+          </form>
+          {% endif %}
+          {% if j.status.value == 'queued' %}
+          <form method="post" action="/jobs/{{ j.id }}/cancel" class="inline">
+            <button class="text-xs px-2 py-0.5 border border-[#ffb4b4] text-[#ffb4b4] hover:bg-[#ffb4b4] hover:text-black">Cancel</button>
+          </form>
+          {% endif %}
+          {% if j.status.value == 'needs_review' %}
+          <a href="/review" class="text-xs px-2 py-0.5 border border-[#f2e5b5] text-[#f2e5b5] hover:bg-[#f2e5b5] hover:text-black">Review</a>
+          {% endif %}
+        </div>
+      </td>
     </tr>
     <tr id="log-{{ j.id }}" class="hidden border-b border-[#4a4a4a]">
-      <td colspan="5" class="p-0"></td>
+      <td id="log-cell-{{ j.id }}" colspan="6" class="p-0"></td>
     </tr>
   {% else %}
-    <tr><td class="py-4 text-[#8a8a8a]" colspan="5">No jobs yet.</td></tr>
+    <tr><td class="py-4 text-[#8a8a8a]" colspan="6">No jobs yet.</td></tr>
   {% endfor %}
   </tbody>
 </table>

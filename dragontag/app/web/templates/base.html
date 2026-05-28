@@ -50,7 +50,7 @@
       @show-toast.window="addToast($event.detail)"
       hx-on::after-request="handleHxToast(event)">
 
-  <nav class="bg-[#0c0c0c] px-6 py-5 flex items-center gap-5 border-b border-[#4a4a4a]">
+  <nav class="bg-[#0c0c0c] px-6 py-5 flex items-center gap-5 border-b border-[#4a4a4a] sticky top-0 z-50">
     <a href="/" class="font-mono font-bold text-lg tracking-tight">dragontag</a>
 
     {% set nav_items = [

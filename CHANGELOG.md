@@ -2,6 +2,36 @@
 
 # Changelog
 
+## [0.1.5] — plan-txt sweep (2026-05-27)
+**Branch:** `task/plan-txt-sweep`
+
+### Added
+- **Manual MusicBrainz search in Review queue** — live HTMX search bar above each review item; seeds artist/album from the job's stored tags so results are scoped to the correct artist without extra typing.
+- **Explicit advisory badge in library track table** — an "E" chip appears in each row when `advisory = 1`.
+- **Progressive MB search fallback** — if a title + artist + album + duration query returns nothing, the search retries dropping album, then duration. Redundant retries are skipped when the dropped clause was absent to begin with.
+- **Track-position title-match fallback** — when the recording UUID is missing from the MB release's track-list (rare data inconsistency), position is recovered by matching recording title instead.
+
+### Changed
+- **Cover-art cap now applies to all formats** — the 1200 px resize that previously guarded FLAC against `block is too long` now also runs for MP3, WAV (ID3 APIC frame) and MP4/M4A (`covr` atom).
+- **Progressive MB search skips duplicate queries** — fallback attempts that would produce an identical Lucene query (because the dropped clause was already absent) are elided, cutting worst-case API calls from 3 to 1.
+- **Review Apply/Commit buttons** restore their label and re-enable when the page is restored from the browser's back/forward cache (`pageshow` + `event.persisted`).
+- **"Select all in folder" now shows a confirmation dialog** before submitting the bulk re-tag form.
+- **Manual review search threads job context** — `/api/mb-search` accepts `job_id`; looks up stored `artist_display` and `album` from `chosen_tags_json` and passes them into the MB query for tighter results.
+- **Sticky navigation bar** — `sticky top-0 z-50` added to `<nav>` so the header stays visible while scrolling long pages.
+- **Dashboard upload zone** — file upload area now accepts drag-and-drop directly (drag highlight, auto-submit on drop); folder path input supports directory drag via `webkitGetAsEntry`; clear (×) button added.
+- **musicbrainzngs log level** capped at `WARNING` to suppress INFO-level request noise.
+- **Dynamic package version** in MB `User-Agent` via `importlib.metadata`; falls back to `"0.1.5"` when not installed as a package.
+- Version bumped to `0.1.5`.
+
+### Fixed
+- `folder_id` int-parsing crash (`422 Unprocessable Entity`) when HTMX sort/filter links sent an empty `folder_id=` string — parameter now accepted as `str | None` and coerced manually.
+- `write_tags failed: block is too long to write` on FLAC files with 3000 × 3000 cover art — now capped at 1200 px before embedding (fix extended to all other formats as well).
+- `Source file not found` when requeueing a completed job — pipeline now falls back to `destination_path` before erroring when the original source has already been moved to the library.
+- Intermediate pipeline log lines were invisible mid-job — `s.flush()` after the Clues log line makes them visible without breaking transaction atomicity.
+- Log row HTML (`<pre>` injected directly into `<tr>`) was invalid and broke Chrome's layout — log content now targets a `<td>` wrapper cell.
+
+---
+
 ## Unreleased — TODO 05.27.2026 sweep
 **Branch:** `task/todo-2026-05-27`
 

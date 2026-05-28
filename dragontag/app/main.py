@@ -1024,9 +1024,26 @@ def library_find_missing_tracks(request: Request, _: None = Depends(require_auth
 
 
 @app.get("/api/mb-search", response_class=HTMLResponse)
-def api_mb_search(request: Request, _: None = Depends(require_auth), q: str = ""):
-    """HTMX partial: search MusicBrainz by free-text query from the review page."""
-    cands = mbq.search_candidates(title=q, artist=None, album=None, limit=10) if q.strip() else []
+def api_mb_search(request: Request, _: None = Depends(require_auth), q: str = "", job_id: int = 0):
+    """HTMX partial: search MusicBrainz by free-text query from the review page.
+
+    When job_id is provided, the job's known artist and album are seeded into
+    the search query so results are scoped to the correct artist even when the
+    user types only a partial title.
+    """
+    artist: str | None = None
+    album: str | None = None
+    if job_id and q.strip():
+        with session() as s:
+            job = s.get(Job, job_id)
+            if job:
+                stored = job.chosen_tags_json or {}
+                artist = stored.get("artist_display") or (
+                    stored.get("artists", [None])[0]
+                    if isinstance(stored.get("artists"), list) else None
+                )
+                album = stored.get("album")
+    cands = mbq.search_candidates(title=q, artist=artist, album=album, limit=10) if q.strip() else []
     return templates.TemplateResponse(request, "_mb_search_results.html", {
         "request": request,
         "cands": [

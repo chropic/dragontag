@@ -145,9 +145,12 @@ def search_candidates(
         return out
 
     results = _run_query(include_album=True, include_dur=True)
-    if not results:
+    # Only retry without album if album was actually part of the first query —
+    # otherwise the second call is identical to the first (wasted MB request).
+    if not results and album:
         results = _run_query(include_album=False, include_dur=True)
-    if not results:
+    # Same for duration: skip the third attempt if duration wasn't available.
+    if not results and duration_sec:
         results = _run_query(include_album=False, include_dur=False)
     return results
 

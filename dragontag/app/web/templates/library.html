@@ -168,6 +168,7 @@
     document.querySelectorAll('[name="track_ids"]').forEach(c => c.checked = cb.checked);
   }
   function selectAllFolder() {
+    if (!confirm('Re-tag every track in this folder? This queues the full identify → tag → move pipeline for all tracks, not just the current page.')) return;
     document.getElementById('select-all-folder').value = '{{ active_id or "" }}';
     document.getElementById('retag-form').submit();
   }

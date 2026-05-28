@@ -66,6 +66,7 @@
                hx-trigger="input changed delay:600ms"
                hx-target="#mb-results-{{ j.id }}"
                hx-include="this"
+               hx-vals='{"job_id": {{ j.id }}}'
                name="q">
         <div id="mb-results-{{ j.id }}" class="mt-1"></div>
       </div>
@@ -154,11 +155,13 @@
           <option>Compilation</option><option>Soundtrack</option><option>Other</option>
         </select>
         {% if j.review_reason and j.review_reason.value == "dry_run" %}
-        <button class="ml-auto px-3 py-1 bg-[#c7f0c7] text-black hover:bg-[#c7f0c7]/80"
-                onclick="this.disabled=true; this.textContent='Committing…'; this.form.submit();">Commit</button>
+        <button class="review-submit-btn ml-auto px-3 py-1 bg-[#c7f0c7] text-black hover:bg-[#c7f0c7]/80"
+                data-label="Commit" data-loading-text="Committing…"
+                onclick="this.disabled=true; this.textContent=this.dataset.loadingText; this.form.submit();">Commit</button>
         {% else %}
-        <button class="ml-auto px-3 py-1 bg-[#c7f0c7] text-black hover:bg-[#c7f0c7]/80"
-                onclick="this.disabled=true; this.textContent='Applying…'; this.form.submit();">Apply</button>
+        <button class="review-submit-btn ml-auto px-3 py-1 bg-[#c7f0c7] text-black hover:bg-[#c7f0c7]/80"
+                data-label="Apply" data-loading-text="Applying…"
+                onclick="this.disabled=true; this.textContent=this.dataset.loadingText; this.form.submit();">Apply</button>
         {% endif %}
       </div>
     </form>
@@ -173,4 +176,15 @@
 {% else %}
 <p class="text-[#8a8a8a]">Review queue is empty.</p>
 {% endfor %}
+
+<script>
+window.addEventListener('pageshow', function(e) {
+  if (e.persisted) {
+    document.querySelectorAll('.review-submit-btn').forEach(function(btn) {
+      btn.disabled = false;
+      btn.textContent = btn.dataset.label;
+    });
+  }
+});
+</script>
 {% endblock %}

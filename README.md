@@ -26,19 +26,19 @@ High-confidence matches flow through completely hands-free. Everything else land
 | | |
 |---|---|
 | **Drop & forget ingest** | Drag-and-drop in the web UI *or* drop files into the watched folder — both hit the same pipeline |
-| **MusicBrainz-first ID** | Short-circuits on an existing `MUSICBRAINZ_TRACKID`; otherwise searches by title / artist / album / duration |
+| **MusicBrainz-first ID** | Short-circuits on an existing `MUSICBRAINZ_TRACKID`; otherwise searches by title / artist / album / duration with progressive fallback (drops album, then duration) to maximise hit rate |
 | **AcoustID fingerprint fallback** | Toggleable. Uses `fpcalc` (bundled in the image) when text search comes up empty |
 | **Confidence-scored auto-apply** | Matches above the threshold are tagged and moved without human intervention |
-| **Review queue** | Low-score matches, missing `RELEASETYPE`, and destination conflicts surface a candidate picker and action buttons |
+| **Review queue** | Low-score matches, missing `RELEASETYPE`, and destination conflicts surface a candidate picker, manual MB search bar, and action buttons |
 | **Format coverage** | FLAC · MP3 (ID3v2.4) · WAV (ID3 chunk) · M4A / MP4 |
-| **Cover art** | Best available resolution from the Cover Art Archive, embedded in the file *and* written as `cover.jpg` |
+| **Cover art** | Best available resolution from the Cover Art Archive, resized to ≤ 1200 px for all formats, embedded in the file *and* written as `cover.jpg` |
 | **Lyrics + advisory** | Synced LRC or plain text from LRCLIB, embedded per-format; explicit content auto-tagged as `ITUNESADVISORY` |
 | **Dry-run mode** | Preview destination paths and assembled tags without touching any files |
 | **Webhook notifications** | Discord-compatible webhook fires on job completion or error |
 | **Jobs page** | Full queue view with bulk controls (cancel, clear, requeue) and per-row actions |
 | **Library actions** | Scan library, organize, full library re-tag, plus individual actions: fetch lyrics, fetch covers, extract embedded covers, recompute ReplayGain, verify integrity, fix disc folders, find missing tracks |
 | **Smart formatting** | Title Case, qualifier parenthesization ("Song Live" → "Song (Live)"), grammar correction (ALL-CAPS + contractions + possessives) |
-| **Library table** | Column sorting + standard pagination (10 / 25 / 50 / 100 / 200) |
+| **Library table** | Column sorting + standard pagination (10 / 25 / 50 / 100 / 200); explicit advisory badge on each track row |
 | **Toast notifications** | Global in-app success/error toasts on every action |
 | **In-app docs** | Built-in documentation page at `/docs` |
 | **SQLite-backed state** | All jobs and history survive container restarts |

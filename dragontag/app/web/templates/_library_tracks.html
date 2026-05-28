@@ -12,6 +12,7 @@
   <colgroup>
     <col style="width:24px">
     <col style="width:48px">
+    <col style="width:24px">
     <col style="width:24%">
     <col style="width:18%">
     <col style="width:18%">
@@ -23,6 +24,7 @@
     <tr class="text-left text-[#8a8a8a] border-b border-[#4a4a4a]">
       <th class="pb-2 pr-2"></th>
       <th class="pb-2 pr-2">{{ sort_header("track", "#") }}</th>
+      <th class="pb-2 pr-1 w-6">E</th>
       <th class="pb-2 pr-2">{{ sort_header("title", "Title") }}</th>
       <th class="pb-2 pr-2">{{ sort_header("artist", "Artist") }}</th>
       <th class="pb-2 pr-2">{{ sort_header("album", "Album") }}</th>
@@ -38,6 +40,7 @@
         <input type="checkbox" name="track_ids" value="{{ t.id }}">
       </td>
       <td class="py-1 pr-2 text-[#8a8a8a] overflow-hidden">{{ t.track_num or "—" }}</td>
+      <td class="py-1 pr-1 overflow-hidden">{% if t.advisory == 1 %}<span class="text-xs px-1 bg-[#ffb4b4] text-black font-mono">E</span>{% endif %}</td>
       <td class="py-1 pr-2 truncate" title="{{ t.title or '' }}">{{ t.title or "—" }}</td>
       <td class="py-1 pr-2 text-[#cfcfcf] truncate" title="{{ t.artist or '' }}">{{ t.artist or "—" }}</td>
       <td class="py-1 pr-2 text-[#cfcfcf] truncate" title="{{ t.album or '' }}">{{ t.album or "—" }}</td>

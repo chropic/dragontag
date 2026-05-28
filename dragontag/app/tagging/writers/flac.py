@@ -7,11 +7,27 @@ text tag.
 """
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
 
 from mutagen.flac import FLAC, Picture
 
 from ..schema import TrackTags
+
+_MAX_COVER_PX = 1200
+
+
+def _cap_cover(data: bytes, mime: str) -> tuple[bytes, str]:
+    """Resize cover art to at most _MAX_COVER_PX on the longest side."""
+    from PIL import Image
+    img = Image.open(BytesIO(data))
+    if max(img.size) > _MAX_COVER_PX:
+        img.thumbnail((_MAX_COVER_PX, _MAX_COVER_PX), Image.LANCZOS)
+        out = BytesIO()
+        fmt = "JPEG" if "jpeg" in mime or "jpg" in mime else "PNG"
+        img.convert("RGB").save(out, format=fmt, quality=85)
+        return out.getvalue(), mime
+    return data, mime
 
 
 def write(path: Path, tags: TrackTags, sep) -> None:
@@ -27,11 +43,12 @@ def write(path: Path, tags: TrackTags, sep) -> None:
     # Embedded cover art: type=3 ("front cover") per the FLAC PICTURE spec.
     if tags.cover_bytes:
         audio.clear_pictures()  # avoid stacking covers across re-tags
+        cover_data, cover_mime = _cap_cover(tags.cover_bytes, tags.cover_mime or "image/jpeg")
         pic = Picture()
         pic.type = 3
-        pic.mime = tags.cover_mime
+        pic.mime = cover_mime
         pic.desc = "Cover (front)"
-        pic.data = tags.cover_bytes
+        pic.data = cover_data
         audio.add_picture(pic)
 
     audio.save()

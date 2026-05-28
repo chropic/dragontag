@@ -58,6 +58,18 @@
       </div>
       {% endif %}
 
+      {# ---- manual MB search ---- #}
+      <div class="mb-2">
+        <input type="text" placeholder="Search MusicBrainz manually…"
+               class="w-full p-1 bg-black border border-[#4a4a4a] text-sm"
+               hx-get="/api/mb-search"
+               hx-trigger="input changed delay:600ms"
+               hx-target="#mb-results-{{ j.id }}"
+               hx-include="this"
+               name="q">
+        <div id="mb-results-{{ j.id }}" class="mt-1"></div>
+      </div>
+
       {# ---- candidate radio list ---- #}
       {% set cands = j.candidates_json.get("items", []) if j.candidates_json else [] %}
       {% if cands %}
@@ -142,9 +154,11 @@
           <option>Compilation</option><option>Soundtrack</option><option>Other</option>
         </select>
         {% if j.review_reason and j.review_reason.value == "dry_run" %}
-        <button class="ml-auto px-3 py-1 bg-[#c7f0c7] text-black hover:bg-[#c7f0c7]/80">Commit</button>
+        <button class="ml-auto px-3 py-1 bg-[#c7f0c7] text-black hover:bg-[#c7f0c7]/80"
+                onclick="this.disabled=true; this.textContent='Committing…'; this.form.submit();">Commit</button>
         {% else %}
-        <button class="ml-auto px-3 py-1 bg-[#c7f0c7] text-black hover:bg-[#c7f0c7]/80">Apply</button>
+        <button class="ml-auto px-3 py-1 bg-[#c7f0c7] text-black hover:bg-[#c7f0c7]/80"
+                onclick="this.disabled=true; this.textContent='Applying…'; this.form.submit();">Apply</button>
         {% endif %}
       </div>
     </form>

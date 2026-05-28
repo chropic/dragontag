@@ -66,6 +66,7 @@ def _toast_response(redirect_url: str, message: str, level: str = "success") -> 
     return resp
 
 logging.basicConfig(level=logging.INFO)
+logging.getLogger("musicbrainzngs").setLevel(logging.WARNING)
 
 app = FastAPI(title="dragontag")
 
@@ -671,13 +672,14 @@ _LIBRARY_SORT_COLS = {
 def library(
     request: Request,
     _: None = Depends(require_auth),
-    folder_id: int | None = None,
+    folder_id: str | None = None,
     q: str = "",
     page: int = 1,
     page_size: int = 50,
     sort: str = "album",
     dir: str = "asc",
 ):
+    fid: int | None = int(folder_id) if folder_id and folder_id.strip().isdigit() else None
     if page_size not in _LIBRARY_PAGE_SIZES:
         page_size = 50
     if sort not in _LIBRARY_SORT_COLS:
@@ -687,7 +689,7 @@ def library(
     page = max(1, page)
     with session() as s:
         folders = s.exec(select(LibraryFolder).order_by(LibraryFolder.priority, LibraryFolder.id)).all()
-        active_id = folder_id or (folders[0].id if folders else None)
+        active_id = fid or (folders[0].id if folders else None)
         tracks, total = _query_tracks(s, active_id, q, page, page_size, sort, dir)
     total_pages = max(1, (total + page_size - 1) // page_size)
     return templates.TemplateResponse(
@@ -716,7 +718,7 @@ def library(
 def library_tracks(
     request: Request,
     _: None = Depends(require_auth),
-    folder_id: int | None = None,
+    folder_id: str | None = None,
     q: str = "",
     page: int = 1,
     page_size: int = 50,
@@ -724,6 +726,7 @@ def library_tracks(
     dir: str = "asc",
 ):
     """HTMX partial: filtered track table."""
+    fid: int | None = int(folder_id) if folder_id and folder_id.strip().isdigit() else None
     if page_size not in _LIBRARY_PAGE_SIZES:
         page_size = 50
     if sort not in _LIBRARY_SORT_COLS:
@@ -732,14 +735,14 @@ def library_tracks(
         dir = "asc"
     page = max(1, page)
     with session() as s:
-        tracks, total = _query_tracks(s, folder_id, q, page, page_size, sort, dir)
+        tracks, total = _query_tracks(s, fid, q, page, page_size, sort, dir)
     total_pages = max(1, (total + page_size - 1) // page_size)
     return templates.TemplateResponse(request, "_library_tracks.html", {
         "request": request, "tracks": tracks,
         "page": page, "page_size": page_size, "page_sizes": _LIBRARY_PAGE_SIZES,
         "total": total, "total_pages": total_pages,
         "sort": sort, "dir": dir,
-        "folder_id": folder_id, "q": q,
+        "folder_id": fid, "q": q,
     })
 
 
@@ -848,13 +851,28 @@ def library_retag_selected(
     _: None = Depends(require_auth),
     track_ids: list[int] = Form(default=[]),
     dry_run: str | None = Form(None),
+    select_all_folder: str = Form(default=""),
 ):
-    """Enqueue specific tracks by their Track.id for re-tagging."""
+    """Enqueue specific tracks by their Track.id for re-tagging.
+
+    When ``select_all_folder`` is set the entire folder is enqueued,
+    bypassing the per-page checkbox selection.
+    """
     if dry_run is not None:
         store().update({"dry_run": bool(dry_run)})
     queued = 0
     with session() as s:
-        for tid in track_ids:
+        if select_all_folder and select_all_folder.strip().isdigit():
+            fid = int(select_all_folder)
+            all_tracks = s.exec(select(Track).where(Track.library_folder_id == fid)).all()
+        elif select_all_folder == "":
+            all_tracks = []
+        else:
+            all_tracks = []
+
+        ids_to_process = [t.id for t in all_tracks] if all_tracks else track_ids
+
+        for tid in ids_to_process:
             track = s.get(Track, tid)
             if not track:
                 continue
@@ -1003,6 +1021,26 @@ def library_find_missing_tracks(request: Request, _: None = Depends(require_auth
         find_missing_tracks(folder_id)
     threading.Thread(target=_run, daemon=True, name="find-missing").start()
     return _toast_response("/library", "Scanning for missing tracks — see logs.")
+
+
+@app.get("/api/mb-search", response_class=HTMLResponse)
+def api_mb_search(request: Request, _: None = Depends(require_auth), q: str = ""):
+    """HTMX partial: search MusicBrainz by free-text query from the review page."""
+    cands = mbq.search_candidates(title=q, artist=None, album=None, limit=10) if q.strip() else []
+    return templates.TemplateResponse(request, "_mb_search_results.html", {
+        "request": request,
+        "cands": [
+            {
+                "recording_id": c.recording_id,
+                "release_id": c.release_id,
+                "score": c.score,
+                "title": c.raw_recording.get("title", ""),
+                "album": c.raw_release.get("title", ""),
+            }
+            for c in cands
+        ],
+        "searched": bool(q.strip()),
+    })
 
 
 @app.get("/docs", response_class=HTMLResponse)

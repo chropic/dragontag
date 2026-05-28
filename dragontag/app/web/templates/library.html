@@ -142,11 +142,14 @@
 
 {# Track table with checkboxes #}
 <form method="post" action="/library/retag-selected" id="retag-form">
+<input type="hidden" name="select_all_folder" id="select-all-folder" value="">
 <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a]">
-  <div class="flex items-center gap-3 mb-3">
+  <div class="flex items-center gap-3 mb-3 flex-wrap">
     <label class="flex items-center gap-2 text-sm text-[#8a8a8a]">
-      <input type="checkbox" id="select-all" onchange="toggleAll(this)"> Select all
+      <input type="checkbox" id="select-all" onchange="toggleAll(this)"> Select page
     </label>
+    <button type="button" onclick="selectAllFolder()"
+            class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white">Select all in folder</button>
     <button type="submit" class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white">Re-tag selected</button>
     <label class="flex items-center gap-2 text-xs text-[#8a8a8a]">
       <input type="checkbox" name="dry_run" {% if settings.dry_run %}checked{% endif %}> Dry run
@@ -163,6 +166,10 @@
 <script>
   function toggleAll(cb) {
     document.querySelectorAll('[name="track_ids"]').forEach(c => c.checked = cb.checked);
+  }
+  function selectAllFolder() {
+    document.getElementById('select-all-folder').value = '{{ active_id or "" }}';
+    document.getElementById('retag-form').submit();
   }
 </script>
 {% endblock %}

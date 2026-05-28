@@ -32,6 +32,14 @@
   <form method="post" action="/jobs/clear-errors" class="inline">
     <button class="px-3 py-1 border border-[#ffb4b4] text-sm text-[#ffb4b4] hover:text-white hover:border-white">Clear errors</button>
   </form>
+  <form method="post" action="/jobs/clear-needs-review" class="inline"
+        onsubmit="return confirm('Clear all needs-review jobs? This cannot be undone.');">
+    <button class="px-3 py-1 border border-[#f2e5b5] text-sm text-[#f2e5b5] hover:text-white hover:border-white">Clear needs_review</button>
+  </form>
+  <form method="post" action="/jobs/clear-all" class="inline ml-auto"
+        onsubmit="return confirm('Delete every non-active job? This removes done, error, skipped, and needs-review rows.');">
+    <button class="px-3 py-1 border border-[#ffb4b4] text-sm text-[#ffb4b4] hover:text-white hover:border-white">Clear all</button>
+  </form>
 </div>
 
 <!-- Job table -->

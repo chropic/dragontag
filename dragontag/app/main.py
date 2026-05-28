@@ -33,7 +33,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from . import auth
 from .config import env, settings, store
-from .db import session
+from .db import dashboard_stats, session
 from .identify import musicbrainz as mbq
 from .ingest import pipeline, uploads, watcher
 from .library.mover import move
@@ -215,14 +215,15 @@ def dashboard(request: Request, _: None = Depends(require_auth), page: int = 1):
     page = max(1, page)
     with session() as s:
         total = s.exec(select(func.count(Job.id))).one()
-        # Show only 10 recent jobs on the dashboard; the /jobs page shows all.
+        # Show only 5 recent jobs on the dashboard; the /jobs page shows all.
         recent_jobs = s.exec(
-            select(Job).order_by(Job.updated_at.desc()).limit(10)
+            select(Job).order_by(Job.updated_at.desc()).limit(5)
         ).all()
         # Library stats
         total_tracks = s.exec(select(func.count(Track.id))).one()
         total_albums = s.exec(select(func.count(func.distinct(Track.album)))).one()
         total_artists = s.exec(select(func.count(func.distinct(Track.artist)))).one()
+    stats = dashboard_stats()
     return templates.TemplateResponse(request, "dashboard.html", {
         "request": request,
         "jobs": recent_jobs,
@@ -230,6 +231,7 @@ def dashboard(request: Request, _: None = Depends(require_auth), page: int = 1):
         "total_tracks": total_tracks,
         "total_albums": total_albums,
         "total_artists": total_artists,
+        "stats": stats,
         "active_page": "dashboard",
     })
 
@@ -302,6 +304,28 @@ def jobs_clear_errors(request: Request, _: None = Depends(require_auth)):
             s.delete(r)
         s.commit()
     return _toast_response("/jobs", f"Cleared {len(rows)} error job(s).")
+
+
+@app.post("/jobs/clear-all")
+def jobs_clear_all(request: Request, _: None = Depends(require_auth)):
+    """Delete every Job row that is not currently in-flight."""
+    active = {JobStatus.queued, JobStatus.identifying, JobStatus.tagging, JobStatus.moving}
+    with session() as s:
+        rows = s.exec(select(Job).where(~Job.status.in_(active))).all()
+        for r in rows:
+            s.delete(r)
+        s.commit()
+    return _toast_response("/jobs", f"Cleared {len(rows)} job(s).")
+
+
+@app.post("/jobs/clear-needs-review")
+def jobs_clear_needs_review(request: Request, _: None = Depends(require_auth)):
+    with session() as s:
+        rows = s.exec(select(Job).where(Job.status == JobStatus.needs_review)).all()
+        for r in rows:
+            s.delete(r)
+        s.commit()
+    return _toast_response("/jobs", f"Cleared {len(rows)} needs-review job(s).")
 
 
 @app.post("/jobs/cancel-queued")
@@ -521,6 +545,11 @@ def settings_update(
     dry_run: str | None = Form(None),
     format_title_case: str | None = Form(None),
     format_fix_qualifiers: str | None = Form(None),
+    format_grammar_correct: str | None = Form(None),
+    format_grammar_fix_allcaps: str | None = Form(None),
+    format_grammar_fix_contractions: str | None = Form(None),
+    format_grammar_fix_possessives: str | None = Form(None),
+    format_grammar_fix_punct_spacing: str | None = Form(None),
     score_threshold: float = Form(...),
     filename_template_single: str = Form(...),
     filename_template_multidisc: str = Form(...),
@@ -558,6 +587,11 @@ def settings_update(
         "dry_run": bool(dry_run),
         "format_title_case": bool(format_title_case),
         "format_fix_qualifiers": bool(format_fix_qualifiers),
+        "format_grammar_correct": bool(format_grammar_correct),
+        "format_grammar_fix_allcaps": bool(format_grammar_fix_allcaps),
+        "format_grammar_fix_contractions": bool(format_grammar_fix_contractions),
+        "format_grammar_fix_possessives": bool(format_grammar_fix_possessives),
+        "format_grammar_fix_punct_spacing": bool(format_grammar_fix_punct_spacing),
         "score_threshold": score_threshold,
         "filename_template_single": filename_template_single,
         "filename_template_multidisc": filename_template_multidisc,
@@ -621,12 +655,41 @@ def settings_test_webhook(request: Request, _: None = Depends(require_auth)):
 # ---------------------------------------------------------------------------
 
 
+_LIBRARY_PAGE_SIZES = (10, 25, 50, 100, 200)
+_LIBRARY_SORT_COLS = {
+    "title": Track.title,
+    "artist": Track.artist,
+    "album": Track.album,
+    "disc": Track.disc_num,
+    "track": Track.track_num,
+    "duration": Track.duration,
+    "path": Track.path,
+}
+
+
 @app.get("/library", response_class=HTMLResponse)
-def library(request: Request, _: None = Depends(require_auth), folder_id: int | None = None, q: str = ""):
+def library(
+    request: Request,
+    _: None = Depends(require_auth),
+    folder_id: int | None = None,
+    q: str = "",
+    page: int = 1,
+    page_size: int = 50,
+    sort: str = "album",
+    dir: str = "asc",
+):
+    if page_size not in _LIBRARY_PAGE_SIZES:
+        page_size = 50
+    if sort not in _LIBRARY_SORT_COLS:
+        sort = "album"
+    if dir not in ("asc", "desc"):
+        dir = "asc"
+    page = max(1, page)
     with session() as s:
         folders = s.exec(select(LibraryFolder).order_by(LibraryFolder.priority, LibraryFolder.id)).all()
         active_id = folder_id or (folders[0].id if folders else None)
-        tracks = _query_tracks(s, active_id, q)
+        tracks, total = _query_tracks(s, active_id, q, page, page_size, sort, dir)
+    total_pages = max(1, (total + page_size - 1) // page_size)
     return templates.TemplateResponse(
         request,
         "library.html",
@@ -636,6 +699,13 @@ def library(request: Request, _: None = Depends(require_auth), folder_id: int | 
             "active_id": active_id,
             "tracks": tracks,
             "q": q,
+            "page": page,
+            "page_size": page_size,
+            "page_sizes": _LIBRARY_PAGE_SIZES,
+            "total": total,
+            "total_pages": total_pages,
+            "sort": sort,
+            "dir": dir,
             "active_page": "library",
             "settings": settings(),
         },
@@ -643,24 +713,52 @@ def library(request: Request, _: None = Depends(require_auth), folder_id: int | 
 
 
 @app.get("/library/tracks", response_class=HTMLResponse)
-def library_tracks(request: Request, _: None = Depends(require_auth), folder_id: int | None = None, q: str = ""):
+def library_tracks(
+    request: Request,
+    _: None = Depends(require_auth),
+    folder_id: int | None = None,
+    q: str = "",
+    page: int = 1,
+    page_size: int = 50,
+    sort: str = "album",
+    dir: str = "asc",
+):
     """HTMX partial: filtered track table."""
+    if page_size not in _LIBRARY_PAGE_SIZES:
+        page_size = 50
+    if sort not in _LIBRARY_SORT_COLS:
+        sort = "album"
+    if dir not in ("asc", "desc"):
+        dir = "asc"
+    page = max(1, page)
     with session() as s:
-        tracks = _query_tracks(s, folder_id, q)
-    return templates.TemplateResponse(request, "_library_tracks.html", {"request": request, "tracks": tracks})
+        tracks, total = _query_tracks(s, folder_id, q, page, page_size, sort, dir)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    return templates.TemplateResponse(request, "_library_tracks.html", {
+        "request": request, "tracks": tracks,
+        "page": page, "page_size": page_size, "page_sizes": _LIBRARY_PAGE_SIZES,
+        "total": total, "total_pages": total_pages,
+        "sort": sort, "dir": dir,
+        "folder_id": folder_id, "q": q,
+    })
 
 
-def _query_tracks(s, folder_id: int | None, q: str) -> list:
+def _query_tracks(s, folder_id, q, page, page_size, sort, dir):
     stmt = select(Track)
+    count_stmt = select(func.count(Track.id))
     if folder_id is not None:
         stmt = stmt.where(Track.library_folder_id == folder_id)
+        count_stmt = count_stmt.where(Track.library_folder_id == folder_id)
     if q:
         like = f"%{q}%"
-        stmt = stmt.where(
-            or_(Track.title.ilike(like), Track.artist.ilike(like), Track.album.ilike(like))
-        )
-    stmt = stmt.order_by(Track.album, Track.disc_num, Track.track_num, Track.title)
-    return s.exec(stmt).all()
+        cond = or_(Track.title.ilike(like), Track.artist.ilike(like), Track.album.ilike(like))
+        stmt = stmt.where(cond)
+        count_stmt = count_stmt.where(cond)
+    col = _LIBRARY_SORT_COLS[sort]
+    stmt = stmt.order_by(col.desc() if dir == "desc" else col.asc())
+    stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+    total = s.exec(count_stmt).one() or 0
+    return s.exec(stmt).all(), total
 
 
 @app.get("/library/folders", response_class=HTMLResponse)
@@ -858,6 +956,53 @@ def library_fetch_covers(
 
     threading.Thread(target=_run, daemon=True, name="fetch-covers").start()
     return _toast_response("/library", f"Fetching covers for {len(track_data)} tracks.")
+
+
+@app.post("/library/extract-covers")
+def library_extract_covers(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
+    def _run():
+        from .library.actions import extract_embedded_covers
+        extract_embedded_covers(folder_id)
+    threading.Thread(target=_run, daemon=True, name="extract-covers").start()
+    return _toast_response("/library", "Extracting embedded cover art.")
+
+
+@app.post("/library/replaygain")
+def library_replaygain(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
+    def _run():
+        from .library.actions import recompute_replaygain
+        result = recompute_replaygain(folder_id)
+        log = logging.getLogger(__name__)
+        log.info("replaygain result: %s", result)
+    threading.Thread(target=_run, daemon=True, name="replaygain").start()
+    return _toast_response("/library", "ReplayGain recompute started (requires rsgain/loudgain).")
+
+
+@app.post("/library/verify-integrity")
+def library_verify_integrity(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
+    def _run():
+        from .library.actions import verify_integrity
+        verify_integrity(folder_id)
+    threading.Thread(target=_run, daemon=True, name="verify-integrity").start()
+    return _toast_response("/library", "Integrity check started — see logs.")
+
+
+@app.post("/library/fix-disc-folders")
+def library_fix_disc_folders(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
+    def _run():
+        from .library.actions import fix_disc_folders
+        fix_disc_folders(folder_id)
+    threading.Thread(target=_run, daemon=True, name="fix-disc-folders").start()
+    return _toast_response("/library", "Disc-folder normalization started.")
+
+
+@app.post("/library/find-missing-tracks")
+def library_find_missing_tracks(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
+    def _run():
+        from .library.actions import find_missing_tracks
+        find_missing_tracks(folder_id)
+    threading.Thread(target=_run, daemon=True, name="find-missing").start()
+    return _toast_response("/library", "Scanning for missing tracks — see logs.")
 
 
 @app.get("/docs", response_class=HTMLResponse)

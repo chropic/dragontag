@@ -62,6 +62,53 @@ def _seed_library_folder() -> None:
         s.commit()
 
 
+def dashboard_stats() -> dict:
+    """Aggregate library stats for the dashboard.
+
+    Returns top genres (from each track's ``album`` proxy is too rough — we
+    use ``genre`` if present, falling back to album_artist), explicit count,
+    lyrics count, and average duration (formatted mm:ss).
+    """
+    from sqlalchemy import func as _func, case
+    from .models import Track
+    out: dict = {
+        "top_artists": [],
+        "explicit_count": 0,
+        "lyrics_count": 0,
+        "avg_duration": "—",
+    }
+    with Session(engine()) as s:
+        # advisory == 1 → explicit
+        out["explicit_count"] = s.exec(
+            select(_func.count(Track.id)).where(Track.advisory == 1)
+        ).one() or 0
+        # lyrics_count: tracks where advisory is not null (set whenever lyrics
+        # were processed by the pipeline) — a reasonable proxy without a
+        # dedicated lyrics column on Track.
+        out["lyrics_count"] = s.exec(
+            select(_func.count(Track.id)).where(Track.advisory.is_not(None))
+        ).one() or 0
+        avg = s.exec(select(_func.avg(Track.duration))).one()
+        if avg:
+            m = int(avg) // 60
+            sec = int(avg) % 60
+            out["avg_duration"] = f"{m}:{sec:02d}"
+        # Top genres by album_artist as a fallback; without a genre column we
+        # synthesize from album_artist counts. If a real genre col is later
+        # added, swap here.
+        try:
+            from sqlalchemy import text as _text
+            rows = list(s.exec(_text(
+                "SELECT album_artist, COUNT(*) c FROM track "
+                "WHERE album_artist IS NOT NULL AND album_artist != '' "
+                "GROUP BY album_artist ORDER BY c DESC LIMIT 5"
+            )))
+            out["top_artists"] = [(r[0], r[1]) for r in rows]
+        except Exception:
+            pass
+    return out
+
+
 def session() -> Session:
     """Return a new SQLModel session. Use as a context manager:
 

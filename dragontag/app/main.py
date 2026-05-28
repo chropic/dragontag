@@ -862,15 +862,15 @@ def library_retag_selected(
         store().update({"dry_run": bool(dry_run)})
     queued = 0
     with session() as s:
-        if select_all_folder and select_all_folder.strip().isdigit():
+        if select_all_folder.strip().isdigit():
             fid = int(select_all_folder)
             all_tracks = s.exec(select(Track).where(Track.library_folder_id == fid)).all()
-        elif select_all_folder == "":
-            all_tracks = []
+            ids_to_process = [t.id for t in all_tracks]
+        elif select_all_folder == "all":
+            # "Select all in folder" was clicked while viewing all folders.
+            ids_to_process = [t.id for t in s.exec(select(Track)).all()]
         else:
-            all_tracks = []
-
-        ids_to_process = [t.id for t in all_tracks] if all_tracks else track_ids
+            ids_to_process = track_ids
 
         for tid in ids_to_process:
             track = s.get(Track, tid)
@@ -1038,9 +1038,10 @@ def api_mb_search(request: Request, _: None = Depends(require_auth), q: str = ""
             job = s.get(Job, job_id)
             if job:
                 stored = job.chosen_tags_json or {}
+                stored_artists = stored.get("artists")
                 artist = stored.get("artist_display") or (
-                    stored.get("artists", [None])[0]
-                    if isinstance(stored.get("artists"), list) else None
+                    stored_artists[0]
+                    if isinstance(stored_artists, list) and stored_artists else None
                 )
                 album = stored.get("album")
     cands = mbq.search_candidates(title=q, artist=artist, album=album, limit=10) if q.strip() else []

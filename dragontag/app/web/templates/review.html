@@ -85,25 +85,37 @@
           </label>
         {% endfor %}
       </div>
+      {% else %}
+      <div class="text-[#8a8a8a]">No candidates were stored. Pick a manual search result above, or paste MB ids:</div>
+      <input name="manual_recording_id" placeholder="MB recording id" class="p-1 bg-black border border-[#4a4a4a] w-72">
+      <input name="manual_release_id" placeholder="MB release id" class="p-1 bg-black border border-[#4a4a4a] w-72">
+      {% endif %}
+
+      {# Hidden fields the form actually submits. Populated on submit from a
+         selected radio (candidate list OR manual MB search) or, failing that,
+         the manual id-entry inputs shown when no candidates were stored. #}
       <input type="hidden" name="recording_id" value="">
       <input type="hidden" name="release_id" value="">
       <script>
         (function () {
           const form = document.currentScript.previousElementSibling.closest('form');
           form.addEventListener('submit', () => {
+            const recOut = form.querySelector('input[name=recording_id]');
+            const relOut = form.querySelector('input[name=release_id]');
             const pick = form.querySelector('input[name=pick]:checked');
-            if (!pick) return;
-            const [rec, rel] = pick.value.split('|');
-            form.querySelector('input[name=recording_id]').value = rec;
-            form.querySelector('input[name=release_id]').value = rel;
+            if (pick) {
+              const [rec, rel] = pick.value.split('|');
+              recOut.value = rec;
+              relOut.value = rel;
+              return;
+            }
+            const mr = form.querySelector('input[name=manual_recording_id]');
+            const ml = form.querySelector('input[name=manual_release_id]');
+            if (mr) recOut.value = mr.value.trim();
+            if (ml) relOut.value = ml.value.trim();
           });
         })();
       </script>
-      {% else %}
-      <div class="text-[#8a8a8a]">No candidates were stored. Search manually:</div>
-      <input name="recording_id" placeholder="MB recording id" class="p-1 bg-black border border-[#4a4a4a] w-72">
-      <input name="release_id" placeholder="MB release id" class="p-1 bg-black border border-[#4a4a4a] w-72">
-      {% endif %}
 
       {# ---- cover art picker ---- #}
       {% if cands %}

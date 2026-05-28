@@ -62,7 +62,10 @@ def _ensure_configured() -> None:
     _configured = True
 
 
-_TRACK_NUM_PREFIX = re.compile(r"^\d+[\.\-\s]+")
+# Require a punctuation separator (. - )) after the leading number so we only
+# strip genuine track-number prefixes ("01. ", "14-", "03 - ") and never a
+# number that is part of the real title ("99 Luftballons", "7 Years").
+_TRACK_NUM_PREFIX = re.compile(r"^\d+\s*[.\-)]+\s*")
 
 
 def _strip_track_num(title: str) -> str:
@@ -288,12 +291,14 @@ def assemble_tags(*, release_id: str, recording_id: str) -> TrackTags:
         rec_title = rec.get("title")
         for medium in rel.get("medium-list") or []:
             for trk in medium.get("track-list") or []:
-                if trk.get("title") == rec_title:
+                if trk.get("title") == rec_title and trk.get("position"):
                     track_position = int(trk["position"])
                     disc_position = int(medium.get("position", 1))
                     track_total = int(
                         medium.get("track-count") or len(medium.get("track-list") or [])
                     )
+                    media_format = medium.get("format")
+                    mb_releasetrack_id = trk.get("id")
                     break
             if track_position is not None:
                 break

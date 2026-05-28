@@ -1,34 +1,132 @@
 {% extends "base.html" %}
-{% block title %}dragontag | Docs{% endblock %}
+{% block title %}dragontag | User manual{% endblock %}
 {% block content %}
 <div class="max-w-3xl mx-auto space-y-8">
-<h2 class="text-xl font-mono font-semibold mb-2">Documentation</h2>
-<p class="text-[#8a8a8a] text-sm">A reference for everything dragontag does.</p>
+<h2 class="text-xl font-mono font-semibold mb-2">User manual</h2>
+<p class="text-[#8a8a8a] text-sm">Everything you need to know to drive dragontag day-to-day. Reference material (env vars, tokens, payloads) is at the bottom.</p>
 
-<section class="space-y-3">
-  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">Overview</h3>
-  <p class="text-sm text-[#cfcfcf]">dragontag is a self-hosted audio tagger and library organizer powered by MusicBrainz and AcoustID. Drop audio files into the watched folder (or upload them via the UI) and the pipeline identifies, tags, and moves them into your library automatically.</p>
+<nav class="bg-[#0c0c0c] border border-[#4a4a4a] p-3 text-xs text-[#cfcfcf]">
+  <span class="text-[#8a8a8a] uppercase tracking-widest mr-2">Jump to</span>
+  <a href="#start" class="mr-3 hover:text-white">Getting started</a>
+  <a href="#flow" class="mr-3 hover:text-white">Tagging workflow</a>
+  <a href="#dashboard" class="mr-3 hover:text-white">Dashboard</a>
+  <a href="#settings" class="mr-3 hover:text-white">Settings</a>
+  <a href="#library" class="mr-3 hover:text-white">Library</a>
+  <a href="#review" class="mr-3 hover:text-white">Review</a>
+  <a href="#jobs" class="mr-3 hover:text-white">Jobs</a>
+  <a href="#formatting" class="mr-3 hover:text-white">Smart formatting</a>
+  <a href="#reference" class="hover:text-white">Reference</a>
+</nav>
+
+<section id="start" class="space-y-3">
+  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">1. Getting started</h3>
+  <p class="text-sm text-[#cfcfcf]">On first boot you'll be redirected to <code>/setup</code> to create the admin login and (optionally) paste an AcoustID key. After login, head to <strong>Library → Manage libraries</strong> and add at least one path on disk that dragontag should manage. This becomes the destination root for everything you tag.</p>
+  <p class="text-sm text-[#cfcfcf]">Three ways to feed files into the pipeline:</p>
+  <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
+    <li><strong>Upload</strong> — drag files into the Dashboard upload card.</li>
+    <li><strong>Drop folder</strong> — copy files into the path mounted at <code>/drop</code>; the watcher catches them.</li>
+    <li><strong>Full library re-tag</strong> — point a server-side path at the bulk-retag form to enqueue every audio file inside.</li>
+  </ul>
 </section>
 
-<section class="space-y-3">
-  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">How it works</h3>
+<section id="flow" class="space-y-3">
+  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">2. Tagging workflow</h3>
   <pre class="text-xs text-[#cfcfcf] bg-[#0c0c0c] border border-[#4a4a4a] p-4 overflow-x-auto">
-Drop file → Read existing tags + filename clues
-         → MusicBrainz text search
-         → [if empty] AcoustID fingerprint fallback
-         → Score candidates → Pick best
-         → [score ≥ threshold] Fetch full MB data
-         → Fetch cover art (Cover Art Archive)
-         → Fetch lyrics (LRCLIB) + detect advisory
-         → Write tags to file
-         → Move to library destination
-         → [score &lt; threshold or missing data] → Review queue
+Drop file  →  Read existing tags + filename clues
+           →  MusicBrainz text search
+           →  [empty] AcoustID fingerprint fallback
+           →  Score candidates  →  Pick best
+           →  [score ≥ threshold] Fetch full MB data
+                                  Fetch cover art (Cover Art Archive)
+                                  Fetch lyrics (LRCLIB) + detect advisory
+                                  Apply smart formatting (optional)
+                                  Write tags  →  Move to library
+           →  [score &lt; threshold or missing data] Review queue
   </pre>
+  <p class="text-sm text-[#8a8a8a]">High-confidence matches flow through without input. Anything else lands in <strong>Review</strong> where you confirm or override.</p>
 </section>
 
-<section class="space-y-3">
-  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">Configuration</h3>
-  <p class="text-xs text-[#8a8a8a] mb-2">Set via environment variables in <code>docker-compose.yml</code>:</p>
+<section id="dashboard" class="space-y-3">
+  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">3. Dashboard</h3>
+  <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
+    <li><strong>Stats bar</strong> — total tracks, albums, artists currently indexed.</li>
+    <li><strong>Tag audio files</strong> — upload individual files or kick off a folder re-tag.</li>
+    <li><strong>Library stats</strong> — top artists, explicit-count, lyrics-coverage, average track length.</li>
+    <li><strong>Recent jobs</strong> — last five jobs with status, click any row for full detail.</li>
+  </ul>
+</section>
+
+<section id="settings" class="space-y-3">
+  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">4. Settings</h3>
+  <p class="text-sm text-[#cfcfcf]">Hover the <code>?</code> badge beside any field for an inline tooltip. Highlights:</p>
+  <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
+    <li><strong>Identification</strong> — AcoustID toggle, auto-apply threshold, watcher on/off, global dry-run.</li>
+    <li><strong>Smart formatting</strong> — Title Case, qualifier wrapping, grammar correction (see §8).</li>
+    <li><strong>Filename templates</strong> — single-disc, multi-disc filename, and multi-disc folder patterns. Use the token chips to insert placeholders; a live preview shows the result.</li>
+    <li><strong>Genre options</strong> — cap and casing.</li>
+    <li><strong>Multi-value separators</strong> — joiner per tag (default <code>//</code> for ARTIST, <code>;</code> elsewhere).</li>
+    <li><strong>Skip fields</strong> — checkbox grid: any checked field is omitted at write time across every format.</li>
+    <li><strong>Webhooks</strong> — Discord-compatible URL with on-done / on-error toggles and a Test button.</li>
+  </ul>
+</section>
+
+<section id="library" class="space-y-3">
+  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">5. Library</h3>
+  <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
+    <li><strong>Scan library</strong> — refresh the DB from on-disk tags. Run after manually editing tags outside dragontag.</li>
+    <li><strong>Organize library</strong> — move existing files to match the current templates. <span class="text-[#ffb4b4]">After moves complete, leftover directories that contain no files at all are removed (files are never deleted).</span></li>
+    <li><strong>Full library re-tag</strong> — re-run the full identify pipeline on every file in a folder. Supports a per-run dry-run override.</li>
+    <li><strong>Individual library actions</strong>
+      <ul class="ml-5 list-disc list-inside space-y-0.5 text-[#cfcfcf]">
+        <li><em>Fetch lyrics only</em> — LRCLIB fetch + embed, no identify.</li>
+        <li><em>Tag advisories only</em> — re-run the explicit-content classifier on already-embedded lyrics.</li>
+        <li><em>Fetch cover art only</em> — Cover Art Archive fetch for tracks with an MB album ID.</li>
+        <li><em>Extract embedded covers</em> — write a <code>cover.jpg</code> from each album's embedded picture when none exists on disk.</li>
+        <li><em>Recompute ReplayGain</em> — invokes <code>rsgain</code> or <code>loudgain</code> if installed.</li>
+        <li><em>Verify file integrity</em> — opens every file via mutagen, logs unreadable files.</li>
+        <li><em>Fix disc folders</em> — normalize <code>Disc N</code> subfolders to the configured template; flatten stray single-disc folders.</li>
+        <li><em>Find missing tracks</em> — compare local count to the MB release total and report gaps.</li>
+      </ul>
+    </li>
+    <li><strong>Track table</strong> — click any column header to sort. Use the per-row checkboxes plus "Re-tag selected" to enqueue specific tracks. Choose your page size (10 / 25 / 50 / 100 / 200).</li>
+  </ul>
+</section>
+
+<section id="review" class="space-y-3">
+  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">6. Review queue</h3>
+  <p class="text-sm text-[#cfcfcf]">A file lands in Review when it scored below the threshold, no candidate was found, the destination already exists, RELEASETYPE was missing, or dry-run mode was on. From the Review page you can:</p>
+  <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
+    <li>Pick any of the top candidates and apply.</li>
+    <li>Override RELEASETYPE, upload custom cover art, or pick a different cover-art thumbnail.</li>
+    <li>Resolve conflicts with <strong>Replace</strong>, <strong>Rename</strong>, or <strong>Skip</strong>.</li>
+    <li>Bulk-select rows and click <strong>Apply top candidate</strong> to clear them in one go.</li>
+  </ul>
+</section>
+
+<section id="jobs" class="space-y-3">
+  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">7. Jobs</h3>
+  <p class="text-sm text-[#cfcfcf]">The Jobs page shows every queued / processed file with pagination and per-row cancel/requeue. Bulk controls:</p>
+  <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
+    <li><strong>Cancel all queued</strong> — mark every queued (not-yet-started) job as skipped.</li>
+    <li><strong>Clear completed / errors / needs_review</strong> — delete rows of that status.</li>
+    <li><strong>Clear all</strong> — delete every job row that is not currently in-flight.</li>
+  </ul>
+</section>
+
+<section id="formatting" class="space-y-3">
+  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">8. Smart formatting</h3>
+  <p class="text-sm text-[#cfcfcf]">Three independent toggles under Settings → Smart formatting:</p>
+  <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
+    <li><strong>Title Case</strong> — capitalizes the first/last word and any non-article/preposition. Acronyms are preserved.</li>
+    <li><strong>Wrap trailing qualifiers</strong> — <code>"Song Live"</code> → <code>"Song (Live)"</code> and similar for Remix, Edit, Demo, Acoustic, etc.</li>
+    <li><strong>Grammar correction</strong> — fixes ALL-CAPS strings, inserts missing apostrophes in common contractions and possessives, and normalizes spacing around punctuation. Example: <code>"I DONT LIKE PEOPLES SHIT"</code> → <code>"I Don't Like People's Shit"</code>.</li>
+  </ul>
+</section>
+
+<section id="reference" class="space-y-3">
+  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">9. Reference</h3>
+
+  <h4 class="font-mono text-sm text-[#cfcfcf] mt-3">Environment variables</h4>
   <table class="w-full text-xs">
     <thead class="text-[#8a8a8a] border-b border-[#4a4a4a]">
       <tr><th class="text-left pb-2 pr-4">Variable</th><th class="text-left pb-2 pr-4">Default</th><th class="text-left pb-2">Description</th></tr>
@@ -45,17 +143,12 @@ Drop file → Read existing tags + filename clues
       <tr><td class="py-1 pr-4 font-mono">TZ</td><td class="py-1 pr-4">UTC</td><td class="py-1">Timezone for displayed timestamps</td></tr>
     </tbody>
   </table>
-</section>
 
-<section class="space-y-3">
-  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">File formats</h3>
+  <h4 class="font-mono text-sm text-[#cfcfcf] mt-4">File formats</h4>
   <p class="text-sm text-[#cfcfcf]">Supported: <code class="text-xs">.flac</code> <code class="text-xs">.mp3</code> <code class="text-xs">.wav</code> <code class="text-xs">.m4a</code> <code class="text-xs">.mp4</code></p>
-  <p class="text-sm text-[#8a8a8a]">FLAC uses Vorbis Comments. MP3/WAV use ID3v2.4 with TXXX frames for custom fields. MP4/M4A use standard atoms with <code class="text-xs">----:com.apple.iTunes:&lt;NAME&gt;</code> for custom fields — compatible with MusicBrainz Picard.</p>
-</section>
+  <p class="text-sm text-[#8a8a8a]">FLAC uses Vorbis Comments. MP3/WAV use ID3v2.4 with TXXX frames for custom fields. MP4/M4A use standard atoms with <code class="text-xs">----:com.apple.iTunes:&lt;NAME&gt;</code> for custom fields — Picard-compatible.</p>
 
-<section class="space-y-3">
-  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">Library organization templates</h3>
-  <p class="text-sm text-[#cfcfcf]">Configured in Settings → Filename templates. Available tokens:</p>
+  <h4 class="font-mono text-sm text-[#cfcfcf] mt-4">Template tokens</h4>
   <table class="w-full text-xs">
     <thead class="text-[#8a8a8a] border-b border-[#4a4a4a]">
       <tr><th class="text-left pb-2 pr-4">Token</th><th class="text-left pb-2">Example</th></tr>
@@ -70,24 +163,18 @@ Drop file → Read existing tags + filename clues
       <tr><td class="py-1 pr-4 font-mono">{disctotal}</td><td class="py-1">2</td></tr>
     </tbody>
   </table>
-</section>
 
-<section class="space-y-3">
-  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">Review queue</h3>
-  <p class="text-sm text-[#cfcfcf]">Jobs land in the Review queue when:</p>
+  <h4 class="font-mono text-sm text-[#cfcfcf] mt-4">Review reasons</h4>
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
-    <li><strong>Low score</strong> — Best candidate scored below the auto-apply threshold</li>
-    <li><strong>No match</strong> — Neither MusicBrainz text search nor AcoustID returned candidates</li>
-    <li><strong>Missing RELEASETYPE</strong> — MB release-group has no primary-type (a heuristic fallback tries first)</li>
-    <li><strong>Destination conflict</strong> — Target path already exists</li>
-    <li><strong>Dry run</strong> — Dry-run mode is active; no files are written</li>
+    <li><strong>low_score</strong> — Best candidate scored below threshold</li>
+    <li><strong>no_match</strong> — Neither MB search nor AcoustID returned anything</li>
+    <li><strong>missing_releasetype</strong> — Release-group has no primary type (heuristic fallback runs first)</li>
+    <li><strong>destination_conflict</strong> — Target path already exists</li>
+    <li><strong>dry_run</strong> — Dry-run mode is active</li>
   </ul>
-  <p class="text-sm text-[#8a8a8a]">From the Review page you can pick a different candidate, override the RELEASETYPE, upload custom cover art, or approve/skip the job.</p>
-</section>
 
-<section class="space-y-3">
-  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">Webhook setup</h3>
-  <p class="text-sm text-[#cfcfcf]">Configure a Discord webhook (or any HTTP endpoint) in Settings → Webhook notifications. Use the <strong>Test</strong> button to verify connectivity. Payloads are Discord-compatible embeds sent via HTTP POST.</p>
+  <h4 class="font-mono text-sm text-[#cfcfcf] mt-4">Webhook</h4>
+  <p class="text-sm text-[#cfcfcf]">Configure a Discord webhook (or any HTTP endpoint) in Settings → Webhook. Use the <strong>Test</strong> button to verify connectivity. Payloads are Discord-compatible embeds sent via HTTP POST and fire on a daemon thread so they cannot block the pipeline.</p>
 </section>
 
 </div>

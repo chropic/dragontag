@@ -123,6 +123,14 @@ class UserSettings(BaseModel):
     format_title_case: bool = False
     # Wrap bare trailing qualifiers (Live, Remix, etc.) in parentheses.
     format_fix_qualifiers: bool = False
+    # Grammar correction master toggle. When off, all sub-rules are ignored
+    # regardless of their individual state.
+    format_grammar_correct: bool = False
+    # Sub-rules — each can be enabled independently when the master is on.
+    format_grammar_fix_allcaps: bool = True       # lowercase ALL-CAPS + re-title-case
+    format_grammar_fix_contractions: bool = True  # DONT → don't, etc.
+    format_grammar_fix_possessives: bool = True   # PEOPLES X → people's X
+    format_grammar_fix_punct_spacing: bool = True # collapse spaces, fix punctuation
 
     # Dry-run mode: pipeline identifies and assembles tags but stops before
     # writing to files or moving them. Jobs land in the review queue so the

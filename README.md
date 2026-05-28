@@ -36,8 +36,9 @@ High-confidence matches flow through completely hands-free. Everything else land
 | **Dry-run mode** | Preview destination paths and assembled tags without touching any files |
 | **Webhook notifications** | Discord-compatible webhook fires on job completion or error |
 | **Jobs page** | Full queue view with bulk controls (cancel, clear, requeue) and per-row actions |
-| **Library actions** | Scan folder, organize, full library re-tag, and individual actions (fetch lyrics/advisories/covers only) |
-| **Smart formatting** | Optional Title Case conversion and qualifier parenthesization (e.g. "Song Live" → "Song (Live)") |
+| **Library actions** | Scan library, organize, full library re-tag, plus individual actions: fetch lyrics, fetch covers, extract embedded covers, recompute ReplayGain, verify integrity, fix disc folders, find missing tracks |
+| **Smart formatting** | Title Case, qualifier parenthesization ("Song Live" → "Song (Live)"), grammar correction (ALL-CAPS + contractions + possessives) |
+| **Library table** | Column sorting + standard pagination (10 / 25 / 50 / 100 / 200) |
 | **Toast notifications** | Global in-app success/error toasts on every action |
 | **In-app docs** | Built-in documentation page at `/docs` |
 | **SQLite-backed state** | All jobs and history survive container restarts |
@@ -81,7 +82,7 @@ Open **http://localhost:7593** and log in. The first boot redirects you to `/set
 
 | Mount | Contents |
 |---|---|
-| `/library` | Destination root — files land at `Artist/Album/[Disc N/]NN. Title.ext` |
+| `/library` | Destination root — files land at `Artist/Album/[Disc N/]NN. Title.ext`. Manage multiple libraries from `/library/folders`. |
 | `/drop` | Watched ingest folder — anything dropped here is queued automatically |
 | `/config` | SQLite DB (`dragontag.db`), `settings.json`, password hash, AcoustID key |
 
@@ -266,6 +267,13 @@ Pure-logic, no-network tests cover the most failure-prone paths:
 | `test_schema_vorbis.py` | `TrackTags.to_vorbis()` output matches the reference Vorbis field-for-field, including exact casing |
 | `test_scoring.py` | Perfect match scores high; wrong title scores low |
 | `test_lyrics_advisory.py` | Lyrics embedded correctly per format; explicit classifier fires on known words, respects word boundaries |
+
+---
+
+## Roadmap
+
+- [ ] **Backup / restore** — one-shot export of the SQLite DB, `settings.json`, password hash, and AcoustID key into a versioned tarball, plus a restore command that validates the bundle before swapping the live config in.
+- [ ] **Log verbosity scale** — replace the boolean-ish logging today with a 0–4 slider in Settings (silent / errors / warnings / info / debug), persisted to `settings.json` and applied at runtime to all loggers.
 
 ---
 

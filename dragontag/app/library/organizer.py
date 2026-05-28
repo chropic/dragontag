@@ -15,6 +15,7 @@ Design notes:
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 from sqlmodel import select
@@ -36,6 +37,7 @@ def organize_folder(folder_id: int) -> dict:
     moved = 0
     skipped = 0
     errors: list[str] = []
+    source_dirs: set[Path] = set()
 
     with session() as s:
         folder = s.get(LibraryFolder, folder_id)
@@ -47,6 +49,7 @@ def organize_folder(folder_id: int) -> dict:
         ).all()
 
     for track in tracks:
+        source_dirs.add(Path(track.path).parent)
         src = Path(track.path)
         if not src.exists():
             errors.append(f"missing: {src}")
@@ -73,9 +76,61 @@ def organize_folder(folder_id: int) -> dict:
             errors.append(f"error moving {src}: {e}")
             log.exception("organize: failed on %s", src)
 
-    summary = {"moved": moved, "skipped": skipped, "errors": errors}
+    removed_dirs = _prune_empty_dirs(source_dirs, lib_root)
+
+    summary = {
+        "moved": moved,
+        "skipped": skipped,
+        "errors": errors,
+        "removed_dirs": removed_dirs,
+    }
     log.info("organize folder %d complete: %s", folder_id, summary)
     return summary
+
+
+def _prune_empty_dirs(starting_dirs: set[Path], lib_root: Path) -> int:
+    """Remove directories under ``lib_root`` that are *completely* empty.
+
+    Never deletes a directory that contains any file. Walks bottom-up so that
+    parents become eligible after their (empty) children are removed. Stops at
+    ``lib_root`` itself — never deletes the library root.
+    """
+    removed = 0
+    try:
+        lib_root_resolved = lib_root.resolve()
+    except Exception:
+        return 0
+
+    # Build the set of all candidate dirs: every original source dir and every
+    # ancestor up to (but not including) the library root.
+    candidates: set[Path] = set()
+    for d in starting_dirs:
+        try:
+            dr = d.resolve()
+        except Exception:
+            continue
+        try:
+            dr.relative_to(lib_root_resolved)
+        except ValueError:
+            continue  # outside the library, skip
+        cur = dr
+        while cur != lib_root_resolved and cur.parent != cur:
+            candidates.add(cur)
+            cur = cur.parent
+
+    # Sort by depth descending so children are processed before parents.
+    for d in sorted(candidates, key=lambda p: len(p.parts), reverse=True):
+        try:
+            if not d.exists() or not d.is_dir():
+                continue
+            if any(d.iterdir()):
+                continue  # contains *anything* (file or non-empty dir) — skip
+            os.rmdir(d)
+            removed += 1
+            log.info("organize: removed empty dir %s", d)
+        except OSError as e:
+            log.debug("organize: could not remove %s: %s", d, e)
+    return removed
 
 
 def _track_to_tags(track: Track) -> TrackTags:

@@ -269,9 +269,17 @@ def _process_inner(s: Session, job: Job) -> None:
 
     # ----- optional smart formatting -----
     cfg = settings()
-    if cfg.format_title_case or cfg.format_fix_qualifiers:
+    if cfg.format_title_case or cfg.format_fix_qualifiers or cfg.format_grammar_correct:
         from ..tagging.formatter import apply as _fmt
-        kw = dict(title_case=cfg.format_title_case, fix_quals=cfg.format_fix_qualifiers)
+        kw = dict(
+            title_case=cfg.format_title_case,
+            fix_quals=cfg.format_fix_qualifiers,
+            grammar=cfg.format_grammar_correct,
+            grammar_allcaps=cfg.format_grammar_fix_allcaps,
+            grammar_contractions=cfg.format_grammar_fix_contractions,
+            grammar_possessives=cfg.format_grammar_fix_possessives,
+            grammar_punct_spacing=cfg.format_grammar_fix_punct_spacing,
+        )
         tags.title = _fmt(tags.title, **kw)
         tags.album = _fmt(tags.album, **kw)
         tags.artist_display = _fmt(tags.artist_display, **kw)

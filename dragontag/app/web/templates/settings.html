@@ -1,5 +1,11 @@
 {% extends "base.html" %}
 {% block title %}dragontag | Settings{% endblock %}
+
+{% macro tip(text) -%}
+<span class="ml-1 inline-block w-4 h-4 text-center text-[10px] leading-4 border border-[#4a4a4a] text-[#8a8a8a] cursor-help align-middle"
+      title="{{ text }}">?</span>
+{%- endmacro %}
+
 {% block content %}
 <div class="max-w-2xl mx-auto">
 <h2 class="text-xl font-mono font-semibold mb-4">Settings</h2>
@@ -10,12 +16,12 @@
     <label class="flex items-center gap-2">
       <input type="checkbox" name="acoustid_enabled" {% if settings.acoustid_enabled %}checked{% endif %}>
       Enable AcoustID fingerprint fallback
+      {{ tip("If MusicBrainz text search returns no usable match, dragontag falls back to acoustic fingerprinting via AcoustID/fpcalc. Requires an AcoustID API key. Slower but catches mislabeled files.") }}
     </label>
     <div>
       <label class="block">
         <span class="text-[#8a8a8a]">Auto-apply threshold</span>
-        <span class="ml-1 text-[#4a4a4a] cursor-help"
-              title="Jobs scoring at or above this threshold are automatically tagged without human review. Lower = more automatic tagging, higher = more manual review. Range: 0.0–1.0">(?)</span>
+        {{ tip("Jobs scoring at or above this value are tagged automatically. Below this, files land in the Review queue for manual confirmation. 0.85 is a balanced default — raise toward 0.95 for stricter auto-apply, lower toward 0.7 for faster throughput.") }}
         <input type="number" name="score_threshold" step="0.01" min="0" max="1"
                value="{{ settings.score_threshold }}"
                class="mt-1 p-1 bg-black border border-[#4a4a4a] w-32">
@@ -24,6 +30,17 @@
     <label class="flex items-center gap-2">
       <input type="checkbox" name="watcher_enabled" {% if settings.watcher_enabled %}checked{% endif %}>
       Watch drop folder for new files
+      {{ tip("Automatically enqueue any new audio file that appears in /drop. Disable if you only want manual uploads or scheduled bulk re-tags.") }}
+    </label>
+    <label class="flex items-center gap-2">
+      <input type="checkbox" name="lyrics_enabled" {% if settings.lyrics_enabled %}checked{% endif %}>
+      Fetch lyrics from LRCLIB
+      {{ tip("Fetches synced (LRC) or plain-text lyrics from LRCLIB and embeds them in the file. Also runs the explicit-content classifier to set the advisory flag.") }}
+    </label>
+    <label class="flex items-center gap-2">
+      <input type="checkbox" name="dry_run" {% if settings.dry_run %}checked{% endif %}>
+      Dry-run mode (global)
+      {{ tip("When on, the pipeline identifies and assembles tags but never writes to disk or moves files. Every job lands in Review so you can inspect changes before applying.") }}
     </label>
   </div>
 
@@ -32,11 +49,40 @@
     <label class="flex items-center gap-2">
       <input type="checkbox" name="format_title_case" {% if settings.format_title_case %}checked{% endif %}>
       Convert title, album, artist to Title Case
+      {{ tip("Applies music-aware Title Case: capitalizes the first and last word and any non-article/preposition. Existing all-caps acronyms (DJ, NYC) are preserved.") }}
     </label>
     <label class="flex items-center gap-2">
       <input type="checkbox" name="format_fix_qualifiers" {% if settings.format_fix_qualifiers %}checked{% endif %}>
-      Wrap trailing qualifiers in parentheses — e.g. "Song Live" → "Song (Live)"
+      Wrap trailing qualifiers in parentheses
+      {{ tip("Rewrites bare trailing qualifiers like \"Song Live\" or \"Track - Remix\" into the parenthesized form \"Song (Live)\" / \"Track (Remix)\". Works on Intro, Outro, Acoustic, Demo, Remix, Edit, Version, etc.") }}
     </label>
+    <label class="flex items-center gap-2">
+      <input type="checkbox" name="format_grammar_correct" {% if settings.format_grammar_correct %}checked{% endif %}>
+      Grammar correction
+      {{ tip("Master switch for grammar correction. The sub-rules below only run when this is on; uncheck individual rules to disable just that fix.") }}
+    </label>
+    <div class="ml-6 mt-1 space-y-1 text-xs text-[#cfcfcf]">
+      <label class="flex items-center gap-2">
+        <input type="checkbox" name="format_grammar_fix_allcaps" {% if settings.format_grammar_fix_allcaps %}checked{% endif %}>
+        De-shout ALL-CAPS strings (≥60% upper → Title Case)
+        {{ tip("\"I DONT LIKE PEOPLES SHIT\" → \"I Don't Like People's Shit\". Acronyms in mixed-case strings are preserved.") }}
+      </label>
+      <label class="flex items-center gap-2">
+        <input type="checkbox" name="format_grammar_fix_contractions" {% if settings.format_grammar_fix_contractions %}checked{% endif %}>
+        Insert apostrophes into contractions
+        {{ tip("DONT → don't, CANT → can't, IM → I'm, YOURE → you're, etc. Casing of the source word is preserved.") }}
+      </label>
+      <label class="flex items-center gap-2">
+        <input type="checkbox" name="format_grammar_fix_possessives" {% if settings.format_grammar_fix_possessives %}checked{% endif %}>
+        Insert apostrophes into possessives
+        {{ tip("Conservative rewrite for a small allow-list (people, men, women, world, god, …). \"PEOPLES SHIT\" → \"people's shit\". Plurals like CATS are left alone.") }}
+      </label>
+      <label class="flex items-center gap-2">
+        <input type="checkbox" name="format_grammar_fix_punct_spacing" {% if settings.format_grammar_fix_punct_spacing %}checked{% endif %}>
+        Normalize spacing around punctuation
+        {{ tip("Strips spaces before .,;:!? and ensures exactly one space after them. Collapses double spaces.") }}
+      </label>
+    </div>
   </div>
 
   <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-3">
@@ -52,16 +98,19 @@
     </div>
     <label class="block">
       <span class="text-[#8a8a8a]">Single disc</span>
+      {{ tip("Filename pattern used for albums with only one disc. Available tokens: {track}, {track:02d}, {disc}, {title}, {artist}, {ext}, {tracktotal}, {disctotal}.") }}
       <input id="tpl_single" name="filename_template_single" value="{{ settings.filename_template_single }}"
              class="mt-1 w-full p-1 bg-black border border-[#4a4a4a] font-mono">
     </label>
     <label class="block">
       <span class="text-[#8a8a8a]">Multi-disc (inside Disc N folder)</span>
+      {{ tip("Filename pattern used for tracks on multi-disc releases, written inside the per-disc subfolder.") }}
       <input id="tpl_multi" name="filename_template_multidisc" value="{{ settings.filename_template_multidisc }}"
              class="mt-1 w-full p-1 bg-black border border-[#4a4a4a] font-mono">
     </label>
     <label class="block">
       <span class="text-[#8a8a8a]">Multi-disc folder name</span>
+      {{ tip("Folder name pattern wrapping each disc of a multi-disc release. {disc} expands to the 1-based disc number.") }}
       <input name="multidisc_folder_template" value="{{ settings.multidisc_folder_template }}"
              class="mt-1 w-full p-1 bg-black border border-[#4a4a4a] font-mono">
     </label>
@@ -75,11 +124,13 @@
     <h3 class="font-mono font-semibold">Genre options</h3>
     <label class="block">
       <span class="text-[#8a8a8a]">Max genres (0 = no limit)</span>
+      {{ tip("Caps how many GENRE values are written per track. MusicBrainz often returns long tail genres; 3 keeps things tidy.") }}
       <input type="number" name="genre_limit" min="0" value="{{ settings.genre_limit }}"
              class="mt-1 p-1 bg-black border border-[#4a4a4a] w-24">
     </label>
     <label class="block">
       <span class="text-[#8a8a8a]">Genre casing</span>
+      {{ tip("Title Case = \"Indie Rock\". lowercase = \"indie rock\". as-is = whatever MusicBrainz returns. Most players display Title Case best.") }}
       <select name="genre_casing" class="mt-1 p-1 bg-black border border-[#4a4a4a]">
         <option value="title" {% if settings.genre_casing == "title" %}selected{% endif %}>Title Case</option>
         <option value="lower" {% if settings.genre_casing == "lower" %}selected{% endif %}>lowercase</option>
@@ -89,7 +140,9 @@
   </div>
 
   <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-2">
-    <h3 class="font-mono font-semibold">Multi-value separators</h3>
+    <h3 class="font-mono font-semibold">Multi-value separators
+      {{ tip("Joiner inserted between values for multi-valued tags. Vorbis players differ in how they split; // survives most readers, ; is the MusicBrainz convention for IDs.") }}
+    </h3>
     <div class="grid grid-cols-2 gap-2">
       {% set sep = settings.separators %}
       <label>ARTIST <input name="sep_ARTIST" value="{{ sep.ARTIST }}" class="p-1 bg-black border border-[#4a4a4a] w-24 ml-2 font-mono"></label>
@@ -108,7 +161,9 @@
   </div>
 
   <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-2">
-    <h3 class="font-mono font-semibold">Skip fields</h3>
+    <h3 class="font-mono font-semibold">Skip fields
+      {{ tip("Checked fields are suppressed at write time across all formats. Use this to keep certain tags (e.g. MusicBrainz IDs or sort-name variants) out of your files.") }}
+    </h3>
     <p class="text-xs text-[#8a8a8a]">Checked fields will not be written to audio files.</p>
     {% set skipped = settings.skip_fields %}
     <div class="grid grid-cols-2 gap-1">
@@ -135,6 +190,7 @@
     <h3 class="font-mono font-semibold">Webhook notifications</h3>
     <label class="block">
       <span class="text-[#8a8a8a]">Webhook URL (Discord or generic)</span>
+      {{ tip("HTTP POST endpoint that receives a Discord-compatible embed on job events. Discord webhook URLs work directly; other targets see a generic JSON payload.") }}
       <div class="flex gap-2 mt-1">
         <input name="webhook_url" value="{{ settings.webhook_url }}" placeholder="https://discord.com/api/webhooks/..."
                class="flex-1 p-1 bg-black border border-[#4a4a4a] font-mono text-xs">
@@ -149,10 +205,12 @@
     <label class="flex items-center gap-2">
       <input type="checkbox" name="webhook_on_done" {% if settings.webhook_on_done %}checked{% endif %}>
       Notify on successful job completion
+      {{ tip("Fire the webhook each time a job reaches 'done' (auto-apply or after review).") }}
     </label>
     <label class="flex items-center gap-2">
       <input type="checkbox" name="webhook_on_error" {% if settings.webhook_on_error %}checked{% endif %}>
       Notify on pipeline errors
+      {{ tip("Fire the webhook each time a job transitions to 'error'. Useful for catching MB or filesystem failures.") }}
     </label>
   </div>
 

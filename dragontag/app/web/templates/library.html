@@ -3,16 +3,16 @@
 {% block content %}
 <div class="flex items-center justify-between mb-4">
   <h2 class="text-xl font-mono font-semibold">Library</h2>
-  <a href="/library/folders" class="text-sm text-[#cfcfcf] hover:text-white">Manage folders</a>
+  <a href="/library/folders" class="text-sm text-[#cfcfcf] hover:text-white">Manage libraries</a>
 </div>
 
 {% if not folders %}
 <div class="bg-[#0c0c0c] p-6 border border-[#4a4a4a] text-[#8a8a8a] text-sm">
-  No library folders configured. <a href="/library/folders" class="text-[#cfcfcf] hover:text-white">Add one.</a>
+  No libraries configured. <a href="/library/folders" class="text-[#cfcfcf] hover:text-white">Add one.</a>
 </div>
 {% else %}
 
-{# Folder tabs #}
+{# Library tabs #}
 <div class="flex gap-2 mb-4 flex-wrap">
   {% for f in folders %}
   <a href="/library?folder_id={{ f.id }}{% if q %}&q={{ q }}{% endif %}"
@@ -37,14 +37,17 @@
       hx-get="/library/tracks"
       hx-target="#library-tracks"
       hx-trigger="input changed delay:300ms"
-      hx-include="[name='folder_id']">
+      hx-include="[name='folder_id'],[name='page_size'],[name='sort'],[name='dir']">
     <input type="hidden" name="folder_id" value="{{ active_id }}">
+    <input type="hidden" name="page_size" value="{{ page_size }}">
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="dir" value="{{ dir }}">
   </div>
 
-  {# Scan folder card #}
+  {# Scan library card #}
   <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-2">
-    <h3 class="font-mono font-semibold text-sm">Scan folder</h3>
-    <p class="text-xs text-[#8a8a8a]">Read tags from all files in the selected folder and update the library DB.</p>
+    <h3 class="font-mono font-semibold text-sm">Scan library</h3>
+    <p class="text-xs text-[#8a8a8a]">Read tags from all files in the selected library and refresh the DB.</p>
     <form method="post" action="/library/scan">
       <input type="hidden" name="folder_id" value="{{ active_id }}">
       <button class="mt-1 px-3 py-1 bg-[#131313] border border-[#4a4a4a] hover:bg-[#1a1a1a] text-sm">Scan now</button>
@@ -53,9 +56,11 @@
 
   {# Organize card #}
   <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-2">
-    <h3 class="font-mono font-semibold text-sm">Organize folder</h3>
+    <h3 class="font-mono font-semibold text-sm">Organize library</h3>
     <p class="text-xs text-[#8a8a8a]">Move files to match the current filename &amp; folder templates. Run a scan first.</p>
-    <form method="post" action="/library/organize">
+    <p class="text-xs text-[#ffb4b4]">⚠ After moves complete, any leftover directories that contain no files at all will be removed.</p>
+    <form method="post" action="/library/organize"
+          onsubmit="return confirm('Organize library? Files will be moved to match the current templates. Empty leftover directories will be deleted (files are never deleted).');">
       <input type="hidden" name="folder_id" value="{{ active_id }}">
       <button class="mt-1 px-3 py-1 bg-[#f2e5b5] text-black hover:bg-[#f2e5b5]/80 text-sm">Organize</button>
     </form>
@@ -77,56 +82,59 @@
     </form>
   </div>
 
-  {# Individual actions #}
+  {# Individual library actions #}
   <div class="lg:col-span-3 bg-[#0c0c0c] p-4 border border-[#4a4a4a]">
-    <h3 class="font-mono font-semibold text-sm mb-3">Individual actions for this folder</h3>
+    <h3 class="font-mono font-semibold text-sm mb-3">Individual library actions</h3>
     <div class="flex flex-wrap gap-2 items-center">
 
       <form method="post" action="/library/fetch-lyrics" class="inline">
         <input type="hidden" name="folder_id" value="{{ active_id }}">
-        <button class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white">Fetch lyrics only</button>
+        <button class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white"
+                title="Fetch synced or plain-text lyrics from LRCLIB and embed them into each file. Does not run the full identify pipeline.">Fetch lyrics only</button>
       </form>
 
       <form method="post" action="/library/tag-advisories" class="inline">
         <input type="hidden" name="folder_id" value="{{ active_id }}">
-        <button class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white">Tag advisories only</button>
+        <button class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white"
+                title="Re-run the explicit-content classifier on already-embedded lyrics and update the advisory flag (0=clean, 1=explicit). Does not fetch new lyrics or re-identify tracks.">Tag advisories only</button>
       </form>
 
       <form method="post" action="/library/fetch-covers" class="inline">
         <input type="hidden" name="folder_id" value="{{ active_id }}">
-        <button class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white">Fetch cover art only</button>
+        <button class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white"
+                title="Fetch missing cover art from the Cover Art Archive for any track with a MusicBrainz album ID and write it to the file plus the album folder.">Fetch cover art only</button>
       </form>
 
-      {# Fetch lyrics toggle — submits to /settings preserving all other values #}
-      <form method="post" action="/settings" class="inline ml-auto">
-        <input type="hidden" name="score_threshold" value="{{ settings.score_threshold }}">
-        <input type="hidden" name="filename_template_single" value="{{ settings.filename_template_single }}">
-        <input type="hidden" name="filename_template_multidisc" value="{{ settings.filename_template_multidisc }}">
-        <input type="hidden" name="multidisc_folder_template" value="{{ settings.multidisc_folder_template }}">
-        <input type="hidden" name="genre_limit" value="{{ settings.genre_limit }}">
-        <input type="hidden" name="genre_casing" value="{{ settings.genre_casing }}">
-        <input type="hidden" name="sep_ARTIST" value="{{ settings.separators.ARTIST }}">
-        <input type="hidden" name="sep_album_artist" value="{{ settings.separators.album_artist }}">
-        <input type="hidden" name="sep_ARTISTS" value="{{ settings.separators.ARTISTS }}">
-        <input type="hidden" name="sep_ARTISTSORT" value="{{ settings.separators.ARTISTSORT }}">
-        <input type="hidden" name="sep_ALBUMARTISTSORT" value="{{ settings.separators.ALBUMARTISTSORT }}">
-        <input type="hidden" name="sep_GENRE" value="{{ settings.separators.GENRE }}">
-        <input type="hidden" name="sep_LABEL" value="{{ settings.separators.LABEL }}">
-        <input type="hidden" name="sep_ISRC" value="{{ settings.separators.ISRC }}">
-        <input type="hidden" name="sep_COMPOSER" value="{{ settings.separators.COMPOSER }}">
-        <input type="hidden" name="sep_CONDUCTOR" value="{{ settings.separators.CONDUCTOR }}">
-        <input type="hidden" name="sep_LYRICIST" value="{{ settings.separators.LYRICIST }}">
-        <input type="hidden" name="sep_ARRANGER" value="{{ settings.separators.ARRANGER }}">
-        <input type="hidden" name="webhook_url" value="{{ settings.webhook_url }}">
-        {% if settings.acoustid_enabled %}<input type="hidden" name="acoustid_enabled" value="1">{% endif %}
-        {% if settings.watcher_enabled %}<input type="hidden" name="watcher_enabled" value="1">{% endif %}
-        {% if settings.dry_run %}<input type="hidden" name="dry_run" value="1">{% endif %}
-        <label class="flex items-center gap-2 text-sm cursor-pointer">
-          <input type="checkbox" name="lyrics_enabled" {% if settings.lyrics_enabled %}checked{% endif %}
-                 onchange="this.form.submit()">
-          Fetch lyrics on tagging
-        </label>
+      <form method="post" action="/library/extract-covers" class="inline">
+        <input type="hidden" name="folder_id" value="{{ active_id }}">
+        <button class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white"
+                title="Extract embedded cover art from each track and write it as cover.jpg in the album folder (only if no cover.jpg is already there).">Extract embedded covers</button>
       </form>
+
+      <form method="post" action="/library/replaygain" class="inline">
+        <input type="hidden" name="folder_id" value="{{ active_id }}">
+        <button class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white"
+                title="Compute ReplayGain album + track tags using rsgain or loudgain if installed. Skips gracefully when no tool is on PATH.">Recompute ReplayGain</button>
+      </form>
+
+      <form method="post" action="/library/verify-integrity" class="inline">
+        <input type="hidden" name="folder_id" value="{{ active_id }}">
+        <button class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white"
+                title="Read every audio file end-to-end via mutagen. Any file that fails to decode is logged so you can investigate corruption.">Verify file integrity</button>
+      </form>
+
+      <form method="post" action="/library/fix-disc-folders" class="inline">
+        <input type="hidden" name="folder_id" value="{{ active_id }}">
+        <button class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white"
+                title="Walk each album folder and normalize disc-N subfolders to match the configured multi-disc folder template (or flatten single-disc trees).">Fix disc folders</button>
+      </form>
+
+      <form method="post" action="/library/find-missing-tracks" class="inline">
+        <input type="hidden" name="folder_id" value="{{ active_id }}">
+        <button class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white"
+                title="For each album with a MusicBrainz release ID, compare the local track count to the MB release total and report albums that are missing tracks.">Find missing tracks</button>
+      </form>
+
     </div>
   </div>
 

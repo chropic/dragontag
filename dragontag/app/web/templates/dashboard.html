@@ -3,17 +3,16 @@
 {% block content %}
 <section class="space-y-6">
 
-  <!-- ASCII art banner -->
-  <pre class="font-mono text-[#2a2a2a] text-xs leading-tight select-none overflow-x-auto">
-    _                           _
-   | |                         | |
- __| |_ __ __ _  __ _  ___  _ __ | |_ __ _  __ _
-/ _` | '__/ _` |/ _` |/ _ \| '_ \| __/ _` |/ _` |
-| (_| | | | (_| | (_| | (_) | | | | || (_| | (_| |
- \__,_|_|  \__,_|\__, |\___/|_| |_|\__\__,_|\__, |
-                  __/ |                       __/ |
-                 |___/                       |___/
+  <!-- ASCII art banner: centered, brighter, denser -->
+  <div class="flex justify-center">
+  <pre class="font-mono text-white text-base leading-tight select-none overflow-x-auto font-bold drop-shadow-[0_0_4px_rgba(255,255,255,0.35)]">
+ ____  ____      _      ____  ___   _   _ _____  _    ____
+|  _ \|  _ \    / \    / ___|/ _ \ | \ | |_   _|/ \  / ___|
+| | | | |_) |  / _ \  | |  _| | | ||  \| | | | / _ \| |  _
+| |_| |  _ <  / ___ \ | |_| | |_| || |\  | | |/ ___ \ |_| |
+|____/|_| \_\/_/   \_\ \____|\___/ |_| \_| |_/_/   \_\____|
   </pre>
+  </div>
 
   <!-- Stats bar -->
   <div class="grid grid-cols-3 gap-4">
@@ -56,15 +55,66 @@
     </div>
   </div>
 
-  <!-- Recent jobs (condensed, last 10) -->
+  <!-- Library stats -->
+  <div class="bg-[#0c0c0c] p-6 border border-[#4a4a4a]">
+    <h2 class="font-mono font-semibold text-lg mb-4">Library stats</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div>
+        <p class="text-[#8a8a8a] text-xs font-mono uppercase tracking-widest mb-2">Top artists</p>
+        {% if stats.top_artists %}
+          <ul class="text-sm space-y-1">
+            {% for name, count in stats.top_artists %}
+            <li class="flex justify-between border-b border-[#1a1a1a] py-0.5">
+              <span class="text-[#cfcfcf] truncate">{{ name }}</span>
+              <span class="text-[#8a8a8a] font-mono ml-2">{{ count }}</span>
+            </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="text-[#8a8a8a] text-sm">No data yet.</p>
+        {% endif %}
+      </div>
+      <div class="space-y-3">
+        <div>
+          <p class="text-[#8a8a8a] text-xs font-mono uppercase tracking-widest mb-1">Explicit tracks</p>
+          <p class="font-mono font-bold text-2xl">{{ stats.explicit_count }}</p>
+        </div>
+        <div>
+          <p class="text-[#8a8a8a] text-xs font-mono uppercase tracking-widest mb-1">Tracks with lyrics</p>
+          <p class="font-mono font-bold text-2xl">{{ stats.lyrics_count }}</p>
+        </div>
+        <div>
+          <p class="text-[#8a8a8a] text-xs font-mono uppercase tracking-widest mb-1">Average length</p>
+          <p class="font-mono font-bold text-2xl">{{ stats.avg_duration }}</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent jobs (compact, last 5) -->
   <div class="bg-[#0c0c0c] p-6 border border-[#4a4a4a]">
     <div class="flex items-center justify-between mb-3">
       <h2 class="font-mono font-semibold text-lg">Recent jobs <span class="text-[#8a8a8a] text-sm font-normal">({{ total_jobs }} total)</span></h2>
       <a href="/jobs" class="text-sm text-[#cfcfcf] hover:text-white">View all →</a>
     </div>
-    <div id="jobs-table" hx-get="/jobs/table" hx-trigger="load, every 5s" hx-swap="innerHTML">
-      {% include "_jobs_table.html" %}
-    </div>
+    {% if jobs %}
+    <ul class="text-sm divide-y divide-[#1a1a1a]">
+      {% for j in jobs %}
+      <li class="py-1 flex items-center gap-3">
+        <span class="px-2 py-0.5 text-xs w-28 text-center
+          {% if j.status.value == 'done' %}bg-[#c7f0c7] text-black
+          {% elif j.status.value == 'error' %}bg-[#ffb4b4] text-black
+          {% elif j.status.value == 'needs_review' %}bg-[#f2e5b5] text-black
+          {% elif j.status.value == 'skipped' %}bg-[#2a2a2a] text-[#8a8a8a]
+          {% else %}bg-[#131313]{% endif %}">{{ j.status.value }}</span>
+        <a class="text-[#cfcfcf] hover:underline truncate flex-1" href="/jobs/{{ j.id }}">{{ j.original_name }}</a>
+        <span class="text-[#8a8a8a] text-xs whitespace-nowrap">{{ format_local(j.updated_at) }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="text-[#8a8a8a] text-sm">No jobs yet.</p>
+    {% endif %}
   </div>
 
 </section>

@@ -1,37 +1,85 @@
+{% macro sort_header(col, label) -%}
+  {% set next_dir = "desc" if (sort == col and dir == "asc") else "asc" %}
+  <a href="?folder_id={{ folder_id or '' }}&q={{ q }}&page=1&page_size={{ page_size }}&sort={{ col }}&dir={{ next_dir }}"
+     class="hover:text-white">
+    {{ label }}{% if sort == col %} {% if dir == "asc" %}↑{% else %}↓{% endif %}{% endif %}
+  </a>
+{%- endmacro %}
+
 {% if tracks %}
-<table class="w-full text-sm">
+<div class="overflow-x-auto">
+<table class="w-full text-sm table-fixed">
+  <colgroup>
+    <col style="width:24px">
+    <col style="width:48px">
+    <col style="width:24%">
+    <col style="width:18%">
+    <col style="width:18%">
+    <col style="width:48px">
+    <col style="width:64px">
+    <col>
+  </colgroup>
   <thead>
     <tr class="text-left text-[#8a8a8a] border-b border-[#4a4a4a]">
-      <th class="pb-2 pr-2 w-6"></th>
-      <th class="pb-2 pr-4">#</th>
-      <th class="pb-2 pr-4">Title</th>
-      <th class="pb-2 pr-4">Artist</th>
-      <th class="pb-2 pr-4">Album</th>
-      <th class="pb-2 pr-4">Disc</th>
-      <th class="pb-2 pr-4">Duration</th>
-      <th class="pb-2">Path</th>
+      <th class="pb-2 pr-2"></th>
+      <th class="pb-2 pr-2">{{ sort_header("track", "#") }}</th>
+      <th class="pb-2 pr-2">{{ sort_header("title", "Title") }}</th>
+      <th class="pb-2 pr-2">{{ sort_header("artist", "Artist") }}</th>
+      <th class="pb-2 pr-2">{{ sort_header("album", "Album") }}</th>
+      <th class="pb-2 pr-2">{{ sort_header("disc", "Disc") }}</th>
+      <th class="pb-2 pr-2">{{ sort_header("duration", "Duration") }}</th>
+      <th class="pb-2">{{ sort_header("path", "Path") }}</th>
     </tr>
   </thead>
   <tbody>
     {% for t in tracks %}
     <tr class="border-b border-[#4a4a4a] hover:bg-[#0c0c0c]">
-      <td class="py-1 pr-2">
+      <td class="py-1 pr-2 overflow-hidden">
         <input type="checkbox" name="track_ids" value="{{ t.id }}">
       </td>
-      <td class="py-1 pr-4 text-[#8a8a8a]">{{ t.track_num or "—" }}</td>
-      <td class="py-1 pr-4">{{ t.title or "—" }}</td>
-      <td class="py-1 pr-4 text-[#cfcfcf]">{{ t.artist or "—" }}</td>
-      <td class="py-1 pr-4 text-[#cfcfcf]">{{ t.album or "—" }}</td>
-      <td class="py-1 pr-4 text-[#8a8a8a]">{{ t.disc_num or "—" }}</td>
-      <td class="py-1 pr-4 text-[#8a8a8a]">
+      <td class="py-1 pr-2 text-[#8a8a8a] overflow-hidden">{{ t.track_num or "—" }}</td>
+      <td class="py-1 pr-2 truncate" title="{{ t.title or '' }}">{{ t.title or "—" }}</td>
+      <td class="py-1 pr-2 text-[#cfcfcf] truncate" title="{{ t.artist or '' }}">{{ t.artist or "—" }}</td>
+      <td class="py-1 pr-2 text-[#cfcfcf] truncate" title="{{ t.album or '' }}">{{ t.album or "—" }}</td>
+      <td class="py-1 pr-2 text-[#8a8a8a] overflow-hidden">{{ t.disc_num or "—" }}</td>
+      <td class="py-1 pr-2 text-[#8a8a8a] overflow-hidden">
         {% if t.duration %}{{ "%-4.0f"|format(t.duration // 60) }}:{{ "%02.0f"|format(t.duration % 60) }}{% else %}—{% endif %}
       </td>
-      <td class="py-1 text-[#8a8a8a] text-xs truncate max-w-xs" title="{{ t.path }}">{{ t.path }}</td>
+      <td class="py-1 text-[#8a8a8a] text-xs truncate" title="{{ t.path }}">{{ t.path }}</td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
-<p class="text-xs text-[#8a8a8a] mt-2">{{ tracks|length }} track{% if tracks|length != 1 %}s{% endif %}</p>
+</div>
+
+<div class="flex items-center justify-between mt-3 text-xs text-[#8a8a8a]">
+  <div>
+    Showing {{ ((page - 1) * page_size) + 1 }}–{{ ((page - 1) * page_size) + tracks|length }} of {{ total }}
+  </div>
+  <div class="flex items-center gap-3">
+    <label class="flex items-center gap-1">
+      Per page:
+      <select onchange="window.location.search = new URLSearchParams({...Object.fromEntries(new URLSearchParams(window.location.search)), page_size: this.value, page: 1}).toString()"
+              class="bg-black border border-[#4a4a4a] px-1 py-0.5">
+        {% for ps in page_sizes %}
+        <option value="{{ ps }}" {% if ps == page_size %}selected{% endif %}>{{ ps }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% if total_pages > 1 %}
+    <div class="flex items-center gap-1">
+      {% set base = "?folder_id=" ~ (folder_id or '') ~ "&q=" ~ q ~ "&page_size=" ~ page_size ~ "&sort=" ~ sort ~ "&dir=" ~ dir %}
+      {% if page > 1 %}
+      <a href="{{ base }}&page={{ page - 1 }}" class="px-2 py-0.5 border border-[#4a4a4a] hover:text-white">Prev</a>
+      {% endif %}
+      <span class="px-2">Page {{ page }} / {{ total_pages }}</span>
+      {% if page < total_pages %}
+      <a href="{{ base }}&page={{ page + 1 }}" class="px-2 py-0.5 border border-[#4a4a4a] hover:text-white">Next</a>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div>
 {% else %}
 <p class="text-[#8a8a8a] text-sm">No tracks found.</p>
 {% endif %}

@@ -102,17 +102,28 @@
           form.addEventListener('submit', () => {
             const recOut = form.querySelector('input[name=recording_id]');
             const relOut = form.querySelector('input[name=release_id]');
+            let rec = '', rel = '';
             const pick = form.querySelector('input[name=pick]:checked');
             if (pick) {
-              const [rec, rel] = pick.value.split('|');
-              recOut.value = rec;
-              relOut.value = rel;
-              return;
+              [rec, rel] = pick.value.split('|');
+            } else {
+              const mr = form.querySelector('input[name=manual_recording_id]');
+              const ml = form.querySelector('input[name=manual_release_id]');
+              rec = mr ? mr.value.trim() : '';
+              rel = ml ? ml.value.trim() : '';
             }
-            const mr = form.querySelector('input[name=manual_recording_id]');
-            const ml = form.querySelector('input[name=manual_release_id]');
-            if (mr) recOut.value = mr.value.trim();
-            if (ml) relOut.value = ml.value.trim();
+            recOut.value = rec;
+            relOut.value = rel;
+            // Keep the embedded cover in sync with the chosen release unless the
+            // user uploaded a custom file or explicitly picked a thumbnail —
+            // otherwise a manual-search pick would silently embed the first
+            // candidate's cover instead of the selected release's.
+            const coverOut = form.querySelector('input[name=cover_art_url]');
+            const fileInput = form.querySelector('input[name=cover_art_file]');
+            const hasFile = fileInput && fileInput.files && fileInput.files.length;
+            if (coverOut && rel && !hasFile && form.dataset.coverPicked !== '1') {
+              coverOut.value = 'https://coverartarchive.org/release/' + rel + '/front';
+            }
           });
         })();
       </script>
@@ -152,6 +163,9 @@
           btn.classList.remove('border-transparent');
           btn.classList.add('border-white');
           document.getElementById(urlInputId).value = btn.dataset.url;
+          // Mark an explicit cover choice so the submit handler won't override
+          // it with the chosen release's default front cover.
+          btn.closest('form').dataset.coverPicked = '1';
           // Clear custom file input when picking from strip
           var fileInput = btn.closest('form').querySelector('input[type=file][name=cover_art_file]');
           if (fileInput) fileInput.value = '';
@@ -169,11 +183,11 @@
         {% if j.review_reason and j.review_reason.value == "dry_run" %}
         <button class="review-submit-btn ml-auto px-3 py-1 bg-[#c7f0c7] text-black hover:bg-[#c7f0c7]/80"
                 data-label="Commit" data-loading-text="Committing…"
-                onclick="this.disabled=true; this.textContent=this.dataset.loadingText; this.form.submit();">Commit</button>
+                onclick="this.disabled=true; this.textContent=this.dataset.loadingText; this.form.requestSubmit();">Commit</button>
         {% else %}
         <button class="review-submit-btn ml-auto px-3 py-1 bg-[#c7f0c7] text-black hover:bg-[#c7f0c7]/80"
                 data-label="Apply" data-loading-text="Applying…"
-                onclick="this.disabled=true; this.textContent=this.dataset.loadingText; this.form.submit();">Apply</button>
+                onclick="this.disabled=true; this.textContent=this.dataset.loadingText; this.form.requestSubmit();">Apply</button>
         {% endif %}
       </div>
     </form>

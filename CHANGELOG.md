@@ -2,6 +2,29 @@
 
 # Changelog
 
+## Unreleased — code-review fixes (2026-06-07)
+**Branch:** `task/code-review-2026-05-28`
+
+### Fixed
+- **Review queue Apply/Commit was broken (HTTP 500).** The buttons' `onclick` called `form.submit()`, which does *not* fire the `submit` event — so the handler that copies the chosen MusicBrainz recording/release id into the hidden form fields never ran, and every Apply/Commit posted empty ids. Switched to `form.requestSubmit()`. (Regression from the 0.1.5 bfcache button change.)
+- **Cover art desync on manual picks.** When a job had stored candidates, choosing a manual MB-search result (a different release) still embedded the first candidate's cover. The submit handler now derives the cover from the chosen release unless a thumbnail was explicitly clicked or a custom file was uploaded.
+- Numeric titles mangled by `_strip_track_num` — the regex now requires a `.`/`-`/`)` separator, so "99 Luftballons" / "7 Years" survive while "01. ", "14-", "03 - " prefixes are still stripped.
+- `/api/mb-search` 500 (`IndexError`) when the stored `artists` value was a present-but-empty list.
+- Manual MB search picks were ignored for jobs with no stored candidates — the hidden `recording_id`/`release_id` are now always rendered and populated from a selected radio (candidate list or manual search) or the manual id-entry inputs.
+- Cover decode could abort the whole tag write — `_cap_cover` now guards the PIL decode and falls back to the original bytes on failure (MP3/MP4/FLAC).
+- Cover MIME/data mismatch — re-encoded covers now report the MIME of the bytes actually produced (also fixes MP4 `covr` format selection).
+- Title-match track fallback now also sets `media_format`/`mb_releasetrack_id` and guards a missing `position`.
+- Bulk re-tag "Select all in folder" from the all-folders view sent `""` and silently fell back to the page checkboxes; it now uses an explicit `all` sentinel.
+
+### Added
+- Regression test for `_strip_track_num` (`tests/test_track_num.py`).
+
+### Files changed
+Modified: `dragontag/app/identify/musicbrainz.py`, `dragontag/app/main.py`, `dragontag/app/tagging/writers/_id3common.py`, `dragontag/app/tagging/writers/flac.py`, `dragontag/app/web/templates/library.html`, `dragontag/app/web/templates/review.html`, `CHANGELOG.md`.
+New: `tests/test_track_num.py`.
+
+---
+
 ## [0.1.5] — plan-txt sweep (2026-05-27)
 **Branch:** `task/plan-txt-sweep`
 

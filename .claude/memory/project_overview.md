@@ -18,7 +18,7 @@ Self-hosted, Docker-native music tagger and library organizer. Drop an audio fil
 
 ## Key surfaces
 
-- `/` Dashboard · `/jobs` queue · `/review` candidate picker · `/library` browse + actions · `/settings` UI-editable config · `/docs` user manual · `/setup` first-run wizard · `/health` unauthenticated.
+- `/` Dashboard · `/jobs` queue · `/review` candidate picker · `/library` browse + actions · `/changes` tag-change history + revert · `/settings` UI-editable config · `/docs` user manual · `/setup` first-run wizard · `/health` unauthenticated.
 - Background: watchdog observer on `/drop`, one worker thread feeding an in-memory `queue.Queue`.
 
 ## Source of truth

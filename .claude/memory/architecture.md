@@ -20,7 +20,7 @@ dragontag/app/
   main.py                  FastAPI routes (everything route-shaped)
   config.py                Env vars · Docker secrets · settings.json layers
   db.py                    SQLite engine bootstrap + ad-hoc helpers (e.g. dashboard_stats)
-  models.py                SQLModel tables: LibraryFolder · Track · Job + enums
+  models.py                SQLModel tables: LibraryFolder · Track · Job · FileChange + enums
   auth.py                  argon2 verify + session helpers
   notify.py                Discord webhook sender
   ingest/
@@ -35,9 +35,10 @@ dragontag/app/
     acoustid.py            fpcalc + AcoustID lookup
     scoring.py             Confidence model
   tagging/
-    schema.py              TrackTags dataclass + Vorbis rendering
+    schema.py              TrackTags dataclass + Vorbis rendering (native multi-value)
     formatter.py           Smart formatting (Title Case, qualifiers, grammar)
     partial.py             Single-field write helpers (lyrics, cover, advisory)
+    snapshot.py            Capture/restore a file's tags (powers revert)
     coverart.py            Cover Art Archive fetcher
     lyrics_fetcher.py      LRCLIB client
     advisory.py            Explicit-content classifier
@@ -48,6 +49,7 @@ dragontag/app/
     scanner.py             Index existing files into Track table (batches 50)
     organizer.py           Reorganize files; also prunes empty leftover dirs
     actions.py             Individual library actions (covers, replaygain, integrity, disc, missing)
+    revert.py              Undo a recorded FileChange (restore tags in place)
   web/
     templates/             Jinja2 (extends base.html)
     static/                favicon, eventual static assets
@@ -65,6 +67,10 @@ needs_review → skipped
 
 Job rows carry `candidates_json`, `chosen_tags_json`, and `destination_path` so the review UI can render without re-querying MusicBrainz.
 
+## Change history / revert
+
+`pipeline._commit_tag_path` snapshots the file's existing tags (`tagging/snapshot.capture`) just before the destructive `write_tags`, then on `done` writes a `FileChange` row (original tags, original path, the written tags, whether it created `cover.jpg`). The `/changes` page lists recent rows; `library/revert.revert_change` rewrites the original tags **in place** (`snapshot.restore`) and removes a dragontag-created `cover.jpg` — it does **not** move the file back. History is pruned to the most recent 500 rows. Limitation: snapshots cover text tags only (no embedded art / exotic binary frames).
+
 ## Threading
 
 - **One** worker thread (`pipeline.start_worker`) pulls from `queue.Queue`. SQLModel sessions are per-call; engine uses `check_same_thread=False`.
@@ -73,7 +79,7 @@ Job rows carry `candidates_json`, `chosen_tags_json`, and `destination_path` so 
 
 ## Where new code goes
 
-- **A new tag field** → `tagging/schema.py` (TrackTags + `to_vorbis`) + every writer in `tagging/writers/`. Add to settings only if it needs configuration.
+- **A new tag field** → `tagging/schema.py` (TrackTags + `to_vorbis`) + every writer in `tagging/writers/`. Add to settings only if it needs configuration. Note: `to_vorbis` returns `dict[str, str | list[str]]` — multi-value fields are emitted as **native lists** (one value each), not separator-joined strings.
 - **A new individual library action** → `library/actions.py` function + a route in `main.py` (look for the `/library/extract-covers` block as a template).
 - **A new pipeline step** → `ingest/pipeline._process_inner`. Keep the function flat — the review-branch routing is at the bottom.
 - **A new identifier source** → `identify/` with the same shape as `musicbrainz` / `acoustid`; wire in `pipeline`.

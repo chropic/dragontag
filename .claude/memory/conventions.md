@@ -26,7 +26,9 @@ metadata:
 ## Tag schema
 
 - Canonical shape lives in `dragontag/app/tagging/schema.py`.
-- Multi-value separators: `//` for ARTIST and `album_artist`; `;` for everything else (MB IDs, GENRE, LABEL, ISRC, sorts). User-overridable in `Separators`.
+- **Multi-value fields are written as native multiple values** — one Vorbis comment / ID3v2.4 multi-value / MP4 list entry per value (ARTIST, ALBUMARTIST, ARTISTS, GENRE, sorts, composer/conductor/lyricist/arranger, LABEL, ISRC, MB artist-id lists). `to_vorbis` returns `str | list[str]` and the writers pass lists through. Navidrome/Picard split these correctly — a single `"a//b//c"` string does not.
+- The per-tag `Separators` (`//` for ARTIST/`album_artist`, `;` elsewhere) are kept for compatibility but are now a **fallback only** for those fields; they no longer pre-join. (The settings UI still exposes them.)
+- `album_artist` stays the lowercase Vorbis key by convention; the names come from `TrackTags.album_artists`.
 - MP4 freeform atoms always use `----:com.apple.iTunes:NAME` to stay Picard-compatible.
 - New fields must be written across **all four** writers (FLAC, MP3/WAV ID3, MP4) — partial coverage breaks the format-agnostic guarantee.
 

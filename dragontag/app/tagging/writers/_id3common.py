@@ -106,11 +106,17 @@ def populate_id3(id3: ID3, tags: TrackTags, sep) -> None:
     """Replace the entire ID3 frame set on ``id3`` with the data in ``tags``."""
 
     # Same reasoning as the FLAC writer: blow away any pre-existing frames so
-    # we end with exactly the canonical set rather than a merge.
-    id3.delete()
+    # we end with exactly the canonical set rather than a merge. ``clear()``
+    # drops all frames in-memory (the file is persisted later by the caller's
+    # ``save()``); ``delete()`` would do immediate file I/O and, on WAV's
+    # ``_WaveID3``, requires a positional ``filething`` it isn't given here.
+    id3.clear()
     v = tags.to_vorbis(sep)
 
     def add_frame(frame_cls, key: str) -> None:
+        # ``v[key]`` may be a str (single-value field) or a list[str]
+        # (multi-value field) — ID3v2.4 text frames accept either and write
+        # multiple values natively for the list form.
         if key in v:
             id3.add(frame_cls(encoding=3, text=v[key]))
 
@@ -127,11 +133,12 @@ def populate_id3(id3: ID3, tags: TrackTags, sep) -> None:
     add_frame(TSOP, "ARTISTSORT")
     add_frame(TSO2, "ALBUMARTISTSORT")
     add_frame(TLAN, "LANGUAGE")
-    # TPE3 = conductor, TEXT = lyricist (standard ID3v2.4 frames)
+    # TPE3 = conductor, TEXT = lyricist (standard ID3v2.4 frames). Pass the
+    # lists directly so each value is a native multi-value entry.
     if tags.conductor:
-        id3.add(TPE3(encoding=3, text=sep.CONDUCTOR.join(tags.conductor)))
+        id3.add(TPE3(encoding=3, text=tags.conductor))
     if tags.lyricist:
-        id3.add(TEXT(encoding=3, text=sep.LYRICIST.join(tags.lyricist)))
+        id3.add(TEXT(encoding=3, text=tags.lyricist))
     if tags.compilation:
         id3.add(TCMP(encoding=3, text="1"))
 

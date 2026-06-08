@@ -33,7 +33,8 @@ from ..identify import musicbrainz as mbq
 from ..identify.scoring import score_candidate
 from ..library.mover import move, write_cover_jpg
 from ..library.paths import build_destination
-from ..models import Job, JobStatus, ReviewReason
+from ..models import FileChange, Job, JobStatus, ReviewReason
+from ..tagging import snapshot
 from ..tagging.coverart import fetch_for_release, fetch_for_release_group
 from ..tagging.schema import TrackTags
 from ..tagging.writers import write_tags
@@ -378,6 +379,10 @@ def _commit_tag_path(s: Session, job: Job, src: Path, tags: TrackTags, *, score:
     s.add(job)
     s.commit()
 
+    # ----- snapshot original tags before the destructive write (for revert) -----
+    original_snapshot = snapshot.capture(src)
+    original_path = str(src)
+
     # ----- write tags -----
     try:
         write_tags(src, tags)
@@ -410,6 +415,8 @@ def _commit_tag_path(s: Session, job: Job, src: Path, tags: TrackTags, *, score:
         return
 
     # ----- side-effect: write cover.jpg next to the file -----
+    cover_jpg = dest.parent / "cover.jpg"
+    cover_existed = cover_jpg.exists()
     if cover:
         write_cover_jpg(
             dest.parent,
@@ -427,8 +434,57 @@ def _commit_tag_path(s: Session, job: Job, src: Path, tags: TrackTags, *, score:
     _append_log(job, f"Done -> {dest}")
     s.add(job)
     s.commit()
+
+    # ----- record the change so it can be reviewed / reverted -----
+    _record_change(
+        s,
+        job,
+        original_path=original_path,
+        original_snapshot=original_snapshot,
+        dest=dest,
+        new_tags=job.chosen_tags_json,
+        cover_jpg_created=(not cover_existed and cover_jpg.exists()),
+    )
+
     from ..notify import post_done
     post_done(job, tags)
+
+
+_MAX_CHANGES = 500
+
+
+def _record_change(
+    s: Session,
+    job: Job,
+    *,
+    original_path: str,
+    original_snapshot: dict,
+    dest: Path,
+    new_tags: dict,
+    cover_jpg_created: bool,
+) -> None:
+    """Persist a FileChange audit row, then prune to the most recent rows."""
+    change = FileChange(
+        job_id=job.id,
+        file_path=str(dest),
+        original_path=original_path,
+        original_name=job.original_name,
+        original_tags_json=original_snapshot or {},
+        new_tags_json=new_tags or {},
+        cover_jpg_created=cover_jpg_created,
+    )
+    s.add(change)
+    s.commit()
+
+    stale = s.exec(
+        select(FileChange.id).order_by(FileChange.id.desc()).offset(_MAX_CHANGES)
+    ).all()
+    if stale:
+        for cid in stale:
+            obj = s.get(FileChange, cid)
+            if obj:
+                s.delete(obj)
+        s.commit()
 
 
 def _pick_library_folder() -> Path:

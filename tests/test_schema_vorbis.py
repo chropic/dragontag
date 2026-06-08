@@ -48,13 +48,15 @@ def test_vorbis_render_matches_reference():
     out = t.to_vorbis(sep)
 
     # --- core fields ---
+    # Multi-value fields render as native lists (one Vorbis comment per value);
+    # single-value fields stay strings.
     assert out["TITLE"] == "deletee (intro)"
-    assert out["ARTIST"] == "Bladee//Thaiboy Digital"
-    assert out["ARTISTS"] == "Bladee;Thaiboy Digital"
-    assert out["ARTISTSORT"] == "Bladee feat. Thaiboy Digital"
+    assert out["ARTIST"] == ["Bladee", "Thaiboy Digital"]
+    assert out["ARTISTS"] == ["Bladee", "Thaiboy Digital"]
+    assert out["ARTISTSORT"] == ["Bladee feat. Thaiboy Digital"]
     assert out["ALBUM"] == "gluee"
-    assert out["album_artist"] == "Bladee"
-    assert out["ALBUMARTISTSORT"] == "Bladee"
+    assert out["album_artist"] == ["Bladee"]
+    assert out["ALBUMARTISTSORT"] == ["Bladee"]
     assert out["DATE"] == "2014-01-27"
     assert out["ORIGINALDATE"] == "2014-01-27"
     assert out["ORIGINALYEAR"] == "2014"
@@ -64,11 +66,11 @@ def test_vorbis_render_matches_reference():
     assert out["disc"] == "01/01"
     assert out["DISCTOTAL"] == "1"
     assert out["TOTALDISCS"] == "1"
-    assert out["GENRE"] == "Hip-Hop/Rap"
-    assert out["LABEL"] == "Revenue"
+    assert out["GENRE"] == ["Hip-Hop/Rap"]
+    assert out["LABEL"] == ["Revenue"]
     assert out["MEDIA"] == "Digital Media"
     assert out["BARCODE"] == "7071245142858"
-    assert out["ISRC"] == "SE4LC1400201"
+    assert out["ISRC"] == ["SE4LC1400201"]
     assert out["RELEASECOUNTRY"] == "XW"
     assert out["RELEASESTATUS"] == "official"
     assert out["RELEASETYPE"] == "Album"
@@ -77,20 +79,43 @@ def test_vorbis_render_matches_reference():
     assert out["MUSICBRAINZ_TRACKID"] == "b8cf993a-d3e0-4efd-adfa-8d93574c6eb1"
     assert out["MUSICBRAINZ_RELEASETRACKID"] == "f9e68e57-5997-4352-bcd7-5ffc07ad21bc"
     assert out["MUSICBRAINZ_ALBUMID"] == "dc23e008-e934-469b-a210-fbfbabc57019"
-    assert out["MUSICBRAINZ_ALBUMARTISTID"] == "cd689e77-dfdd-4f81-b50c-5e5a3f5e38a4"
-    assert out["MUSICBRAINZ_ARTISTID"] == (
-        "cd689e77-dfdd-4f81-b50c-5e5a3f5e38a4;68d311c0-525f-4f72-a044-84e54565d02d"
-    )
+    assert out["MUSICBRAINZ_ALBUMARTISTID"] == ["cd689e77-dfdd-4f81-b50c-5e5a3f5e38a4"]
+    assert out["MUSICBRAINZ_ARTISTID"] == [
+        "cd689e77-dfdd-4f81-b50c-5e5a3f5e38a4",
+        "68d311c0-525f-4f72-a044-84e54565d02d",
+    ]
     assert out["MUSICBRAINZ_RELEASEGROUPID"] == "c3669980-9a4b-4cb5-89e5-e4efb144972e"
 
     # --- new fields ---
-    assert out["COMPOSER"] == "Some Composer"
-    assert out["CONDUCTOR"] == "Some Conductor"
-    assert out["LYRICIST"] == "Some Lyricist"
-    assert out["ARRANGER"] == "Some Arranger"
+    assert out["COMPOSER"] == ["Some Composer"]
+    assert out["CONDUCTOR"] == ["Some Conductor"]
+    assert out["LYRICIST"] == ["Some Lyricist"]
+    assert out["ARRANGER"] == ["Some Arranger"]
     assert out["CATALOGNUMBER"] == "REV-001"
     assert out["LANGUAGE"] == "eng"
     assert out["COMPILATION"] == "1"
+
+
+def test_album_artist_list_takes_priority_over_phrase():
+    """When album_artists is populated, album_artist renders as multiple values."""
+    sep = Separators()
+    t = TrackTags(
+        title="x",
+        artists=["A", "B", "C"],
+        album_artist_display="A, B & C",
+        album_artists=["A", "B", "C"],
+    )
+    out = t.to_vorbis(sep)
+    assert out["ARTIST"] == ["A", "B", "C"]
+    assert out["album_artist"] == ["A", "B", "C"]
+
+
+def test_artist_falls_back_to_display_phrase_when_no_list():
+    """With no flat list, ARTIST is the single display phrase as one value."""
+    sep = Separators()
+    t = TrackTags(title="x", artist_display="A feat. B")
+    out = t.to_vorbis(sep)
+    assert out["ARTIST"] == ["A feat. B"]
 
 
 def test_new_fields_omitted_when_empty():

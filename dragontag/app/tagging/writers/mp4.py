@@ -39,18 +39,22 @@ def write(path: Path, tags: TrackTags, sep) -> None:
     # ----- standard atoms -----
     if tags.title:
         t["\xa9nam"] = [tags.title]
-    if tags.artist_display:
-        t["\xa9ART"] = [tags.artist_display]
-    if tags.album_artist_display:
-        t["aART"] = [tags.album_artist_display]
+    # Artist / album-artist atoms are multi-value: one list entry per artist so
+    # Navidrome / Picard see separate artists (not one "a; b" string).
+    artists = tags.artists or ([tags.artist_display] if tags.artist_display else [])
+    if artists:
+        t["\xa9ART"] = artists
+    album_artists = tags.album_artists or (
+        [tags.album_artist_display] if tags.album_artist_display else []
+    )
+    if album_artists:
+        t["aART"] = album_artists
     if tags.album:
         t["\xa9alb"] = [tags.album]
     if tags.composers:
-        # MP4 has a single composer atom; join into one string with the
-        # COMPOSER separator (default ``;``).
-        t["\xa9wrt"] = [sep.COMPOSER.join(tags.composers)]
+        t["\xa9wrt"] = tags.composers
     if tags.genres:
-        t["\xa9gen"] = [sep.GENRE.join(tags.genres)]
+        t["\xa9gen"] = tags.genres
     if tags.date:
         t["\xa9day"] = [tags.date]
 
@@ -60,11 +64,16 @@ def write(path: Path, tags: TrackTags, sep) -> None:
         t["disk"] = [(tags.disc, tags.disc_total or 0)]
 
     # ----- freeform atoms for everything else -----
-    def put_ff(name: str, value: str | None) -> None:
-        if value is None or value == "":
+    def put_ff(name: str, value: str | list[str] | None) -> None:
+        # ``value`` may be a single string or a list of strings (multi-value
+        # field). Freeform atoms expect bytes, and a list of byte-values is
+        # written as a native multi-value freeform atom.
+        if not value:
             return
-        # Freeform atoms expect bytes, not str.
-        t[_ff(name)] = [value.encode("utf-8")]
+        vals = value if isinstance(value, list) else [value]
+        encoded = [s.encode("utf-8") for s in vals if s]
+        if encoded:
+            t[_ff(name)] = encoded
 
     if tags.compilation:
         t["cpil"] = True

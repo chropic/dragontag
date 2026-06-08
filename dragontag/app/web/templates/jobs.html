@@ -22,7 +22,16 @@
 </div>
 
 <!-- Bulk controls -->
-<div class="flex gap-2 mb-4">
+<div class="flex gap-2 mb-4 items-center flex-wrap">
+  <form id="jobs-bulk-form" method="post" action="/jobs/clear-selected" class="inline flex items-center gap-2"
+        onsubmit="return confirm('Delete the selected job rows? In-flight jobs are skipped.');">
+    <label class="flex items-center gap-1 text-sm text-[#8a8a8a]">
+      <input type="checkbox" id="jobs-select-all"
+             onchange="document.querySelectorAll('input[name=job_ids]').forEach(c=>c.checked=this.checked)">
+      Select all
+    </label>
+    <button class="px-3 py-1 border border-[#ffb4b4] text-sm text-[#ffb4b4] hover:text-white hover:border-white">Clear selected</button>
+  </form>
   <form method="post" action="/jobs/cancel-queued" class="inline">
     <button class="px-3 py-1 border border-[#4a4a4a] text-sm text-[#cfcfcf] hover:text-white hover:border-white">Cancel all queued</button>
   </form>
@@ -50,6 +59,7 @@
   <table class="w-full text-sm">
     <thead class="text-[#8a8a8a] border-b border-[#4a4a4a]">
       <tr>
+        <th class="text-left py-2 pr-2 w-6"></th>
         <th class="text-left py-2 pr-3 w-10">#</th>
         <th class="text-left pr-3">File</th>
         <th class="text-left pr-3">Status</th>
@@ -61,6 +71,7 @@
     <tbody>
     {% for j in jobs %}
       <tr class="border-b border-[#4a4a4a] hover:bg-[#131313]">
+        <td class="py-2 pr-2"><input type="checkbox" name="job_ids" value="{{ j.id }}" form="jobs-bulk-form"></td>
         <td class="py-2 pr-3 text-[#8a8a8a] font-mono text-xs">{{ j.id }}</td>
         <td class="py-2 pr-3 truncate max-w-xs">
           <a class="text-[#cfcfcf] hover:underline" href="/jobs/{{ j.id }}">{{ j.original_name }}</a>
@@ -95,10 +106,10 @@
         </td>
       </tr>
       <tr id="log-{{ j.id }}" class="hidden border-b border-[#4a4a4a]">
-        <td colspan="6" class="p-0"></td>
+        <td colspan="7" class="p-0"></td>
       </tr>
     {% else %}
-      <tr><td class="py-4 text-[#8a8a8a]" colspan="6">No jobs yet.</td></tr>
+      <tr><td class="py-4 text-[#8a8a8a]" colspan="7">No jobs yet.</td></tr>
     {% endfor %}
     </tbody>
   </table>

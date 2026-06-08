@@ -35,7 +35,8 @@ High-confidence matches flow through completely hands-free. Everything else land
 | **Lyrics + advisory** | Synced LRC or plain text from LRCLIB, embedded per-format; explicit content auto-tagged as `ITUNESADVISORY` |
 | **Dry-run mode** | Preview destination paths and assembled tags without touching any files |
 | **Webhook notifications** | Discord-compatible webhook fires on job completion or error |
-| **Jobs page** | Full queue view with bulk controls (cancel, clear, requeue) and per-row actions |
+| **Jobs page** | Full queue view with bulk controls (cancel, clear, requeue), per-row checkboxes + "Clear selected", and per-row actions |
+| **Change history + revert** | Every pipeline tag-write is recorded; the `/changes` page lists recent changes and can revert a file's tags in place |
 | **Library actions** | Scan library, organize, full library re-tag, plus individual actions: fetch lyrics, fetch covers, extract embedded covers, recompute ReplayGain, verify integrity, fix disc folders, find missing tracks |
 | **Smart formatting** | Title Case, qualifier parenthesization ("Song Live" → "Song (Live)"), grammar correction (ALL-CAPS + contractions + possessives) |
 | **Library table** | Column sorting + standard pagination (10 / 25 / 50 / 100 / 200); explicit advisory badge on each track row |
@@ -109,7 +110,7 @@ Everything below is editable live from the **Settings** page and written atomica
 - AcoustID fingerprint fallback on/off
 - Auto-apply confidence threshold (default `0.85`)
 - Filename templates — single-disc and multi-disc variants with `{track}`, `{disc}`, `{title}`, `{artist}`, `{ext}` vars
-- Per-tag multi-value separators (`ARTIST`, `album_artist`, `ARTISTS`, `GENRE`, …)
+- Per-tag separators (`ARTIST`, `album_artist`, `ARTISTS`, `GENRE`, …) — note: multi-value fields are written as native multiple values, so these joiners are now a fallback only
 - Genre limit and casing (`Title Case` / `lowercase` / `as-is`)
 - Fields to skip entirely (suppressed at write time across all formats)
 - Watcher on/off, ignore patterns, settle window
@@ -162,11 +163,11 @@ The canonical schema is defined in [`schema.py`](dragontag/app/tagging/schema.py
 | Tag | Value |
 |---|---|
 | `TITLE` | MB recording title |
-| `ARTIST` | MB artist-credit phrase — multi-value joined with `//` |
-| `ARTISTS` | MB artist names — joined with `;` |
+| `ARTIST` | MB artist names — written as native multiple values (one comment per artist) |
+| `ARTISTS` | MB artist names — native multiple values |
 | `ARTISTSORT` | MB artist sort names |
 | `ALBUM` | MB release title |
-| `album_artist` *(lowercase)* | MB release artist-credit phrase |
+| `album_artist` *(lowercase)* | MB release artist names — native multiple values |
 | `ALBUMARTISTSORT` | MB release artist sort names |
 | `COMPOSER` · `LYRICIST` · `ARRANGER` · `CONDUCTOR` | From MB recording / work relations |
 | `DATE` · `ORIGINALDATE` · `ORIGINALYEAR` | Release date + release-group first-release-date |
@@ -264,7 +265,9 @@ Pure-logic, no-network tests cover the most failure-prone paths:
 | File | What it checks |
 |---|---|
 | `test_paths.py` | `sanitize_segment` strips only forbidden chars; correct single- and multi-disc destination paths |
-| `test_schema_vorbis.py` | `TrackTags.to_vorbis()` output matches the reference Vorbis field-for-field, including exact casing |
+| `test_schema_vorbis.py` | `TrackTags.to_vorbis()` output matches the reference Vorbis field-for-field, including exact casing and native multi-value lists |
+| `test_writers_multivalue.py` | WAV/ID3 round-trip writes multi-value ARTIST/ALBUMARTIST/GENRE as separate values |
+| `test_snapshot.py` | Revert snapshot captures, then restores, a file's original tags |
 | `test_scoring.py` | Perfect match scores high; wrong title scores low |
 | `test_lyrics_advisory.py` | Lyrics embedded correctly per format; explicit classifier fires on known words, respects word boundaries |
 

@@ -120,3 +120,35 @@ class Job(SQLModel, table=True):
 
     # FK to the Track row created/updated when this job completed.
     track_id: int | None = Field(default=None, foreign_key="track.id")
+
+
+class FileChange(SQLModel, table=True):
+    """Audit row for one destructive tag-write + move, enabling an undo.
+
+    Written by the pipeline just after a file is successfully tagged and moved
+    (see ``ingest/pipeline._commit_tag_path``). ``original_tags_json`` is a full
+    pre-write snapshot of the file's tags (``tagging/snapshot.capture``); a
+    revert rewrites those tags in place at ``file_path`` and removes the
+    ``cover.jpg`` sidecar if we created it. The file is *not* moved back.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    job_id: int | None = Field(default=None, foreign_key="job.id", index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+    # Where the file lives now (the post-move library path) and where it came
+    # from before the move — kept for display / diagnostics.
+    file_path: str
+    original_path: str | None = None
+    original_name: str = ""
+
+    # Full pre-write tag snapshot: {"format": ext, "tags": {key: [values]}}.
+    original_tags_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    # The tags we wrote (for showing a before/after in the UI).
+    new_tags_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+
+    # True only when we created a new cover.jpg (so revert may safely remove it).
+    cover_jpg_created: bool = False
+
+    reverted_at: datetime | None = None
+    revert_error: str | None = None

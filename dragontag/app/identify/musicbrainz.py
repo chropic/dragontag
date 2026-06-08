@@ -252,6 +252,9 @@ def assemble_tags(*, release_id: str, recording_id: str) -> TrackTags:
     tags.album = rel.get("title")
     rel_credits = rel.get("artist-credit") or []
     tags.album_artist_display = _credit_phrase(rel_credits)
+    tags.album_artists = [
+        c["artist"]["name"] for c in rel_credits if isinstance(c, dict) and "artist" in c
+    ]
     tags.album_artist_sort = [
         c["artist"].get("sort-name", c["artist"]["name"])
         for c in rel_credits

@@ -2,6 +2,27 @@
 
 # Changelog
 
+## Unreleased — Navidrome multi-value, revert & queue sweep (2026-06-07)
+**Branch:** `task/navidrome-revert-sweep`
+
+### Added
+- **Change history + revert** — every pipeline tag-write now records a `FileChange` row with a full pre-write tag snapshot. The new **Changes** page (`/changes`) lists recent changes with a per-row **Revert** that restores the file's original tags in place and removes the `cover.jpg` dragontag added (it does not move the file back). New: `tagging/snapshot.py`, `library/revert.py`, `models.FileChange`, `templates/changes.html`. History is pruned to the most recent 500 rows.
+- **Jobs queue per-row select + Clear selected** — per-row checkboxes + "Select all" and a `POST /jobs/clear-selected` route that deletes the chosen rows (in-flight jobs are skipped).
+
+### Changed
+- **Multi-value tags are written as native multiple values** — ARTIST, ALBUMARTIST, ARTISTS, GENRE, sort names, composer/conductor/lyricist/arranger, LABEL, ISRC and the MusicBrainz artist-id lists now render as one Vorbis comment / ID3v2.4 multi-value / MP4 list entry **per value** instead of a single `"a//b//c"` string. Navidrome and Picard split these into separate artists/genres. Added `TrackTags.album_artists` (populated from MusicBrainz). The per-tag `Separators` are no longer used to join these fields.
+- **Docs nav opens the built-in user manual** — FastAPI's Swagger UI / ReDoc / OpenAPI schema are disabled (`docs_url`/`redoc_url`/`openapi_url=None`) so the custom `/docs` route is reachable instead of being shadowed by Swagger.
+
+### Fixed
+- **Review-queue manual MB search could 422** (`recording_id`/`release_id` "missing"). The apply handler now resolves the chosen ids server-side from the selected radio (`pick`) or the manual id inputs, treats those form fields as optional, and bounces back with a toast instead of a 422 when nothing is chosen. Search-result radios are explicitly associated with the apply form via `form=`.
+- **WAV tagging was broken** — `populate_id3` called `id3.delete()`, which WAV's `_WaveID3` rejects (it requires a positional `filething`). Switched to `id3.clear()`, which clears frames in-memory and also avoids redundant file I/O for MP3.
+
+### Files changed
+Modified: `dragontag/app/main.py`, `dragontag/app/models.py`, `dragontag/app/ingest/pipeline.py`, `dragontag/app/identify/musicbrainz.py`, `dragontag/app/tagging/schema.py`, `dragontag/app/tagging/writers/_id3common.py`, `dragontag/app/tagging/writers/mp4.py`, `dragontag/app/web/templates/{review,_mb_search_results,jobs,base}.html`, `tests/test_schema_vorbis.py`, `README.md`, `CHANGELOG.md`.
+New: `dragontag/app/tagging/snapshot.py`, `dragontag/app/library/revert.py`, `dragontag/app/web/templates/changes.html`, `tests/test_snapshot.py`, `tests/test_writers_multivalue.py`.
+
+---
+
 ## Unreleased — code-review fixes (2026-06-07)
 **Branch:** `task/code-review-2026-05-28`
 

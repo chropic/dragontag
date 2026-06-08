@@ -38,7 +38,7 @@ from .identify import musicbrainz as mbq
 from .ingest import pipeline, uploads, watcher
 from .library.mover import move
 from .library.paths import unique_path
-from .models import Job, JobStatus, LibraryFolder, ReviewReason, Track
+from .models import FileChange, Job, JobStatus, LibraryFolder, ReviewReason, Track
 
 
 def _local_tz() -> ZoneInfo:
@@ -68,7 +68,9 @@ def _toast_response(redirect_url: str, message: str, level: str = "success") -> 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("musicbrainzngs").setLevel(logging.WARNING)
 
-app = FastAPI(title="dragontag")
+# docs_url/redoc_url/openapi_url disabled so FastAPI's built-in Swagger UI does
+# not shadow our custom user-manual route at GET /docs (see docs() below).
+app = FastAPI(title="dragontag", docs_url=None, redoc_url=None, openapi_url=None)
 
 # Cookie-signing secret comes from the session-secret Docker secret. The
 # middleware itself implements signed but unencrypted cookies — fine for
@@ -319,6 +321,29 @@ def jobs_clear_all(request: Request, _: None = Depends(require_auth)):
     return _toast_response("/jobs", f"Cleared {len(rows)} job(s).")
 
 
+@app.post("/jobs/clear-selected")
+def jobs_clear_selected(
+    request: Request,
+    _: None = Depends(require_auth),
+    job_ids: list[int] = Form(default=[]),
+):
+    """Delete specific Job rows chosen via the per-row checkboxes.
+
+    In-flight jobs are skipped (same guard as clear-all) so a running pipeline
+    isn't yanked out from under itself. DB rows only — files are never touched.
+    """
+    active = {JobStatus.queued, JobStatus.identifying, JobStatus.tagging, JobStatus.moving}
+    deleted = 0
+    with session() as s:
+        for jid in job_ids:
+            r = s.get(Job, jid)
+            if r and r.status not in active:
+                s.delete(r)
+                deleted += 1
+        s.commit()
+    return _toast_response("/jobs", f"Cleared {deleted} job(s).")
+
+
 @app.post("/jobs/clear-needs-review")
 def jobs_clear_needs_review(request: Request, _: None = Depends(require_auth)):
     with session() as s:
@@ -438,8 +463,11 @@ async def review_apply(
     job_id: int,
     request: Request,
     _: None = Depends(require_auth),
-    recording_id: str = Form(...),
-    release_id: str = Form(...),
+    recording_id: str = Form(default=""),
+    release_id: str = Form(default=""),
+    pick: str = Form(default=""),
+    manual_recording_id: str = Form(default=""),
+    manual_release_id: str = Form(default=""),
     release_type_override: str | None = Form(None),
     cover_art_url: str = Form(default=""),
     cover_art_file: UploadFile = File(default=None),
@@ -450,17 +478,35 @@ async def review_apply(
     write / move flow is identical to the auto-apply path. Importing it
     inside the function avoids an import cycle at module load time.
 
+    The MB ids are resolved server-side from whichever control the user used so
+    the request can't 422 even if the client-side JS didn't populate the hidden
+    fields: explicit ``recording_id``/``release_id`` (JS-populated) → a selected
+    radio submitted as ``pick`` ("recording|release", from the candidate list OR
+    a manual MB search) → the manual id-entry inputs. If none resolve we bounce
+    back to /review with a toast instead of raising.
+
     If the user selected a cover from the thumbnail strip (``cover_art_url``)
     or uploaded a custom image (``cover_art_file``), those bytes are set on
     the tags object before calling ``_commit_tag_path`` — which skips its own
     CAA fetch when ``tags.cover_bytes`` is already populated.
     """
+    rec = recording_id.strip()
+    rel = release_id.strip()
+    if (not rec or not rel) and "|" in pick:
+        p_rec, _, p_rel = pick.partition("|")
+        rec = rec or p_rec.strip()
+        rel = rel or p_rel.strip()
+    rec = rec or manual_recording_id.strip()
+    rel = rel or manual_release_id.strip()
+    if not rec or not rel:
+        return _toast_response("/review", "Pick a candidate or enter MB ids first.", "error")
+
     with session() as s:
         job = s.get(Job, job_id)
         if not job:
             raise HTTPException(404)
         try:
-            tags = mbq.assemble_tags(release_id=release_id, recording_id=recording_id)
+            tags = mbq.assemble_tags(release_id=rel, recording_id=rec)
         except Exception as e:
             raise HTTPException(500, str(e))
         if release_type_override:
@@ -1047,6 +1093,7 @@ def api_mb_search(request: Request, _: None = Depends(require_auth), q: str = ""
     cands = mbq.search_candidates(title=q, artist=artist, album=album, limit=10) if q.strip() else []
     return templates.TemplateResponse(request, "_mb_search_results.html", {
         "request": request,
+        "job_id": job_id,
         "cands": [
             {
                 "recording_id": c.recording_id,
@@ -1064,3 +1111,21 @@ def api_mb_search(request: Request, _: None = Depends(require_auth), q: str = ""
 @app.get("/docs", response_class=HTMLResponse)
 def docs(request: Request, _: None = Depends(require_auth)):
     return templates.TemplateResponse(request, "docs.html", {"request": request, "active_page": "docs"})
+
+
+@app.get("/changes", response_class=HTMLResponse)
+def changes(request: Request, _: None = Depends(require_auth)):
+    """Recent file changes (tag write + move) with a per-row revert action."""
+    with session() as s:
+        rows = s.exec(select(FileChange).order_by(FileChange.id.desc()).limit(200)).all()
+    return templates.TemplateResponse(
+        request, "changes.html", {"request": request, "changes": rows, "active_page": "changes"}
+    )
+
+
+@app.post("/changes/{change_id}/revert")
+def changes_revert(change_id: int, request: Request, _: None = Depends(require_auth)):
+    from .library.revert import revert_change
+
+    ok, message = revert_change(change_id)
+    return _toast_response("/changes", message, "success" if ok else "error")

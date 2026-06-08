@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}dragontag | Changes{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-2">
+  <h2 class="text-xl font-mono font-semibold">Recent changes</h2>
+  <span class="text-[#8a8a8a] text-sm">Last {{ changes|length }} change{% if changes|length != 1 %}s{% endif %}</span>
+</div>
+
+<p class="text-[#8a8a8a] text-sm mb-4">Each row is a tag write the pipeline applied to a file. Reverting restores the
+file's original tags in place and removes the <code class="text-xs">cover.jpg</code> dragontag added — it does
+not move the file back to where it came from.</p>
+
+<div class="bg-[#0c0c0c] border border-[#4a4a4a] p-4">
+  <table class="w-full text-sm table-fixed">
+    <thead class="text-[#8a8a8a] border-b border-[#4a4a4a]">
+      <tr>
+        <th class="text-left py-2 pr-3 w-2/5">File / applied tags</th>
+        <th class="text-left pr-3 w-1/5">When</th>
+        <th class="text-left pr-3 w-[15%]">Status</th>
+        <th class="text-left">Action</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for c in changes %}
+      <tr class="border-b border-[#4a4a4a] hover:bg-[#131313] align-top">
+        <td class="py-2 pr-3">
+          <div class="text-[#cfcfcf] truncate">{{ c.new_tags_json.get('title') or c.original_name }}</div>
+          <div class="text-[#8a8a8a] text-xs truncate">
+            {{ c.new_tags_json.get('artist_display') or '—' }}{% if c.new_tags_json.get('album') %} · {{ c.new_tags_json.get('album') }}{% endif %}
+          </div>
+          <div class="text-[#6a6a6a] text-xs font-mono truncate">{{ c.file_path }}</div>
+        </td>
+        <td class="py-2 pr-3 text-[#8a8a8a] text-xs">{{ format_local(c.created_at) }}</td>
+        <td class="py-2 pr-3">
+          {% if c.reverted_at %}
+            <span class="px-2 py-0.5 text-xs bg-[#2a2a2a] text-[#8a8a8a]">reverted</span>
+          {% elif c.revert_error %}
+            <span class="text-xs text-[#ffb4b4]" title="{{ c.revert_error }}">revert failed</span>
+          {% else %}
+            <span class="text-xs text-[#8a8a8a]">applied</span>
+          {% endif %}
+        </td>
+        <td class="py-2">
+          {% if not c.reverted_at %}
+          <form method="post" action="/changes/{{ c.id }}/revert" class="inline"
+                onsubmit="return confirm('Restore the original tags for this file? This rewrites the tags in place.');">
+            <button class="text-xs px-3 py-1 border border-[#f2e5b5] text-[#f2e5b5] hover:text-white hover:border-white">Revert</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td class="py-4 text-[#8a8a8a]" colspan="4">No changes recorded yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

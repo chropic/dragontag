@@ -10,12 +10,15 @@ Notable convention details captured here:
 * Lowercase keys for ``album_artist``, ``track``, ``disc`` — preserved as-is.
 * Both ``TRACKTOTAL`` and ``TOTALTRACKS`` (and same for disc) are written —
   some players honor one but not the other.
-* Multi-value tags are joined into a single string per Vorbis convention,
-  with per-tag separators (default ``//`` for ARTIST, ``;`` elsewhere).
-* ``ARTIST`` is the *display phrase* including ``feat.`` joinphrases when MB
-  has them; ``ARTISTS`` is the flat ordered list. ``artist_display`` is the
-  pre-joined string from MB's ``artist-credit``; if absent we fall back to
-  joining ``artists`` with the ``ARTIST`` separator.
+* Multi-value tags (ARTIST, ARTISTS, GENRE, sort names, MB id lists, …) render
+  as native multiple values — a ``list[str]`` that becomes one Vorbis comment
+  per value (FLAC) / a multi-value frame or atom (ID3/MP4). This is what
+  Navidrome / Picard split on; a single ``"a//b//c"`` string would be read as
+  one artist. The per-tag ``Separators`` are therefore no longer used to join
+  these fields.
+* ``ARTIST``/``album_artist`` are the flat per-artist lists; the ``feat./&``
+  display phrase (``artist_display``) is used only as a single-value fallback
+  when the list is empty.
 """
 from __future__ import annotations
 
@@ -43,6 +46,7 @@ class TrackTags:
     artist_sort: list[str] = field(default_factory=list)
     album: str | None = None
     album_artist_display: str | None = None
+    album_artists: list[str] = field(default_factory=list)
     album_artist_sort: list[str] = field(default_factory=list)
     composers: list[str] = field(default_factory=list)
 
@@ -102,44 +106,49 @@ class TrackTags:
     # --- tagger attribution ---
     tagger: str = field(default_factory=lambda: f"tagged via dragontag/{_DRAGONTAG_VERSION}")
 
-    def to_vorbis(self, sep) -> dict[str, str]:
-        """Render to ``{VorbisFieldName: string-value}`` for FLAC/OGG writers.
+    def to_vorbis(self, sep) -> dict[str, str | list[str]]:
+        """Render to ``{VorbisFieldName: value}`` for FLAC/OGG writers.
 
-        ``sep`` is a ``Separators`` model (per-tag joiner config). The method
-        skips empty values entirely so we don't pollute files with blank tags.
+        Single-value fields render as ``str``; genuinely multi-value fields
+        (ARTIST, ARTISTS, GENRE, sort names, MB id lists, …) render as a
+        ``list[str]`` so the FLAC writer emits one Vorbis comment *per value*
+        and the ID3/MP4 writers emit native multi-value frames/atoms. That is
+        what Navidrome / Picard split on — a single ``"a//b//c"`` string is read
+        as one artist, which is the bug this avoids. ``sep`` (the per-tag joiner
+        config) is accepted for call-site compatibility but no longer pre-joins
+        these fields. Empty values are skipped so we never write blank tags.
         """
 
-        def join(values: list[str], joiner: str) -> str:
-            # Drop empties before joining so we never produce ``"A;;B"``.
-            return joiner.join(v for v in values if v)
-
-        d: dict[str, str] = {}
+        d: dict[str, str | list[str]] = {}
 
         def put(k: str, v: str | None) -> None:
             if v is not None and v != "":
                 d[k] = str(v)
 
+        def put_list(k: str, values: list[str]) -> None:
+            # Drop empties so we never emit a blank value among real ones.
+            clean = [v for v in values if v]
+            if clean:
+                d[k] = clean
+
         # ----- basic identification -----
         put("TITLE", self.title)
-        # ARTIST is a single display string; fall back to joining ``artists``
-        # if the caller didn't pre-compute one (rare — MB always provides it).
-        put("ARTIST", self.artist_display or join(self.artists, sep.ARTIST))
-        if self.artists:
-            d["ARTISTS"] = join(self.artists, sep.ARTISTS)
-        if self.artist_sort:
-            d["ARTISTSORT"] = join(self.artist_sort, sep.ARTISTSORT)
+        # ARTIST is multi-value (one Vorbis comment per artist); fall back to the
+        # display phrase only when the flat list is unavailable.
+        put_list("ARTIST", self.artists or ([self.artist_display] if self.artist_display else []))
+        put_list("ARTISTS", self.artists)
+        put_list("ARTISTSORT", self.artist_sort)
         put("ALBUM", self.album)
-        put("album_artist", self.album_artist_display)  # lowercase by convention
-        if self.album_artist_sort:
-            d["ALBUMARTISTSORT"] = join(self.album_artist_sort, sep.ALBUMARTISTSORT)
-        if self.composers:
-            d["COMPOSER"] = join(self.composers, sep.COMPOSER)
-        if self.conductor:
-            d["CONDUCTOR"] = join(self.conductor, sep.CONDUCTOR)
-        if self.lyricist:
-            d["LYRICIST"] = join(self.lyricist, sep.LYRICIST)
-        if self.arranger:
-            d["ARRANGER"] = join(self.arranger, sep.ARRANGER)
+        # album_artist key is lowercase by the project's Vorbis convention.
+        put_list(
+            "album_artist",
+            self.album_artists or ([self.album_artist_display] if self.album_artist_display else []),
+        )
+        put_list("ALBUMARTISTSORT", self.album_artist_sort)
+        put_list("COMPOSER", self.composers)
+        put_list("CONDUCTOR", self.conductor)
+        put_list("LYRICIST", self.lyricist)
+        put_list("ARRANGER", self.arranger)
 
         # ----- dates -----
         put("DATE", self.date)
@@ -166,14 +175,11 @@ class TrackTags:
             d["TOTALDISCS"] = str(self.disc_total)
 
         # ----- descriptive -----
-        if self.genres:
-            d["GENRE"] = join(self.genres, sep.GENRE)
-        if self.labels:
-            d["LABEL"] = join(self.labels, sep.LABEL)
+        put_list("GENRE", self.genres)
+        put_list("LABEL", self.labels)
         put("MEDIA", self.media)
         put("BARCODE", self.barcode)
-        if self.isrcs:
-            d["ISRC"] = join(self.isrcs, sep.ISRC)
+        put_list("ISRC", self.isrcs)
         put("CATALOGNUMBER", self.catalog_number)
         put("LANGUAGE", self.language)
         if self.compilation:
@@ -190,14 +196,8 @@ class TrackTags:
         put("MUSICBRAINZ_TRACKID", self.mb_track_id)
         put("MUSICBRAINZ_RELEASETRACKID", self.mb_releasetrack_id)
         put("MUSICBRAINZ_ALBUMID", self.mb_album_id)
-        if self.mb_album_artist_ids:
-            d["MUSICBRAINZ_ALBUMARTISTID"] = join(
-                self.mb_album_artist_ids, sep.MUSICBRAINZ_ALBUMARTISTID
-            )
-        if self.mb_artist_ids:
-            d["MUSICBRAINZ_ARTISTID"] = join(
-                self.mb_artist_ids, sep.MUSICBRAINZ_ARTISTID
-            )
+        put_list("MUSICBRAINZ_ALBUMARTISTID", self.mb_album_artist_ids)
+        put_list("MUSICBRAINZ_ARTISTID", self.mb_artist_ids)
         put("MUSICBRAINZ_RELEASEGROUPID", self.mb_release_group_id)
 
         # ----- lyrics & advisory -----

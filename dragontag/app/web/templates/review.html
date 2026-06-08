@@ -32,7 +32,7 @@
       <button name="action" value="skip" class="px-3 py-1 bg-[#131313] hover:bg-[#131313]/80">Skip</button>
     </form>
   {% else %}
-    <form method="post" action="/review/{{ j.id }}/apply" enctype="multipart/form-data" class="mt-3 space-y-3 text-sm">
+    <form method="post" action="/review/{{ j.id }}/apply" enctype="multipart/form-data" id="apply-form-{{ j.id }}" class="mt-3 space-y-3 text-sm">
 
       {# ---- dry-run preview: tag table + computed destination ---- #}
       {% if j.review_reason and j.review_reason.value == "dry_run" %}

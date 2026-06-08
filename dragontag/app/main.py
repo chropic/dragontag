@@ -601,6 +601,8 @@ def settings_update(
     filename_template_single: str = Form(...),
     filename_template_multidisc: str = Form(...),
     multidisc_folder_template: str = Form(...),
+    folder_artist_split_separators: str = Form(""),
+    cover_allow_release_group_fallback: str | None = Form(None),
     watcher_enabled: str | None = Form(None),
     genre_limit: int = Form(3),
     genre_casing: str = Form("title"),
@@ -643,6 +645,8 @@ def settings_update(
         "filename_template_single": filename_template_single,
         "filename_template_multidisc": filename_template_multidisc,
         "multidisc_folder_template": multidisc_folder_template,
+        "folder_artist_split_separators": folder_artist_split_separators,
+        "cover_allow_release_group_fallback": bool(cover_allow_release_group_fallback),
         "watcher_enabled": bool(watcher_enabled),
         "genre_limit": genre_limit,
         "genre_casing": genre_casing,
@@ -940,18 +944,27 @@ def library_fetch_lyrics(
     """Fetch and embed lyrics for all tracks in a folder without re-tagging."""
     with session() as s:
         tracks = s.exec(select(Track).where(Track.library_folder_id == folder_id)).all()
-    track_paths = [(t.title, t.artist, t.album, Path(t.path)) for t in tracks if Path(t.path).exists()]
+    track_paths = [(t.id, t.title, t.artist, t.album, Path(t.path)) for t in tracks if Path(t.path).exists()]
 
     def _run():
         from .tagging import lyrics_fetcher
         from .tagging.advisory import is_explicit
         from .tagging.partial import write_lyrics
-        for title, artist, album, p in track_paths:
+        for track_id, title, artist, album, p in track_paths:
             try:
                 fetched = lyrics_fetcher.fetch(artist=artist, title=title, album=album)
                 if fetched:
                     advisory = 1 if is_explicit(fetched) else 0
                     write_lyrics(p, fetched, advisory)
+                    # Keep the DB in sync so the dashboard counters update
+                    # without requiring a full re-scan.
+                    with session() as s2:
+                        t = s2.get(Track, track_id)
+                        if t:
+                            t.has_lyrics = True
+                            t.advisory = advisory
+                            s2.add(t)
+                            s2.commit()
             except Exception:
                 pass
 
@@ -968,17 +981,27 @@ def library_tag_advisories(
     """Re-evaluate advisory rating from existing embedded lyrics."""
     with session() as s:
         tracks = s.exec(select(Track).where(Track.library_folder_id == folder_id)).all()
-    track_paths = [Path(t.path) for t in tracks if Path(t.path).exists()]
+    track_paths = [(t.id, Path(t.path)) for t in tracks if Path(t.path).exists()]
 
     def _run():
         from .tagging.advisory import is_explicit
         from .tagging.partial import read_lyrics, write_advisory
-        for p in track_paths:
+        for track_id, p in track_paths:
             try:
                 lyrics = read_lyrics(p)
                 if not lyrics:
                     continue
-                write_advisory(p, 1 if is_explicit(lyrics) else 0)
+                advisory = 1 if is_explicit(lyrics) else 0
+                write_advisory(p, advisory)
+                # Reflect the re-evaluated rating (and the fact that lyrics are
+                # present) in the DB so the dashboard stays accurate.
+                with session() as s2:
+                    t = s2.get(Track, track_id)
+                    if t:
+                        t.advisory = advisory
+                        t.has_lyrics = True
+                        s2.add(t)
+                        s2.commit()
             except Exception:
                 pass
 
@@ -1070,27 +1093,50 @@ def library_find_missing_tracks(request: Request, _: None = Depends(require_auth
 
 
 @app.get("/api/mb-search", response_class=HTMLResponse)
-def api_mb_search(request: Request, _: None = Depends(require_auth), q: str = "", job_id: int = 0):
-    """HTMX partial: search MusicBrainz by free-text query from the review page.
+def api_mb_search(
+    request: Request,
+    _: None = Depends(require_auth),
+    title: str = "",
+    artist: str = "",
+    album: str = "",
+    mbid: str = "",
+    job_id: int = 0,
+):
+    """HTMX partial: search MusicBrainz from the review page.
 
-    When job_id is provided, the job's known artist and album are seeded into
-    the search query so results are scoped to the correct artist even when the
-    user types only a partial title.
+    Supports three input modes:
+    * a direct MusicBrainz URL / ID (``mbid``) — resolved via
+      ``candidates_from_mbid`` (recording → its releases, release → its tracks);
+    * title + optional artist + album fields;
+    * title only, in which case the job's known artist and album are seeded so
+      results stay scoped to the right artist for common titles.
     """
-    artist: str | None = None
-    album: str | None = None
-    if job_id and q.strip():
-        with session() as s:
-            job = s.get(Job, job_id)
-            if job:
-                stored = job.chosen_tags_json or {}
-                stored_artists = stored.get("artists")
-                artist = stored.get("artist_display") or (
-                    stored_artists[0]
-                    if isinstance(stored_artists, list) and stored_artists else None
-                )
-                album = stored.get("album")
-    cands = mbq.search_candidates(title=q, artist=artist, album=album, limit=10) if q.strip() else []
+    if mbid.strip():
+        cands = mbq.candidates_from_mbid(mbid.strip(), title_hint=title or None)
+        searched = True
+    else:
+        seed_artist = artist.strip() or None
+        seed_album = album.strip() or None
+        if job_id and not (seed_artist and seed_album):
+            with session() as s:
+                job = s.get(Job, job_id)
+                if job:
+                    stored = job.chosen_tags_json or {}
+                    stored_artists = stored.get("artists")
+                    seed_artist = seed_artist or stored.get("artist_display") or (
+                        stored_artists[0]
+                        if isinstance(stored_artists, list) and stored_artists else None
+                    )
+                    seed_album = seed_album or stored.get("album")
+        cands = (
+            mbq.search_candidates(
+                title=title, artist=seed_artist, album=seed_album, limit=10
+            )
+            if title.strip()
+            else []
+        )
+        searched = bool(title.strip())
+
     return templates.TemplateResponse(request, "_mb_search_results.html", {
         "request": request,
         "job_id": job_id,
@@ -1100,11 +1146,12 @@ def api_mb_search(request: Request, _: None = Depends(require_auth), q: str = ""
                 "release_id": c.release_id,
                 "score": c.score,
                 "title": c.raw_recording.get("title", ""),
+                "artist": c.raw_recording.get("artist-credit-phrase", ""),
                 "album": c.raw_release.get("title", ""),
             }
             for c in cands
         ],
-        "searched": bool(q.strip()),
+        "searched": searched,
     })
 
 

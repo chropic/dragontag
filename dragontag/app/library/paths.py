@@ -15,6 +15,7 @@ ext4 and NTFS, and aggressive sanitization mangles non-Latin artist names.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from ..config import env, settings
@@ -23,6 +24,36 @@ from ..tagging.schema import TrackTags
 
 # Windows-forbidden chars (the union covers all major filesystems).
 _FORBIDDEN = set('<>:"/\\|?*\0')
+
+# Featured-guest markers: everything from "feat./ft./featuring" onward is cut.
+# The marker must be preceded by whitespace or an opening bracket so we never
+# clip artists whose names merely contain the letters (e.g. "Daft Punk", where
+# the "ft" sits mid-word).
+_FEAT_RE = re.compile(r"[\s(\[]+(?:feat\.?|ft\.?|featuring)\b.*$", re.IGNORECASE)
+
+
+def primary_artist(name: str) -> str:
+    """Reduce a full artist credit to the primary artist for the folder name.
+
+    * Featured-guest suffixes ("… feat./ft./featuring …") are *always* stripped
+      so "Artist feat. Guest" files under the single "Artist" folder.
+    * A multi-artist credit ("A & B", "A, B") is reduced to its first artist
+      only when the user has opted in via
+      ``settings().folder_artist_split_separators``. Slashes are never treated
+      as separators, so "AC/DC" and dragontag's own "A//B" join stay combined.
+
+    Falls back to the original name if stripping would leave it empty.
+    """
+    s = _FEAT_RE.sub("", name).strip()
+    seps = [
+        c
+        for c in (settings().folder_artist_split_separators or "")
+        if not c.isspace() and c != "/"
+    ]
+    if seps:
+        pattern = "[" + re.escape("".join(sorted(set(seps)))) + "]"
+        s = re.split(pattern, s, maxsplit=1)[0].strip()
+    return s or name
 
 
 def sanitize_segment(name: str) -> str:
@@ -70,10 +101,12 @@ def build_destination(
     """
     base = library_root if library_root is not None else env().library_path
     # Prefer album_artist (band on the cover) over artist_display
-    # (featured-credits string) for the folder name — it keeps "Artist feat.
-    # Guest" tracks under the main artist's folder.
+    # (featured-credits string) for the folder name, then reduce it to the
+    # primary artist so "Artist feat. Guest" tracks land under "Artist".
     artist_seg = sanitize_segment(
-        tags.album_artist_display or tags.artist_display or "Unknown Artist"
+        primary_artist(
+            tags.album_artist_display or tags.artist_display or "Unknown Artist"
+        )
     )
     album_seg = sanitize_segment(tags.album or "Unknown Album")
 

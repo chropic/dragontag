@@ -48,6 +48,7 @@ class Track(SQLModel, table=True):
     mb_track_id: str | None = None
     mb_album_id: str | None = None
     advisory: int | None = Field(default=None)
+    has_lyrics: bool = Field(default=False)
 
     last_seen: datetime = Field(default_factory=datetime.utcnow)
     indexed_at: datetime = Field(default_factory=datetime.utcnow)

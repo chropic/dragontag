@@ -112,6 +112,21 @@ class UserSettings(BaseModel):
     # when the *new* image is at least this many pixels wide. Prevents a
     # smaller fingerprint-fallback cover from clobbering a hand-curated one.
     cover_min_overwrite_pixels: int = 1000
+    # When a specific release has no cover in the Cover Art Archive, optionally
+    # fall back to the release-GROUP cover. That image is shared across every
+    # edition in the group, so enabling this can apply the same art to several
+    # different releases — left OFF by default to prevent cover bleed.
+    cover_allow_release_group_fallback: bool = False
+
+    # ----- library foldering -----
+    # Separators on which a multi-artist *album-artist* credit is reduced to its
+    # first artist when building the folder name. Empty (default) keeps the full
+    # credit intact, so "Tyler, The Creator" and "A & B" stay as single folders.
+    # Set e.g. "&,;" to file collaborations under the first artist. Slashes are
+    # never honored, so "AC/DC" and dragontag's own "A//B" join stay combined.
+    # (Featured-guest suffixes like "feat./ft./featuring …" are always stripped,
+    # independent of this setting.)
+    folder_artist_split_separators: str = ""
 
     # ----- lyrics -----
     # Fetch lyrics from LRCLIB and embed them in the audio file.

@@ -29,9 +29,9 @@ High-confidence matches flow through completely hands-free. Everything else land
 | **MusicBrainz-first ID** | Short-circuits on an existing `MUSICBRAINZ_TRACKID`; otherwise searches by title / artist / album / duration with progressive fallback (drops album, then duration) to maximise hit rate |
 | **AcoustID fingerprint fallback** | Toggleable. Uses `fpcalc` (bundled in the image) when text search comes up empty |
 | **Confidence-scored auto-apply** | Matches above the threshold are tagged and moved without human intervention |
-| **Review queue** | Low-score matches, missing `RELEASETYPE`, and destination conflicts surface a candidate picker, manual MB search bar, and action buttons |
+| **Review queue** | Low-score matches, missing `RELEASETYPE`, and destination conflicts surface a candidate picker, manual MB search (by title / artist / album, or a pasted MusicBrainz URL / ID), and action buttons |
 | **Format coverage** | FLAC · MP3 (ID3v2.4) · WAV (ID3 chunk) · M4A / MP4 |
-| **Cover art** | Best available resolution from the Cover Art Archive, resized to ≤ 1200 px for all formats, embedded in the file *and* written as `cover.jpg` |
+| **Cover art** | Best available resolution from the Cover Art Archive, resized to ≤ 1200 px for all formats, embedded in the file *and* written as `cover.jpg`. Per-release by default — the shared release-group cover is only used when explicitly enabled |
 | **Lyrics + advisory** | Synced LRC or plain text from LRCLIB, embedded per-format; explicit content auto-tagged as `ITUNESADVISORY` |
 | **Dry-run mode** | Preview destination paths and assembled tags without touching any files |
 | **Webhook notifications** | Discord-compatible webhook fires on job completion or error |
@@ -83,7 +83,7 @@ Open **http://localhost:7593** and log in. The first boot redirects you to `/set
 
 | Mount | Contents |
 |---|---|
-| `/library` | Destination root — files land at `Artist/Album/[Disc N/]NN. Title.ext`. Manage multiple libraries from `/library/folders`. |
+| `/library` | Destination root — files land at `Album Artist/Album/[Disc N/]NN. Title.ext`, grouped by the primary album-artist (featured guests stripped from the folder). Manage multiple libraries from `/library/folders`. |
 | `/drop` | Watched ingest folder — anything dropped here is queued automatically |
 | `/config` | SQLite DB (`dragontag.db`), `settings.json`, password hash, AcoustID key |
 
@@ -110,11 +110,13 @@ Everything below is editable live from the **Settings** page and written atomica
 - AcoustID fingerprint fallback on/off
 - Auto-apply confidence threshold (default `0.85`)
 - Filename templates — single-disc and multi-disc variants with `{track}`, `{disc}`, `{title}`, `{artist}`, `{ext}` vars
+- Artist-folder split separators — characters (e.g. `&,;`) that reduce a multi-artist album-artist to its first artist for the folder name. Empty by default, so "Tyler, The Creator" stays intact; `feat./ft./featuring` guests are always stripped, and slashes (`AC/DC`, `A//B`) are never split
 - Per-tag separators (`ARTIST`, `album_artist`, `ARTISTS`, `GENRE`, …) — note: multi-value fields are written as native multiple values, so these joiners are now a fallback only
 - Genre limit and casing (`Title Case` / `lowercase` / `as-is`)
 - Fields to skip entirely (suppressed at write time across all formats)
 - Watcher on/off, ignore patterns, settle window
 - Cover-art minimum pixel width before overwriting an existing `cover.jpg`
+- Release-group cover fallback on/off (default **off**) — when on, a release with no Cover Art Archive image of its own borrows the release-group cover (shared across editions); left off to prevent the same art landing on different releases
 - Discord webhook URL, `on_done` and `on_error` toggles
 - Dry-run mode toggle
 - MusicBrainz user-agent and server (for self-hosted mirrors)

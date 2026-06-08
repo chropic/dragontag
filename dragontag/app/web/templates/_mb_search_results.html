@@ -6,6 +6,7 @@
     <input type="radio" name="pick" value="{{ c.recording_id }}|{{ c.release_id }}" form="apply-form-{{ job_id }}">
     <span class="font-mono text-[#8a8a8a]">{{ "%.2f"|format(c.score) }}</span>
     <span class="text-[#cfcfcf]">{{ c.title }}</span>
+    {% if c.artist %}<span class="text-[#9a9a9a]">· {{ c.artist }}</span>{% endif %}
     <span class="text-[#8a8a8a]">— {{ c.album }}</span>
     <a class="ml-auto text-[#cfcfcf] hover:underline" target="_blank"
        href="https://musicbrainz.org/recording/{{ c.recording_id }}">MB ↗</a>

@@ -59,15 +59,29 @@
       {% endif %}
 
       {# ---- manual MB search ---- #}
-      <div class="mb-2">
-        <input type="text" placeholder="Search MusicBrainz manually…"
-               class="w-full p-1 bg-black border border-[#4a4a4a] text-sm"
+      {# All four inputs share one hx-include group so any of them refines the
+         same query. The mbid box accepts a MusicBrainz URL or bare ID. #}
+      <div class="mb-2" id="mb-search-{{ j.id }}">
+        <div class="grid grid-cols-3 gap-1"
+             hx-get="/api/mb-search"
+             hx-trigger="input changed delay:600ms from:#mb-search-{{ j.id }} input"
+             hx-target="#mb-results-{{ j.id }}"
+             hx-include="#mb-search-{{ j.id }} input"
+             hx-vals='{"job_id": {{ j.id }}}'>
+          <input type="text" name="title" placeholder="Title"
+                 class="p-1 bg-black border border-[#4a4a4a] text-sm">
+          <input type="text" name="artist" placeholder="Artist"
+                 class="p-1 bg-black border border-[#4a4a4a] text-sm">
+          <input type="text" name="album" placeholder="Album"
+                 class="p-1 bg-black border border-[#4a4a4a] text-sm">
+        </div>
+        <input type="text" name="mbid" placeholder="…or paste a MusicBrainz URL / ID"
+               class="w-full mt-1 p-1 bg-black border border-[#4a4a4a] text-sm"
                hx-get="/api/mb-search"
                hx-trigger="input changed delay:600ms"
                hx-target="#mb-results-{{ j.id }}"
-               hx-include="this"
-               hx-vals='{"job_id": {{ j.id }}}'
-               name="q">
+               hx-include="#mb-search-{{ j.id }} input"
+               hx-vals='{"job_id": {{ j.id }}}'>
         <div id="mb-results-{{ j.id }}" class="mt-1"></div>
       </div>
 
@@ -99,6 +113,13 @@
       <script>
         (function () {
           const form = document.currentScript.previousElementSibling.closest('form');
+          // When the user changes which candidate is matched (including radios
+          // injected later by the manual MB search), drop any previously-clicked
+          // cover thumbnail so the embedded cover re-syncs to the chosen release
+          // and can't carry over art from a different album.
+          form.addEventListener('change', (e) => {
+            if (e.target && e.target.name === 'pick') form.dataset.coverPicked = '';
+          });
           form.addEventListener('submit', () => {
             const recOut = form.querySelector('input[name=recording_id]');
             const relOut = form.querySelector('input[name=release_id]');

@@ -41,11 +41,17 @@ def engine():
 
 def _migrate(engine):
     with engine.begin() as conn:
-        try:
-            conn.execute(text("ALTER TABLE track ADD COLUMN advisory INTEGER"))
-        except OperationalError as e:
-            # This will catch both "no such table" and "duplicate column name" errors
-            pass
+        # Each ALTER runs independently so a duplicate-column error on one
+        # (already-migrated) column doesn't skip the others.
+        for ddl in (
+            "ALTER TABLE track ADD COLUMN advisory INTEGER",
+            "ALTER TABLE track ADD COLUMN has_lyrics INTEGER DEFAULT 0",
+        ):
+            try:
+                conn.execute(text(ddl))
+            except OperationalError:
+                # Catches both "no such table" and "duplicate column name".
+                pass
 
 
 def _seed_library_folder() -> None:
@@ -82,11 +88,10 @@ def dashboard_stats() -> dict:
         out["explicit_count"] = s.exec(
             select(_func.count(Track.id)).where(Track.advisory == 1)
         ).one() or 0
-        # lyrics_count: tracks where advisory is not null (set whenever lyrics
-        # were processed by the pipeline) — a reasonable proxy without a
-        # dedicated lyrics column on Track.
+        # lyrics_count: tracks with embedded lyrics, populated from the file's
+        # own lyrics tags during scan/tag (see Track.has_lyrics).
         out["lyrics_count"] = s.exec(
-            select(_func.count(Track.id)).where(Track.advisory.is_not(None))
+            select(_func.count(Track.id)).where(Track.has_lyrics == True)  # noqa: E712
         ).one() or 0
         avg = s.exec(select(_func.avg(Track.duration))).one()
         if avg:

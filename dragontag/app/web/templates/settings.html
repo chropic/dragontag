@@ -38,6 +38,11 @@
       {{ tip("Fetches synced (LRC) or plain-text lyrics from LRCLIB and embeds them in the file. Also runs the explicit-content classifier to set the advisory flag.") }}
     </label>
     <label class="flex items-center gap-2">
+      <input type="checkbox" name="cover_allow_release_group_fallback" {% if settings.cover_allow_release_group_fallback %}checked{% endif %}>
+      Allow release-group cover fallback
+      {{ tip("When a specific release has no cover in the Cover Art Archive, fall back to the release-group cover. That image is shared across every edition in the group, so enabling this can apply the same art to different releases. Off by default to prevent cover bleed.") }}
+    </label>
+    <label class="flex items-center gap-2">
       <input type="checkbox" name="dry_run" {% if settings.dry_run %}checked{% endif %}>
       Dry-run mode (global)
       {{ tip("When on, the pipeline identifies and assembles tags but never writes to disk or moves files. Every job lands in Review so you can inspect changes before applying.") }}
@@ -112,6 +117,13 @@
       <span class="text-[#8a8a8a]">Multi-disc folder name</span>
       {{ tip("Folder name pattern wrapping each disc of a multi-disc release. {disc} expands to the 1-based disc number.") }}
       <input name="multidisc_folder_template" value="{{ settings.multidisc_folder_template }}"
+             class="mt-1 w-full p-1 bg-black border border-[#4a4a4a] font-mono">
+    </label>
+    <label class="block">
+      <span class="text-[#8a8a8a]">Artist-folder split separators</span>
+      {{ tip("Characters on which a multi-artist album-artist is reduced to its first artist for the folder name (e.g. \"&,;\" files \"A & B\" under \"A\"). Empty (default) keeps the full credit, so \"Tyler, The Creator\" stays intact. \"feat./ft./featuring\" guests are always stripped; slashes are never split, so \"AC/DC\" and \"A//B\" stay combined.") }}
+      <input name="folder_artist_split_separators" value="{{ settings.folder_artist_split_separators }}"
+             placeholder="(empty)"
              class="mt-1 w-full p-1 bg-black border border-[#4a4a4a] font-mono">
     </label>
     <!-- Live preview -->

@@ -74,6 +74,8 @@ def _upsert_from_disk(s, path: Path, folder_id: int) -> Track:
         "duration": raw.get("duration"),
         "mb_track_id": raw.get("mb_track_id"),
         "mb_album_id": raw.get("mb_album_id"),
+        "advisory": raw.get("advisory"),
+        "has_lyrics": bool(raw.get("has_lyrics")),
         "last_seen": now,
     }
     existing = s.exec(select(Track).where(Track.path == str(path))).first()

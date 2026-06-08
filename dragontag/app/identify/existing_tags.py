@@ -57,4 +57,57 @@ def read(path: Path) -> dict[str, Any]:
     out["disc"] = first("DISCNUMBER", "discnumber", "disc", "TPOS", "disk")
     out["disc_total"] = first("DISCTOTAL", "TOTALDISCS", "totaldiscs", "disctotal")
 
+    # ----- explicit advisory + lyrics presence (drives dashboard counters) -----
+    # ITUNESADVISORY (Vorbis), TXXX:ITUNESADVISORY (ID3), rtng (MP4). Normalize
+    # to dragontag's convention: 1 = explicit, 0 = clean, None = unknown.
+    out["advisory"] = _norm_advisory(
+        first("ITUNESADVISORY", "itunesadvisory", "TXXX:ITUNESADVISORY", "rtng")
+    )
+    out["has_lyrics"] = _has_lyrics(f.tags)
+
     return out
+
+
+def _norm_advisory(raw: str | None) -> int | None:
+    """Normalize an advisory tag value to 1 (explicit), 0 (clean) or None.
+
+    dragontag writes ``0`` for clean and ``1`` for explicit; iTunes-tagged
+    files use ``2`` for clean (and ``1`` for explicit), so both map to 0/1.
+    Anything else (e.g. an empty or unrecognized rating) is treated as unknown.
+    """
+    if raw is None:
+        return None
+    try:
+        v = int(str(raw).strip())
+    except (ValueError, TypeError):
+        return None
+    if v == 1:
+        return 1
+    if v in (0, 2):
+        return 0
+    return None
+
+
+def _has_lyrics(tags: Any) -> bool:
+    """True when the file carries any embedded lyrics tag.
+
+    Covers ID3 ``USLT`` frames (keyed ``USLT::lang``, so a plain ``.get`` misses
+    them — use ``getall``), Vorbis ``LYRICS``/``UNSYNCEDLYRICS``, and MP4 ``\xa9lyr``.
+    """
+    if tags is None:
+        return False
+    getall = getattr(tags, "getall", None)
+    if callable(getall):
+        try:
+            if getall("USLT"):
+                return True
+        except Exception:
+            pass
+    for k in ("LYRICS", "lyrics", "UNSYNCEDLYRICS", "unsyncedlyrics", "\xa9lyr"):
+        try:
+            v = tags.get(k)
+        except Exception:
+            v = None
+        if v:
+            return True
+    return False

@@ -2,6 +2,28 @@
 
 # Changelog
 
+## Unreleased — dashboard counters, MB matching, foldering & cover bleed (2026-06-08)
+**Branch:** `task/dashboard-mb-folders-coverart`
+
+### Added
+- **Manual MB matching by artist & album, plus by URL/ID** — the Review-queue manual search now has separate **Title / Artist / Album** fields (instead of one box) and a **"MusicBrainz URL / ID"** field that resolves a recording link to its releases, a release link to its tracks, or a bare MBID. Search results now show the artist so songs with common titles can be told apart. New `musicbrainz.candidates_from_mbid()`.
+- **`has_lyrics` on Track** — populated from the file's own lyrics tags during scan/tag so the dashboard can count real lyrics.
+- **Two new settings** (Settings page): `cover_allow_release_group_fallback` (default **off**) and `folder_artist_split_separators` (default **empty**).
+
+### Changed
+- **Folders group by primary album-artist** — the artist folder segment now always strips featured guests (`feat./ft./featuring …`), so "Artist feat. Guest" files under "Artist". Genuine multi-artist credits ("A & B", "A, B") are only reduced to the first artist when the user opts in via `folder_artist_split_separators`; `//` and `/` are never split, so "AC/DC" and "A//B" stay combined. New `paths.primary_artist()`. Re-run **Organize** to re-folder existing files.
+- **Dashboard "Tracks with lyrics" counts real lyrics** — was a proxy on `advisory IS NOT NULL` (always 0 for scanned libraries); now counts `Track.has_lyrics`.
+
+### Fixed
+- **Dashboard "Explicit" / "Lyrics" counters showed 0 for scanned libraries** — the scanner never read advisory/lyrics tags. `identify/existing_tags.read()` now extracts `ITUNESADVISORY`/`rtng` (normalized: iTunes `2`=clean → `0`) and detects `USLT`/`LYRICS`/`©lyr`, and the bulk fetch-lyrics / tag-advisories routes update the DB so counts refresh without a re-scan.
+- **Same cover art applied to different albums** — the auto-pipeline's release-group cover fallback (one image shared across every edition in the group) is now gated behind `cover_allow_release_group_fallback` (default off). The Review UI also resets a previously-clicked cover thumbnail when the matched candidate changes, so the embedded cover always follows the chosen release.
+
+### Files changed
+Modified: `dragontag/app/{config,db,models}.py`, `dragontag/app/identify/{existing_tags,musicbrainz}.py`, `dragontag/app/ingest/pipeline.py`, `dragontag/app/library/{paths,scanner}.py`, `dragontag/app/main.py`, `dragontag/app/web/templates/{review,_mb_search_results,settings}.html`, `tests/test_paths.py`, `README.md`, `CHANGELOG.md`.
+New: `tests/test_existing_tags.py`, `tests/test_musicbrainz.py`.
+
+---
+
 ## Unreleased — Navidrome multi-value, revert & queue sweep (2026-06-07)
 **Branch:** `task/navidrome-revert-sweep`
 

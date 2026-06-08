@@ -158,6 +158,93 @@ def search_candidates(
     return results
 
 
+_MBID_RE = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE
+)
+
+
+def candidates_from_mbid(text: str, *, title_hint: str | None = None) -> list[Candidate]:
+    """Resolve a MusicBrainz URL or bare MBID into one or more ``Candidate``s.
+
+    Accepts a recording or release URL (``…/recording/<id>``, ``…/release/<id>``)
+    or a bare UUID:
+
+    * **Recording** → one candidate per release the recording appears on.
+    * **Release** → one candidate per track on the release (optionally filtered
+      to those whose title contains ``title_hint``).
+    * **Bare UUID** → tried as a recording first, then as a release.
+
+    Returns ``[]`` for malformed input or a lookup miss so the caller can render
+    an empty result set without raising.
+    """
+    _ensure_configured()
+    m = _MBID_RE.search(text or "")
+    if not m:
+        return []
+    mbid = m.group(0)
+    low = (text or "").lower()
+
+    def from_recording(rid: str) -> list[Candidate]:
+        rec = fetch_recording(rid)
+        out: list[Candidate] = []
+        for rel in rec.get("release-list") or []:
+            if not rel.get("id"):
+                continue
+            out.append(
+                Candidate(
+                    score=1.0,
+                    recording_id=rid,
+                    release_id=rel["id"],
+                    raw_recording=rec,
+                    raw_release=rel,
+                )
+            )
+        return out
+
+    def from_release(lid: str) -> list[Candidate]:
+        rel = fetch_release(lid)
+        hint = (title_hint or "").strip().lower()
+        out: list[Candidate] = []
+        for medium in rel.get("medium-list") or []:
+            for trk in medium.get("track-list") or []:
+                rec = trk.get("recording") or {}
+                rid = rec.get("id")
+                if not rid:
+                    continue
+                if hint and hint not in (rec.get("title") or trk.get("title") or "").lower():
+                    continue
+                out.append(
+                    Candidate(
+                        score=1.0,
+                        recording_id=rid,
+                        release_id=lid,
+                        raw_recording=rec,
+                        raw_release=rel,
+                    )
+                )
+        return out
+
+    try:
+        if "/recording/" in low:
+            return from_recording(mbid)
+        if "/release/" in low and "/release-group/" not in low:
+            return from_release(mbid)
+        # Bare UUID (or an unsupported URL shape): try recording, then release.
+        try:
+            cands = from_recording(mbid)
+            if cands:
+                return cands
+        except mb.WebServiceError:
+            pass
+        try:
+            return from_release(mbid)
+        except mb.WebServiceError:
+            return []
+    except mb.WebServiceError:
+        return []
+    return []
+
+
 def _escape(s: str) -> str:
     # Drop backslashes and quotes so they can't terminate the field clause.
     # Leaving everything else (parens, hyphens, etc.) intact preserves Lucene's

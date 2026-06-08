@@ -350,7 +350,14 @@ def _commit_tag_path(s: Session, job: Job, src: Path, tags: TrackTags, *, score:
     cover = None
     if not tags.cover_bytes:
         cover = fetch_for_release(tags.mb_album_id) if tags.mb_album_id else None
-        if not cover and tags.mb_release_group_id:
+        # The release-group cover is shared across every edition in the group,
+        # so it can bleed one album's art onto another. Only use it when the
+        # user has explicitly opted in.
+        if (
+            not cover
+            and tags.mb_release_group_id
+            and settings().cover_allow_release_group_fallback
+        ):
             cover = fetch_for_release_group(tags.mb_release_group_id)
         if cover:
             tags.cover_bytes = cover.data
@@ -525,6 +532,7 @@ def _upsert_track(s: Session, dest: Path, tags: TrackTags, lib_root: Path) -> "T
         existing.mb_track_id = tags.mb_track_id
         existing.mb_album_id = tags.mb_album_id
         existing.advisory = tags.advisory
+        existing.has_lyrics = bool(tags.lyrics)
         existing.last_seen = now
         s.add(existing)
         s.commit()
@@ -543,6 +551,7 @@ def _upsert_track(s: Session, dest: Path, tags: TrackTags, lib_root: Path) -> "T
         mb_track_id=tags.mb_track_id,
         mb_album_id=tags.mb_album_id,
         advisory=tags.advisory,
+        has_lyrics=bool(tags.lyrics),
         indexed_at=now,
         last_seen=now,
     )

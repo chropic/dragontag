@@ -32,6 +32,21 @@ metadata:
 - MP4 freeform atoms always use `----:com.apple.iTunes:NAME` to stay Picard-compatible.
 - New fields must be written across **all four** writers (FLAC, MP3/WAV ID3, MP4) — partial coverage breaks the format-agnostic guarantee.
 
+## Foldering
+
+- Destination paths are built in `library/paths.py`. The artist folder segment goes
+  through `primary_artist()`: it prefers `album_artist_display` over `artist_display`,
+  **always** strips `feat./ft./featuring …` guests, and only reduces a multi-artist
+  credit ("A & B") to its first artist when the user sets
+  `settings().folder_artist_split_separators` (empty by default). Slashes (`/`, `//`) are
+  never split. Don't reintroduce feat./guest strings into folder names.
+- Cover art is per-release: the release-group fallback (`fetch_for_release_group`) is
+  gated behind `settings().cover_allow_release_group_fallback` (default off) to avoid one
+  shared image bleeding across editions.
+- Dashboard explicit/lyrics counts read `Track.advisory` / `Track.has_lyrics`; both must be
+  populated wherever a file's tags are read or written (scanner, pipeline, bulk routes) or
+  the counters silently read 0.
+
 ## Templates
 
 - Extend `base.html`. Set `{% block title %}dragontag | {Page}{% endblock %}` and pass `active_page` from the route.

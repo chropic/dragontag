@@ -7,7 +7,7 @@ metadata:
 
 # dragontag
 
-Self-hosted, Docker-native music tagger and library organizer. Drop an audio file → it's identified against MusicBrainz (with AcoustID fallback), tagged with a full Vorbis-style schema, has cover art + lyrics embedded, and is moved into a clean `Artist / Album / NN. Title.ext` layout.
+Self-hosted, Docker-native music tagger and library organizer. Drop an audio file → it's identified against MusicBrainz (with AcoustID fallback), tagged with a full Vorbis-style schema, has cover art + lyrics embedded, and is moved into a clean `Album Artist / Album / NN. Title.ext` layout (grouped by primary album-artist, featured guests stripped).
 
 ## Goals
 

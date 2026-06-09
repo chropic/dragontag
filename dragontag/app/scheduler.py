@@ -129,9 +129,7 @@ def _tick() -> None:
             row = s.get(ScheduledTask, t.id)
             if not row:
                 continue
-            row.next_run_at = due_at if (t.enabled and due_at and due_at > now) else (
-                due_at if t.enabled else None
-            )
+            row.next_run_at = due_at if t.enabled else None
             if not t.enabled or due_at is None or due_at > now:
                 s.add(row)
                 s.commit()

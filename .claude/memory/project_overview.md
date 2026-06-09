@@ -18,8 +18,8 @@ Self-hosted, Docker-native music tagger and library organizer. Drop an audio fil
 
 ## Key surfaces
 
-- `/` Dashboard · `/jobs` queue · `/review` candidate picker · `/library` browse + actions · `/changes` tag-change history + revert · `/settings` UI-editable config · `/docs` user manual · `/setup` first-run wizard · `/health` unauthenticated.
-- Background: watchdog observer on `/drop`, one worker thread feeding an in-memory `queue.Queue`.
+- `/` Dashboard · `/jobs` queue (ingests + background tasks with progress) · `/review` candidate picker · `/library` browse + actions · `/changes` tag-change history + revert/move-back · `/schedule` cron scheduling · `/settings` UI-editable config incl. backup/restore + log verbosity · `/docs` user manual · `/api-docs` + `/openapi.json` auth-guarded API reference · `/setup` first-run wizard · `/health` unauthenticated.
+- Background: watchdog observer on `/drop`, one worker thread feeding an in-memory `queue.Queue`, a 30s cron-scheduler thread, and per-task daemon threads via `tasks.run_task`. A universal progress bar in `base.html` polls `GET /api/progress`.
 
 ## Source of truth
 

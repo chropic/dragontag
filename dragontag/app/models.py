@@ -78,6 +78,18 @@ class JobStatus(str, Enum):
     skipped = "skipped"
 
 
+# Statuses that mean "work is still happening (or about to)". Shared by the
+# jobs UI, the progress endpoint, restart recovery and the restore guard so
+# the definition can't silently diverge.
+ACTIVE_JOB_STATUSES = (
+    JobStatus.queued,
+    JobStatus.identifying,
+    JobStatus.tagging,
+    JobStatus.moving,
+    JobStatus.running,
+)
+
+
 class ReviewReason(str, Enum):
     """Why a job landed in the review queue (drives UI rendering)."""
 

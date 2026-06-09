@@ -39,7 +39,16 @@ from .identify import musicbrainz as mbq
 from .ingest import pipeline, uploads, watcher
 from .library.mover import move
 from .library.paths import unique_path
-from .models import FileChange, Job, JobStatus, LibraryFolder, ReviewReason, ScheduledTask, Track
+from .models import (
+    ACTIVE_JOB_STATUSES as _ACTIVE_JOB_STATUSES,
+    FileChange,
+    Job,
+    JobStatus,
+    LibraryFolder,
+    ReviewReason,
+    ScheduledTask,
+    Track,
+)
 
 
 def _local_tz() -> ZoneInfo:
@@ -131,15 +140,6 @@ def openapi_json(request: Request, _: None = Depends(require_auth)):
 def api_docs(request: Request, _: None = Depends(require_auth)):
     """Swagger UI, served separately so the user manual keeps GET /docs."""
     return get_swagger_ui_html(openapi_url="/openapi.json", title="dragontag API")
-
-
-_ACTIVE_JOB_STATUSES = (
-    JobStatus.queued,
-    JobStatus.identifying,
-    JobStatus.tagging,
-    JobStatus.moving,
-    JobStatus.running,
-)
 
 
 @app.get("/api/progress")

@@ -229,8 +229,8 @@
   <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-3">
     <h3 class="font-mono font-semibold">Maintenance</h3>
     <label class="block">
-      <span class="text-[#8a8a8a]">Recent changes kept</span>
-      {{ tip("How many entries the Changes page retains. Older audit rows are pruned automatically when new changes are recorded; pruned rows can no longer be reverted.") }}
+      <span class="text-[#8a8a8a]">Recent changes kept (0 = unlimited)</span>
+      {{ tip("How many entries the Changes page retains. Older audit rows are pruned automatically when new changes are recorded; pruned rows can no longer be reverted. 0 disables pruning entirely.") }}
       <input type="number" name="max_recent_changes" min="0" value="{{ settings.max_recent_changes }}"
              class="mt-1 p-1 bg-black border border-[#4a4a4a] w-32">
     </label>

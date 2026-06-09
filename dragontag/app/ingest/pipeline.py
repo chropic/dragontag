@@ -492,10 +492,12 @@ def _record_change(
     s.add(change)
     s.commit()
 
+    # 0 = unlimited (same convention as genre_limit).
+    cap = settings().max_recent_changes
+    if cap <= 0:
+        return
     stale = s.exec(
-        select(FileChange.id)
-        .order_by(FileChange.id.desc())
-        .offset(settings().max_recent_changes)
+        select(FileChange.id).order_by(FileChange.id.desc()).offset(cap)
     ).all()
     if stale:
         for cid in stale:
@@ -629,19 +631,10 @@ def resubmit_pending() -> None:
     final move is the only destructive operation, and ``needs_review`` /
     ``done`` jobs are skipped).
     """
+    from ..models import ACTIVE_JOB_STATUSES
     with session() as s:
         rows = s.exec(
-            select(Job).where(
-                Job.status.in_(
-                    [
-                        JobStatus.queued,
-                        JobStatus.identifying,
-                        JobStatus.tagging,
-                        JobStatus.moving,
-                        JobStatus.running,
-                    ]
-                )
-            )
+            select(Job).where(Job.status.in_(list(ACTIVE_JOB_STATUSES)))
         ).all()
         # Non-ingest tasks (scans, organizes, …) don't carry enough state to
         # resume — mark them failed instead of feeding them to the pipeline.

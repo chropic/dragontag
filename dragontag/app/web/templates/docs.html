@@ -20,6 +20,9 @@
   <a href="#library" class="mr-3 hover:text-white">Library</a>
   <a href="#review" class="mr-3 hover:text-white">Review</a>
   <a href="#jobs" class="mr-3 hover:text-white">Jobs</a>
+  <a href="#changes" class="mr-3 hover:text-white">Changes</a>
+  <a href="#schedule" class="mr-3 hover:text-white">Schedule</a>
+  <a href="#backup" class="mr-3 hover:text-white">Backup</a>
   <a href="#formatting" class="mr-3 hover:text-white">Smart formatting</a>
   <a href="#reference" class="hover:text-white">Reference</a>
 </nav>
@@ -66,13 +69,16 @@ Drop file  →  Read existing tags + filename clues
   <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">4. Settings</h3>
   <p class="text-sm text-[#cfcfcf]">Hover the <code>?</code> badge beside any field for an inline tooltip. Highlights:</p>
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
-    <li><strong>Identification</strong> — AcoustID toggle, auto-apply threshold, watcher on/off, global dry-run.</li>
-    <li><strong>Smart formatting</strong> — Title Case, qualifier wrapping, grammar correction (see §8).</li>
+    <li><strong>Identification</strong> — AcoustID toggle, auto-apply threshold, watcher on/off, global dry-run. The dry-run checkboxes on Library actions are per-run only and never change this global default.</li>
+    <li><strong>Smart formatting</strong> — Title Case, qualifier wrapping, grammar correction (see §11).</li>
     <li><strong>Filename templates</strong> — single-disc, multi-disc filename, and multi-disc folder patterns. Use the token chips to insert placeholders; a live preview shows the result.</li>
     <li><strong>Genre options</strong> — cap and casing.</li>
     <li><strong>Multi-value separators</strong> — joiner per tag (default <code>//</code> for ARTIST, <code>;</code> elsewhere).</li>
     <li><strong>Skip fields</strong> — checkbox grid: any checked field is omitted at write time across every format.</li>
     <li><strong>Webhooks</strong> — Discord-compatible URL with on-done / on-error toggles and a Test button.</li>
+    <li><strong>Maintenance</strong> — how many Changes-page entries to keep (<code>0</code> = unlimited) and a 0–4 <strong>log verbosity</strong> slider (silent / errors / warnings / info / debug) applied immediately on save.</li>
+    <li><strong>Scan exemptions</strong> — files returned to their original directory via "Move back" are listed here and skipped by the watcher, scans and bulk re-tags until cleared.</li>
+    <li><strong>Backup &amp; restore</strong> — see §10.</li>
   </ul>
 </section>
 
@@ -94,7 +100,7 @@ Drop file  →  Read existing tags + filename clues
         <li><em>Find missing tracks</em> — compare local count to the MB release total and report gaps.</li>
       </ul>
     </li>
-    <li><strong>Track table</strong> — click any column header to sort. Use the per-row checkboxes plus "Re-tag selected" to enqueue specific tracks. Choose your page size (10 / 25 / 50 / 100 / 200).</li>
+    <li><strong>Track table</strong> — click any column header to sort. Use the per-row checkboxes plus "Re-tag selected" to enqueue specific tracks. Choose your page size (10 / 25 / 50 / 100 / 200). The <code>×</code> at the end of a row removes a stuck entry from the DB only — the file is never touched, and a re-scan re-adds it.</li>
   </ul>
 </section>
 
@@ -102,6 +108,7 @@ Drop file  →  Read existing tags + filename clues
   <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">6. Review queue</h3>
   <p class="text-sm text-[#cfcfcf]">A file lands in Review when it scored below the threshold, no candidate was found, the destination already exists, RELEASETYPE was missing, or dry-run mode was on. From the Review page you can:</p>
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
+    <li>Search MusicBrainz manually by title / artist / album or a pasted MB URL / ID — click <strong>Search</strong> (or press Enter in any field) to run the query.</li>
     <li>Pick any of the top candidates and apply.</li>
     <li>Override RELEASETYPE, upload custom cover art, or pick a different cover-art thumbnail.</li>
     <li>Resolve conflicts with <strong>Replace</strong>, <strong>Rename</strong>, or <strong>Skip</strong>.</li>
@@ -111,7 +118,7 @@ Drop file  →  Read existing tags + filename clues
 
 <section id="jobs" class="space-y-3">
   <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">7. Jobs</h3>
-  <p class="text-sm text-[#cfcfcf]">The Jobs page shows every queued / processed file with pagination and per-row cancel/requeue. Bulk controls:</p>
+  <p class="text-sm text-[#cfcfcf]">The Jobs page shows every queued / processed file with pagination and per-row cancel/requeue. Background work — library scans, organizes, lyrics/cover fetches and scheduled runs — also appears here with a kind badge, a persistent log, and <code>n/total</code> progress. A thin progress line under the nav (visible on every page) tracks whatever is currently running. Bulk controls:</p>
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
     <li><strong>Cancel all queued</strong> — mark every queued (not-yet-started) job as skipped.</li>
     <li><strong>Clear completed / errors / needs_review</strong> — delete rows of that status.</li>
@@ -119,8 +126,32 @@ Drop file  →  Read existing tags + filename clues
   </ul>
 </section>
 
+<section id="changes" class="space-y-3">
+  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">8. Changes &amp; revert</h3>
+  <p class="text-sm text-[#cfcfcf]">Every pipeline tag-write records a full pre-write snapshot. From the Changes page you can:</p>
+  <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
+    <li><strong>Revert</strong> — restore the original tags in place and remove the <code>cover.jpg</code> dragontag created. The job can be requeued afterwards to re-tag.</li>
+    <li><strong>Move back</strong> — return the file to its pre-pipeline directory. The restored path is automatically added to the scan exemptions so the watcher doesn't immediately re-ingest it.</li>
+    <li><strong>Clear all</strong> — wipe the audit log (files are untouched, but revert/move-back is then no longer possible for those entries).</li>
+  </ul>
+  <p class="text-sm text-[#8a8a8a]">Retention is configurable in Settings → Maintenance (default 500, <code>0</code> = unlimited).</p>
+</section>
+
+<section id="schedule" class="space-y-3">
+  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">9. Schedule</h3>
+  <p class="text-sm text-[#cfcfcf]">The Schedule tab runs any maintenance task on a standard 5-field cron expression (UTC): scan, organize, bulk re-tag (with optional dry-run), fetch lyrics, fetch covers, or backup. Each schedule shows its next and last run; <strong>Run now</strong> fires it immediately, and runs appear on the Jobs page like any other task. A run is skipped if the previous run of the same kind is still going.</p>
+  <p class="text-sm text-[#8a8a8a]">Examples: <code>0 3 * * *</code> daily at 03:00 · <code>0 */6 * * *</code> every 6 hours · <code>0 4 * * 0</code> Sundays at 04:00.</p>
+</section>
+
+<section id="backup" class="space-y-3">
+  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">10. Backup &amp; restore</h3>
+  <p class="text-sm text-[#cfcfcf]"><strong>Settings → Backup</strong> downloads a versioned tarball containing the SQLite database (a consistent snapshot, safe while the app runs), <code>settings.json</code>, the password hash and the AcoustID key, with a manifest and per-file checksums. The last 10 backups are also kept in <code>/config/backups</code>, and backups can be scheduled (§9).</p>
+  <p class="text-sm text-[#cfcfcf]">Restoring validates the bundle first (manifest, checksums, database integrity check, settings schema) and refuses while jobs are active; the previous files are kept beside the new ones as <code>*.pre-restore</code>. A container restart afterwards is recommended. If the UI can't boot, restore from the command line:</p>
+  <pre class="text-xs bg-black border border-[#4a4a4a] p-2 overflow-x-auto">python -m dragontag.tools.restore_backup /config/backups/dragontag-backup-XXXX.tar.gz</pre>
+</section>
+
 <section id="formatting" class="space-y-3">
-  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">8. Smart formatting</h3>
+  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">11. Smart formatting</h3>
   <p class="text-sm text-[#cfcfcf]">Three independent toggles under Settings → Smart formatting:</p>
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
     <li><strong>Title Case</strong> — capitalizes the first/last word and any non-article/preposition. Acronyms are preserved.</li>
@@ -130,7 +161,7 @@ Drop file  →  Read existing tags + filename clues
 </section>
 
 <section id="reference" class="space-y-3">
-  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">9. Reference</h3>
+  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">12. Reference</h3>
 
   <h4 class="font-mono text-sm text-[#cfcfcf] mt-3">Environment variables</h4>
   <table class="w-full text-xs">

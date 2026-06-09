@@ -24,21 +24,22 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, or_
 from sqlmodel import select
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import auth
+from . import auth, logsetup, scheduler, tasks
 from .config import env, settings, store
 from .db import dashboard_stats, session
 from .identify import musicbrainz as mbq
 from .ingest import pipeline, uploads, watcher
 from .library.mover import move
 from .library.paths import unique_path
-from .models import FileChange, Job, JobStatus, LibraryFolder, ReviewReason, Track
+from .models import FileChange, Job, JobStatus, LibraryFolder, ReviewReason, ScheduledTask, Track
 
 
 def _local_tz() -> ZoneInfo:
@@ -66,10 +67,10 @@ def _toast_response(redirect_url: str, message: str, level: str = "success") -> 
     return resp
 
 logging.basicConfig(level=logging.INFO)
-logging.getLogger("musicbrainzngs").setLevel(logging.WARNING)
 
 # docs_url/redoc_url/openapi_url disabled so FastAPI's built-in Swagger UI does
 # not shadow our custom user-manual route at GET /docs (see docs() below).
+# Auth-guarded equivalents are served at /api-docs and /openapi.json instead.
 app = FastAPI(title="dragontag", docs_url=None, redoc_url=None, openapi_url=None)
 
 # Cookie-signing secret comes from the session-secret Docker secret. The
@@ -95,10 +96,12 @@ templates.env.globals["format_local"] = _format_local
 def _startup() -> None:
     """Initialize config + DB, start worker, resume in-flight jobs, start watcher."""
     store()                       # ensure /config and SQLite are ready
+    logsetup.apply(settings().log_verbosity)
     pipeline.start_worker()
     pipeline.resubmit_pending()   # finish anything that was mid-flight at last shutdown
     if settings().watcher_enabled:
         watcher.start()
+    scheduler.start()
 
 
 @app.get("/health")
@@ -116,6 +119,59 @@ def require_auth(request: Request) -> None:
         raise HTTPException(status_code=303, headers={"Location": "/setup"})
     if not auth.is_authenticated(request):
         raise HTTPException(status_code=303, headers={"Location": "/login"})
+
+
+@app.get("/openapi.json", include_in_schema=False)
+def openapi_json(request: Request, _: None = Depends(require_auth)):
+    """Auth-guarded OpenAPI schema (the unauthenticated default is disabled)."""
+    return JSONResponse(app.openapi())
+
+
+@app.get("/api-docs", include_in_schema=False)
+def api_docs(request: Request, _: None = Depends(require_auth)):
+    """Swagger UI, served separately so the user manual keeps GET /docs."""
+    return get_swagger_ui_html(openapi_url="/openapi.json", title="dragontag API")
+
+
+_ACTIVE_JOB_STATUSES = (
+    JobStatus.queued,
+    JobStatus.identifying,
+    JobStatus.tagging,
+    JobStatus.moving,
+    JobStatus.running,
+)
+
+
+@app.get("/api/progress")
+def api_progress(request: Request, _: None = Depends(require_auth)):
+    """Lightweight poll target for the universal top-of-page progress bar."""
+    with session() as s:
+        active = s.exec(
+            select(Job)
+            .where(Job.status.in_(list(_ACTIVE_JOB_STATUSES)), Job.status != JobStatus.queued)
+            .order_by(Job.updated_at.desc())
+        ).first()
+        queued = s.exec(
+            select(func.count(Job.id)).where(Job.status == JobStatus.queued)
+        ).one() or 0
+        if active is None and queued:
+            active = s.exec(
+                select(Job).where(Job.status == JobStatus.queued).order_by(Job.updated_at.desc())
+            ).first()
+
+    if active is None:
+        return JSONResponse({"active": False, "label": "", "percent": None, "queued": 0})
+
+    percent = None
+    label = active.original_name or active.kind
+    if active.progress_total:
+        percent = round(100 * (active.progress_current or 0) / active.progress_total)
+        label = f"{label} ({active.progress_current or 0}/{active.progress_total})"
+    else:
+        label = f"{label} — {active.status.value}"
+    if queued:
+        label += f" · {queued} queued"
+    return JSONResponse({"active": True, "label": label, "percent": percent, "queued": queued})
 
 
 # ---------------------------------------------------------------------------
@@ -271,9 +327,9 @@ def jobs_page(request: Request, _: None = Depends(require_auth), page: int = 1):
             select(Job).order_by(Job.updated_at.desc())
             .offset((page - 1) * _PER_PAGE).limit(_PER_PAGE)
         ).all()
-        pending = s.exec(select(func.count(Job.id)).where(Job.status.in_([
-            JobStatus.queued, JobStatus.identifying, JobStatus.tagging, JobStatus.moving
-        ]))).one()
+        pending = s.exec(select(func.count(Job.id)).where(
+            Job.status.in_(list(_ACTIVE_JOB_STATUSES))
+        )).one()
         done_today = s.exec(select(func.count(Job.id)).where(Job.status == JobStatus.done)).one()
         errors = s.exec(select(func.count(Job.id)).where(Job.status == JobStatus.error)).one()
     total_pages = max(1, (total + _PER_PAGE - 1) // _PER_PAGE)
@@ -312,7 +368,7 @@ def jobs_clear_errors(request: Request, _: None = Depends(require_auth)):
 @app.post("/jobs/clear-all")
 def jobs_clear_all(request: Request, _: None = Depends(require_auth)):
     """Delete every Job row that is not currently in-flight."""
-    active = {JobStatus.queued, JobStatus.identifying, JobStatus.tagging, JobStatus.moving}
+    active = set(_ACTIVE_JOB_STATUSES)
     with session() as s:
         rows = s.exec(select(Job).where(~Job.status.in_(active))).all()
         for r in rows:
@@ -332,7 +388,7 @@ def jobs_clear_selected(
     In-flight jobs are skipped (same guard as clear-all) so a running pipeline
     isn't yanked out from under itself. DB rows only — files are never touched.
     """
-    active = {JobStatus.queued, JobStatus.identifying, JobStatus.tagging, JobStatus.moving}
+    active = set(_ACTIVE_JOB_STATUSES)
     deleted = 0
     with session() as s:
         for jid in job_ids:
@@ -394,6 +450,8 @@ def job_requeue(job_id: int, request: Request, _: None = Depends(require_auth)):
             raise HTTPException(404)
         if job.status not in (JobStatus.done, JobStatus.error, JobStatus.skipped):
             raise HTTPException(400, "only done/error/skipped jobs can be requeued")
+        if job.kind != "ingest":
+            raise HTTPException(400, "background tasks cannot be requeued; re-run them from their page")
         job.status = JobStatus.queued
         job.error = None
         job.log = ""
@@ -622,6 +680,8 @@ def settings_update(
     webhook_url: str = Form(""),
     webhook_on_done: str | None = Form(None),
     webhook_on_error: str | None = Form(None),
+    max_recent_changes: int = Form(500),
+    log_verbosity: int = Form(3),
 ):
     """Persist a settings patch from the UI form.
 
@@ -669,8 +729,11 @@ def settings_update(
         "webhook_url": webhook_url,
         "webhook_on_done": bool(webhook_on_done),
         "webhook_on_error": bool(webhook_on_error),
+        "max_recent_changes": max_recent_changes,
+        "log_verbosity": log_verbosity,
     }
     store().update(patch)
+    logsetup.apply(settings().log_verbosity)
     back = request.headers.get("referer", "/settings")
     sep = "&" if "?" in back else "?"
     resp = RedirectResponse(f"{back}{sep}saved=1", status_code=303)
@@ -851,14 +914,11 @@ def library_scan(request: Request, _: None = Depends(require_auth), folder_id: i
         f = s.get(LibraryFolder, folder_id)
         if not f:
             raise HTTPException(404)
-        folder_path, fid = Path(f.path), f.id
+        folder_path, fid, label = Path(f.path), f.id, (f.label or f.path)
 
-    def _run():
-        from .library.scanner import scan_folder
-        scan_folder(folder_path, fid)
-
-    threading.Thread(target=_run, daemon=True, name="scanner").start()
-    return _toast_response("/library", "Folder scan started.")
+    from .library.scanner import scan_folder
+    tasks.run_task("scan", f"Scan {label}", lambda ctx: scan_folder(folder_path, fid, ctx=ctx))
+    return _toast_response("/library", "Folder scan started — track it on the Jobs page.")
 
 
 @app.post("/library/organize")
@@ -867,14 +927,11 @@ def library_organize(request: Request, _: None = Depends(require_auth), folder_i
         f = s.get(LibraryFolder, folder_id)
         if not f:
             raise HTTPException(404)
-        fid = f.id
+        fid, label = f.id, (f.label or f.path)
 
-    def _run():
-        from .library.organizer import organize_folder
-        organize_folder(fid)
-
-    threading.Thread(target=_run, daemon=True, name="organizer").start()
-    return _toast_response("/library", "Folder organization started.")
+    from .library.organizer import organize_folder
+    tasks.run_task("organize", f"Organize {label}", lambda ctx: organize_folder(fid))
+    return _toast_response("/library", "Folder organization started — track it on the Jobs page.")
 
 
 @app.post("/library/bulk-retag")
@@ -885,11 +942,10 @@ def library_bulk_retag(
     dry_run: str | None = Form(None),
 ):
     from .ingest.bulk import enqueue_folder
-    # Allow per-request dry_run override; fall back to global setting.
-    if dry_run is not None:
-        store().update({"dry_run": bool(dry_run)})
+    # Per-request dry-run only — the checkbox never mutates the global setting.
+    # An unchecked box submits nothing, which means an explicit "not dry run".
     try:
-        enqueue_folder(Path(source_path.strip()))
+        enqueue_folder(Path(source_path.strip()), dry_run=bool(dry_run))
     except ValueError as e:
         raise HTTPException(400, str(e))
     return _toast_response("/", "Full library re-tag queued.")
@@ -908,8 +964,6 @@ def library_retag_selected(
     When ``select_all_folder`` is set the entire folder is enqueued,
     bypassing the per-page checkbox selection.
     """
-    if dry_run is not None:
-        store().update({"dry_run": bool(dry_run)})
     queued = 0
     with session() as s:
         if select_all_folder.strip().isdigit():
@@ -929,10 +983,33 @@ def library_retag_selected(
             p = Path(track.path)
             if not p.exists():
                 continue
-            job = pipeline.enqueue(p)
+            # Per-request dry-run only — never mutates the global setting.
+            job = pipeline.enqueue(p, dry_run=bool(dry_run))
             pipeline.submit(job.id)
             queued += 1
     return _toast_response("/library", f"Queued {queued} track(s) for re-tagging.")
+
+
+@app.post("/library/tracks/{track_id}/delete")
+def library_track_delete(track_id: int, request: Request, _: None = Depends(require_auth)):
+    """Remove a Track row from the library DB. The file on disk is untouched.
+
+    Useful for "stuck" entries whose file was moved or deleted outside
+    dragontag; a re-scan re-adds anything still on disk.
+    """
+    with session() as s:
+        track = s.get(Track, track_id)
+        if not track:
+            raise HTTPException(404)
+        name = Path(track.path).name
+        # Detach any jobs referencing this track so the FK doesn't dangle.
+        for j in s.exec(select(Job).where(Job.track_id == track_id)).all():
+            j.track_id = None
+            s.add(j)
+        s.delete(track)
+        s.commit()
+    back = request.headers.get("referer", "/library")
+    return _toast_response(back, f"Removed {name} from the library list (file not touched).")
 
 
 @app.post("/library/fetch-lyrics")
@@ -942,34 +1019,10 @@ def library_fetch_lyrics(
     folder_id: int = Form(...),
 ):
     """Fetch and embed lyrics for all tracks in a folder without re-tagging."""
-    with session() as s:
-        tracks = s.exec(select(Track).where(Track.library_folder_id == folder_id)).all()
-    track_paths = [(t.id, t.title, t.artist, t.album, Path(t.path)) for t in tracks if Path(t.path).exists()]
-
-    def _run():
-        from .tagging import lyrics_fetcher
-        from .tagging.advisory import is_explicit
-        from .tagging.partial import write_lyrics
-        for track_id, title, artist, album, p in track_paths:
-            try:
-                fetched = lyrics_fetcher.fetch(artist=artist, title=title, album=album)
-                if fetched:
-                    advisory = 1 if is_explicit(fetched) else 0
-                    write_lyrics(p, fetched, advisory)
-                    # Keep the DB in sync so the dashboard counters update
-                    # without requiring a full re-scan.
-                    with session() as s2:
-                        t = s2.get(Track, track_id)
-                        if t:
-                            t.has_lyrics = True
-                            t.advisory = advisory
-                            s2.add(t)
-                            s2.commit()
-            except Exception:
-                pass
-
-    threading.Thread(target=_run, daemon=True, name="fetch-lyrics").start()
-    return _toast_response("/library", f"Fetching lyrics for {len(track_paths)} tracks.")
+    from .library.actions import fetch_lyrics_for_folder
+    tasks.run_task("fetch_lyrics", f"Fetch lyrics (folder {folder_id})",
+                   lambda ctx: fetch_lyrics_for_folder(folder_id, ctx=ctx))
+    return _toast_response("/library", "Lyrics fetch started — track it on the Jobs page.")
 
 
 @app.post("/library/tag-advisories")
@@ -1016,33 +1069,10 @@ def library_fetch_covers(
     folder_id: int = Form(...),
 ):
     """Fetch and embed cover art for tracks that have MB IDs."""
-    with session() as s:
-        tracks = s.exec(select(Track).where(
-            Track.library_folder_id == folder_id,
-            Track.mb_album_id.is_not(None),
-        )).all()
-    track_data = [(Path(t.path), t.mb_album_id) for t in tracks if Path(t.path).exists()]
-
-    def _run():
-        from .tagging.coverart import fetch_for_release
-        from .tagging.partial import write_cover
-        from .library.mover import write_cover_jpg
-        for p, mb_album_id in track_data:
-            try:
-                cover = fetch_for_release(mb_album_id)
-                if not cover:
-                    continue
-                write_cover(p, cover.data, cover.mime)
-                write_cover_jpg(
-                    p.parent, cover.data,
-                    min_overwrite_pixels=settings().cover_min_overwrite_pixels,
-                    new_width=cover.width,
-                )
-            except Exception:
-                pass
-
-    threading.Thread(target=_run, daemon=True, name="fetch-covers").start()
-    return _toast_response("/library", f"Fetching covers for {len(track_data)} tracks.")
+    from .library.actions import fetch_covers_for_folder
+    tasks.run_task("fetch_covers", f"Fetch covers (folder {folder_id})",
+                   lambda ctx: fetch_covers_for_folder(folder_id, ctx=ctx))
+    return _toast_response("/library", "Cover fetch started — track it on the Jobs page.")
 
 
 @app.post("/library/extract-covers")
@@ -1176,3 +1206,177 @@ def changes_revert(change_id: int, request: Request, _: None = Depends(require_a
 
     ok, message = revert_change(change_id)
     return _toast_response("/changes", message, "success" if ok else "error")
+
+
+@app.post("/changes/{change_id}/move-back")
+def changes_move_back(change_id: int, request: Request, _: None = Depends(require_auth)):
+    from .library.revert import move_back
+
+    ok, message = move_back(change_id)
+    return _toast_response("/changes", message, "success" if ok else "error")
+
+
+@app.post("/changes/clear")
+def changes_clear(request: Request, _: None = Depends(require_auth)):
+    """Delete all FileChange audit rows (the files themselves are untouched)."""
+    with session() as s:
+        rows = s.exec(select(FileChange)).all()
+        for r in rows:
+            s.delete(r)
+        s.commit()
+    return _toast_response("/changes", f"Cleared {len(rows)} change record(s).")
+
+
+@app.post("/settings/clear-scan-exemptions")
+def settings_clear_scan_exemptions(request: Request, _: None = Depends(require_auth)):
+    n = len(settings().scan_exempt_paths)
+    store().update({"scan_exempt_paths": []})
+    return _toast_response("/settings", f"Cleared {n} scan exemption(s).")
+
+
+# ---------------------------------------------------------------------------
+# Schedule
+# ---------------------------------------------------------------------------
+
+
+@app.get("/schedule", response_class=HTMLResponse)
+def schedule_page(request: Request, _: None = Depends(require_auth)):
+    with session() as s:
+        rows = s.exec(select(ScheduledTask).order_by(ScheduledTask.id)).all()
+        folders = s.exec(select(LibraryFolder).order_by(LibraryFolder.priority, LibraryFolder.id)).all()
+    return templates.TemplateResponse(request, "schedule.html", {
+        "request": request,
+        "schedules": rows,
+        "folders": folders,
+        "task_types": scheduler.TASK_TYPES,
+        "active_page": "schedule",
+    })
+
+
+@app.post("/schedule")
+def schedule_create(
+    request: Request,
+    _: None = Depends(require_auth),
+    name: str = Form(...),
+    cron: str = Form(...),
+    task_type: str = Form(...),
+    folder_id: str = Form(default=""),
+    source_path: str = Form(default=""),
+    dry_run: str | None = Form(None),
+):
+    cron = cron.strip()
+    if task_type not in scheduler.TASK_TYPES:
+        return _toast_response("/schedule", f"Unknown task type: {task_type}", "error")
+    if not scheduler.is_valid_cron(cron):
+        return _toast_response("/schedule", f"Invalid cron expression: {cron}", "error")
+    params: dict = {}
+    if task_type in ("scan", "organize", "fetch_lyrics", "fetch_covers"):
+        if not folder_id.strip().isdigit():
+            return _toast_response("/schedule", "Pick a library folder for this task type.", "error")
+        params["folder_id"] = int(folder_id)
+    if task_type == "bulk_retag":
+        if not source_path.strip():
+            return _toast_response("/schedule", "A source path is required for bulk re-tag.", "error")
+        params["source_path"] = source_path.strip()
+        params["dry_run"] = bool(dry_run)
+    with session() as s:
+        t = ScheduledTask(
+            name=name.strip() or scheduler.TASK_TYPES[task_type],
+            cron=cron,
+            task_type=task_type,
+            params_json=params,
+            next_run_at=scheduler.next_run(cron),
+        )
+        s.add(t)
+        s.commit()
+    return _toast_response("/schedule", "Schedule created.")
+
+
+@app.post("/schedule/{task_id}/delete")
+def schedule_delete(task_id: int, request: Request, _: None = Depends(require_auth)):
+    with session() as s:
+        t = s.get(ScheduledTask, task_id)
+        if t:
+            s.delete(t)
+            s.commit()
+    return _toast_response("/schedule", "Schedule deleted.")
+
+
+@app.post("/schedule/{task_id}/toggle")
+def schedule_toggle(task_id: int, request: Request, _: None = Depends(require_auth)):
+    with session() as s:
+        t = s.get(ScheduledTask, task_id)
+        if not t:
+            raise HTTPException(404)
+        t.enabled = not t.enabled
+        t.next_run_at = scheduler.next_run(t.cron) if t.enabled else None
+        s.add(t)
+        s.commit()
+        state = "enabled" if t.enabled else "disabled"
+    return _toast_response("/schedule", f"Schedule {state}.")
+
+
+@app.post("/schedule/{task_id}/run-now")
+def schedule_run_now(task_id: int, request: Request, _: None = Depends(require_auth)):
+    with session() as s:
+        t = s.get(ScheduledTask, task_id)
+        if not t:
+            raise HTTPException(404)
+    try:
+        scheduler.run_task_by_type(t)
+    except Exception as e:
+        return _toast_response("/schedule", f"Run failed: {e}", "error")
+    with session() as s:
+        row = s.get(ScheduledTask, task_id)
+        if row:
+            row.last_run_at = datetime.utcnow()
+            row.last_status = "ok (manual)"
+            s.add(row)
+            s.commit()
+    return _toast_response("/schedule", "Task started — track it on the Jobs page.")
+
+
+# ---------------------------------------------------------------------------
+# Backup / restore
+# ---------------------------------------------------------------------------
+
+
+@app.get("/backup/download")
+def backup_download(request: Request, _: None = Depends(require_auth)):
+    from .backup import create_backup
+    try:
+        path = create_backup()
+    except Exception as e:
+        return _toast_response("/settings", f"Backup failed: {e}", "error")
+    return FileResponse(path, media_type="application/gzip", filename=path.name)
+
+
+@app.post("/backup/restore")
+async def backup_restore(
+    request: Request,
+    _: None = Depends(require_auth),
+    bundle: UploadFile = File(...),
+):
+    from .backup import restore_bundle
+
+    # Refuse while jobs are in flight — the restore swaps the DB underneath them.
+    with session() as s:
+        active = s.exec(select(func.count(Job.id)).where(
+            Job.status.in_(list(_ACTIVE_JOB_STATUSES))
+        )).one() or 0
+    if active:
+        return _toast_response(
+            "/settings", f"Refusing to restore while {active} job(s) are active.", "error"
+        )
+
+    import tempfile as _tmp
+    with _tmp.NamedTemporaryFile(suffix=".tar.gz", delete=False) as f:
+        f.write(await bundle.read())
+        tmp_path = Path(f.name)
+    try:
+        message = restore_bundle(tmp_path)
+    except ValueError as e:
+        return _toast_response("/settings", f"Restore refused: {e}", "error")
+    finally:
+        tmp_path.unlink(missing_ok=True)
+    return _toast_response("/settings", message)

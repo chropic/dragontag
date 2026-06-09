@@ -26,6 +26,7 @@
     }
   </script>
   <style>
+    [x-cloak] { display: none !important; }
     body::before {
       content: '';
       position: fixed;
@@ -59,6 +60,7 @@
       ('/library', 'library', 'Library'),
       ('/jobs', 'jobs', 'Jobs'),
       ('/changes', 'changes', 'Changes'),
+      ('/schedule', 'schedule', 'Schedule'),
       ('/docs', 'docs', 'Docs'),
       ('/settings', 'settings', 'Settings'),
     ] %}
@@ -74,6 +76,19 @@
       <button class="text-[#8a8a8a] hover:text-white text-sm">Log out</button>
     </form>
   </nav>
+
+  <!-- Universal progress bar: thin line pinned under the nav, visible on every
+       page while any job/scan/task is active. Polls /api/progress. -->
+  <div x-data="progressBar()" x-init="poll()" x-show="active" x-cloak
+       class="sticky top-[65px] z-40">
+    <div class="h-1 bg-[#1a1a1a] w-full overflow-hidden">
+      <div class="h-1 bg-[#c7f0c7] transition-all duration-500"
+           :class="percent === null ? 'animate-pulse w-full opacity-60' : ''"
+           :style="percent !== null ? 'width:' + percent + '%' : ''"></div>
+    </div>
+    <div class="absolute right-2 top-1.5 px-2 py-0.5 bg-[#0c0c0c] border border-[#4a4a4a] text-[10px] font-mono text-[#c7f0c7] max-w-[60vw] truncate"
+         x-text="label"></div>
+  </div>
 
   <main class="max-w-6xl mx-auto p-6">
     {% block content %}{% endblock %}
@@ -112,6 +127,28 @@
         },
         dismiss(id) {
           this.toasts = this.toasts.filter(t => t.id !== id);
+        }
+      }
+    }
+
+    function progressBar() {
+      return {
+        active: false,
+        label: '',
+        percent: null,
+        async poll() {
+          if (!document.hidden) {
+            try {
+              const r = await fetch('/api/progress', { headers: { 'Accept': 'application/json' } });
+              if (r.ok && (r.headers.get('content-type') || '').includes('json')) {
+                const d = await r.json();
+                this.active = !!d.active;
+                this.label = d.label || '';
+                this.percent = (d.percent === undefined) ? null : d.percent;
+              }
+            } catch (e) { /* network hiccup — keep last state */ }
+          }
+          setTimeout(() => this.poll(), 3000);
         }
       }
     }

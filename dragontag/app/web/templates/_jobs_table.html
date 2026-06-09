@@ -19,13 +19,21 @@
   <tbody>
   {% for j in jobs %}
     <tr class="border-b border-[#4a4a4a] hover:bg-[#0c0c0c]/50">
-      <td class="py-2 truncate max-w-xs"><a class="text-[#cfcfcf] hover:underline" href="/jobs/{{ j.id }}">{{ j.original_name }}</a></td>
+      <td class="py-2 truncate max-w-xs">
+        <a class="text-[#cfcfcf] hover:underline" href="/jobs/{{ j.id }}">{{ j.original_name }}</a>
+        {% if j.kind and j.kind != 'ingest' %}
+        <span class="ml-1 px-1.5 py-0.5 text-[10px] font-mono bg-[#131313] border border-[#4a4a4a] text-[#8a8a8a]">{{ j.kind }}</span>
+        {% endif %}
+      </td>
       <td>
         <span class="px-2 py-0.5 text-xs
           {% if j.status.value == 'done' %}bg-[#c7f0c7] text-black{% elif j.status.value == 'error' %}bg-[#ffb4b4] text-black
           {% elif j.status.value == 'needs_review' %}bg-[#f2e5b5] text-black{% else %}bg-[#131313]{% endif %}">
           {{ j.status.value }}
         </span>
+        {% if j.status.value == 'running' and j.progress_total %}
+        <span class="ml-1 text-[10px] font-mono text-[#8a8a8a]">{{ j.progress_current or 0 }}/{{ j.progress_total }}</span>
+        {% endif %}
       </td>
       <td>{% if j.score is not none %}{{ "%.2f"|format(j.score) }}{% endif %}</td>
       <td class="text-[#8a8a8a] text-xs">{{ format_local(j.updated_at) }}</td>
@@ -38,7 +46,7 @@
       </td>
       <td class="py-1">
         <div class="flex gap-1 flex-wrap">
-          {% if j.status.value in ('done', 'error', 'skipped') %}
+          {% if j.status.value in ('done', 'error', 'skipped') and (j.kind or 'ingest') == 'ingest' %}
           <form method="post" action="/jobs/{{ j.id }}/requeue" class="inline">
             <button class="text-xs px-2 py-0.5 border border-[#4a4a4a] hover:border-white">Requeue</button>
           </form>

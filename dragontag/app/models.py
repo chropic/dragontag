@@ -71,6 +71,7 @@ class JobStatus(str, Enum):
     identifying = "identifying"
     tagging = "tagging"
     moving = "moving"
+    running = "running"  # generic background task (scan, organize, …)
     done = "done"
     needs_review = "needs_review"
     error = "error"
@@ -97,6 +98,19 @@ class Job(SQLModel, table=True):
     source_path: str
     original_name: str
 
+    # "ingest" for pipeline jobs; other kinds ("scan", "organize", …) are
+    # background tasks surfaced in the jobs list via tasks.run_task.
+    kind: str = Field(default="ingest")
+
+    # Coarse progress for long-running tasks (None = indeterminate).
+    progress_current: int | None = None
+    progress_total: int | None = None
+
+    # Per-job dry-run override from the Library page checkboxes. None means
+    # "follow the global settings().dry_run"; True/False is an explicit choice
+    # for this job only and never mutates the global setting.
+    dry_run_override: bool | None = None
+
     status: JobStatus = Field(default=JobStatus.queued, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     updated_at: datetime = Field(default_factory=datetime.utcnow, index=True)
@@ -121,6 +135,25 @@ class Job(SQLModel, table=True):
 
     # FK to the Track row created/updated when this job completed.
     track_id: int | None = Field(default=None, foreign_key="track.id")
+
+
+class ScheduledTask(SQLModel, table=True):
+    """A cron-scheduled recurring task (see ``scheduler.py``).
+
+    ``task_type`` is one of the keys in ``scheduler.TASK_TYPES``; ``params_json``
+    carries the task's arguments (``folder_id``, ``source_path``, ``dry_run``).
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    name: str
+    cron: str                          # standard 5-field cron expression
+    task_type: str
+    params_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    enabled: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    last_run_at: datetime | None = None
+    last_status: str | None = None     # "ok" | "error: …" | "skipped: …"
+    next_run_at: datetime | None = None
 
 
 class FileChange(SQLModel, table=True):

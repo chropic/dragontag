@@ -2,7 +2,13 @@
 {% block title %}dragontag | User manual{% endblock %}
 {% block content %}
 <div class="max-w-3xl mx-auto space-y-8">
-<h2 class="text-xl font-mono font-semibold mb-2">User manual</h2>
+<div class="flex items-center justify-between mb-2">
+  <h2 class="text-xl font-mono font-semibold">User manual</h2>
+  <span class="text-xs">
+    <a href="/api-docs" class="px-3 py-1 border border-[#4a4a4a] text-[#cfcfcf] hover:text-white hover:border-white">API reference (Swagger)</a>
+    <a href="/openapi.json" class="ml-1 px-3 py-1 border border-[#4a4a4a] text-[#cfcfcf] hover:text-white hover:border-white">openapi.json</a>
+  </span>
+</div>
 <p class="text-[#8a8a8a] text-sm">Everything you need to know to drive dragontag day-to-day. Reference material (env vars, tokens, payloads) is at the bottom.</p>
 
 <nav class="bg-[#0c0c0c] border border-[#4a4a4a] p-3 text-xs text-[#cfcfcf]">

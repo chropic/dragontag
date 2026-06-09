@@ -59,30 +59,41 @@
       {% endif %}
 
       {# ---- manual MB search ---- #}
-      {# All four inputs share one hx-include group so any of them refines the
-         same query. The mbid box accepts a MusicBrainz URL or bare ID. #}
+      {# All four inputs share one hx-include group; the explicit Search button
+         (or Enter in any of the inputs) fires a single query. Enter is
+         intercepted so it can't accidentally submit the surrounding apply
+         form. The mbid box accepts a MusicBrainz URL or bare ID. #}
       <div class="mb-2" id="mb-search-{{ j.id }}">
-        <div class="grid grid-cols-3 gap-1"
-             hx-get="/api/mb-search"
-             hx-trigger="input changed delay:600ms from:#mb-search-{{ j.id }} input"
-             hx-target="#mb-results-{{ j.id }}"
-             hx-include="#mb-search-{{ j.id }} input"
-             hx-vals='{"job_id": {{ j.id }}}'>
+        <div class="grid grid-cols-3 gap-1">
           <input type="text" name="title" placeholder="Title"
-                 class="p-1 bg-black border border-[#4a4a4a] text-sm">
+                 class="mb-search-input p-1 bg-black border border-[#4a4a4a] text-sm">
           <input type="text" name="artist" placeholder="Artist"
-                 class="p-1 bg-black border border-[#4a4a4a] text-sm">
+                 class="mb-search-input p-1 bg-black border border-[#4a4a4a] text-sm">
           <input type="text" name="album" placeholder="Album"
-                 class="p-1 bg-black border border-[#4a4a4a] text-sm">
+                 class="mb-search-input p-1 bg-black border border-[#4a4a4a] text-sm">
         </div>
-        <input type="text" name="mbid" placeholder="…or paste a MusicBrainz URL / ID"
-               class="w-full mt-1 p-1 bg-black border border-[#4a4a4a] text-sm"
-               hx-get="/api/mb-search"
-               hx-trigger="input changed delay:600ms"
-               hx-target="#mb-results-{{ j.id }}"
-               hx-include="#mb-search-{{ j.id }} input"
-               hx-vals='{"job_id": {{ j.id }}}'>
+        <div class="flex gap-1 mt-1">
+          <input type="text" name="mbid" placeholder="…or paste a MusicBrainz URL / ID"
+                 class="mb-search-input flex-1 p-1 bg-black border border-[#4a4a4a] text-sm">
+          <button type="button" id="mb-search-btn-{{ j.id }}"
+                  hx-get="/api/mb-search"
+                  hx-trigger="click"
+                  hx-target="#mb-results-{{ j.id }}"
+                  hx-include="#mb-search-{{ j.id }} input"
+                  hx-vals='{"job_id": {{ j.id }}}'
+                  class="px-3 py-1 bg-white text-black hover:bg-[#cfcfcf] text-sm">Search</button>
+        </div>
         <div id="mb-results-{{ j.id }}" class="mt-1"></div>
+        <script>
+          // Enter in any search input triggers the Search button instead of
+          // submitting the apply form.
+          document.getElementById('mb-search-{{ j.id }}').addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' && e.target.classList.contains('mb-search-input')) {
+              e.preventDefault();
+              document.getElementById('mb-search-btn-{{ j.id }}').click();
+            }
+          });
+        </script>
       </div>
 
       {# ---- candidate radio list ---- #}

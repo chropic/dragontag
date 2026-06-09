@@ -12,10 +12,13 @@ from pathlib import Path
 
 from sqlmodel import Session, select
 
+from ..config import settings, store
 from ..db import session
 from ..identify import existing_tags
-from ..models import FileChange, Track
+from ..models import FileChange, Job, Track
 from ..tagging import snapshot
+from .mover import move
+from .paths import unique_path
 
 
 def revert_change(change_id: int) -> tuple[bool, str]:
@@ -42,6 +45,7 @@ def revert_change(change_id: int) -> tuple[bool, str]:
                 if cover.exists():
                     cover.unlink()
             _refresh_track(s, file)
+            _repair_job(s, change.job_id, file)
             change.reverted_at = datetime.utcnow()
             change.revert_error = None
             s.add(change)
@@ -52,6 +56,66 @@ def revert_change(change_id: int) -> tuple[bool, str]:
             s.add(change)
             s.commit()
             return False, f"Revert failed: {e}"
+
+
+def move_back(change_id: int) -> tuple[bool, str]:
+    """Move a changed file back to its pre-pipeline directory.
+
+    The restored path is added to ``settings().scan_exempt_paths`` so the
+    watcher / scanner / bulk-retag don't immediately re-ingest it (the original
+    location is often the watched drop folder).
+    """
+    with session() as s:
+        change = s.get(FileChange, change_id)
+        if change is None:
+            return False, "Change not found."
+        if not change.original_path:
+            return False, "No original location was recorded for that change."
+        file = Path(change.file_path)
+        if not file.exists():
+            return False, f"File is no longer at {file.name}; cannot move back."
+        dest = Path(change.original_path)
+        if dest == file:
+            return False, "File is already at its original location."
+        if dest.exists():
+            dest = unique_path(dest)
+
+        try:
+            res = move(file, dest, overwrite=False)
+            if not res.moved:
+                return False, f"Could not move back: {dest} already exists."
+        except Exception as e:  # noqa: BLE001 - surface any failure to the user
+            return False, f"Move back failed: {e}"
+
+        # Exempt the restored path from future automatic scans/ingests.
+        exempt = list(settings().scan_exempt_paths)
+        if str(dest) not in exempt:
+            exempt.append(str(dest))
+            # FIFO cap so the list can't grow without bound.
+            store().update({"scan_exempt_paths": exempt[-500:]})
+
+        track = s.exec(select(Track).where(Track.path == str(change.file_path))).first()
+        if track:
+            track.path = str(dest)
+            s.add(track)
+        _repair_job(s, change.job_id, dest)
+        change.file_path = str(dest)
+        s.add(change)
+        s.commit()
+        return True, f"Moved {dest.name} back to {dest.parent}."
+
+
+def _repair_job(s: Session, job_id: int | None, file: Path) -> None:
+    """Point the originating Job at the file's current location so a requeue
+    after a revert / move-back finds the file instead of erroring."""
+    if not job_id:
+        return
+    job = s.get(Job, job_id)
+    if job is None:
+        return
+    job.source_path = str(file)
+    job.destination_path = str(file)
+    s.add(job)
 
 
 def _refresh_track(s: Session, file: Path) -> None:

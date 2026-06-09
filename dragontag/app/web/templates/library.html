@@ -74,9 +74,10 @@
       <input type="text" name="source_path" placeholder="/path/to/folder"
              class="w-full p-1 bg-black border border-[#4a4a4a] text-xs font-mono">
       <div class="flex items-center gap-2 text-xs">
-        <label class="flex items-center gap-1">
-          <input type="checkbox" name="dry_run" {% if settings.dry_run %}checked{% endif %}> Dry run
+        <label class="flex items-center gap-1" title="Applies to this run only — the global dry-run setting is unchanged.">
+          <input type="checkbox" name="dry_run"> Dry run (this run only)
         </label>
+        {% if settings.dry_run %}<span class="text-[#f2e5b5]">global default: on</span>{% endif %}
       </div>
       <button class="px-3 py-1 bg-white text-black hover:bg-[#cfcfcf] text-sm">Enqueue all</button>
     </form>
@@ -151,15 +152,20 @@
     <button type="button" onclick="selectAllFolder()"
             class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white">Select all in folder</button>
     <button type="submit" class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white">Re-tag selected</button>
-    <label class="flex items-center gap-2 text-xs text-[#8a8a8a]">
-      <input type="checkbox" name="dry_run" {% if settings.dry_run %}checked{% endif %}> Dry run
+    <label class="flex items-center gap-2 text-xs text-[#8a8a8a]" title="Applies to this run only — the global dry-run setting is unchanged.">
+      <input type="checkbox" name="dry_run"> Dry run (this run only)
     </label>
+    {% if settings.dry_run %}<span class="text-xs text-[#f2e5b5]">global default: on</span>{% endif %}
   </div>
   <div id="library-tracks">
     {% include "_library_tracks.html" %}
   </div>
 </div>
 </form>
+
+{# Carrier form for the per-row "remove from library" buttons in the track
+   table (they can't nest a form inside the retag form). #}
+<form id="track-delete-form" method="post"></form>
 
 {% endif %}
 

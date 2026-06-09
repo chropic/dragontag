@@ -19,6 +19,7 @@
     <col style="width:48px">
     <col style="width:64px">
     <col>
+    <col style="width:32px">
   </colgroup>
   <thead>
     <tr class="text-left text-[#8a8a8a] border-b border-[#4a4a4a]">
@@ -31,6 +32,7 @@
       <th class="pb-2 pr-2">{{ sort_header("disc", "Disc") }}</th>
       <th class="pb-2 pr-2">{{ sort_header("duration", "Duration") }}</th>
       <th class="pb-2">{{ sort_header("path", "Path") }}</th>
+      <th class="pb-2 w-8"></th>
     </tr>
   </thead>
   <tbody>
@@ -49,6 +51,15 @@
         {% if t.duration %}{{ "%-4.0f"|format(t.duration // 60) }}:{{ "%02.0f"|format(t.duration % 60) }}{% else %}—{% endif %}
       </td>
       <td class="py-1 text-[#8a8a8a] text-xs truncate" title="{{ t.path }}">{{ t.path }}</td>
+      <td class="py-1 text-right">
+        {# Uses the external #track-delete-form (see library.html) because a
+           nested form inside the retag form would be invalid HTML. #}
+        <button type="submit" form="track-delete-form"
+                formaction="/library/tracks/{{ t.id }}/delete"
+                onclick="return confirm('Remove this entry from the library list? The DB row is deleted — the file on disk is NOT touched. A re-scan will re-add it if the file still exists.');"
+                title="Remove from library list (file is not touched)"
+                class="text-[#8a8a8a] hover:text-[#ffb4b4] text-sm leading-none">&times;</button>
+      </td>
     </tr>
     {% endfor %}
   </tbody>

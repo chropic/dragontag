@@ -152,6 +152,20 @@ class UserSettings(BaseModel):
     # user can inspect and commit individually.
     dry_run: bool = False
 
+    # ----- changes / audit log -----
+    # How many FileChange audit rows to keep (pruned oldest-first on insert).
+    max_recent_changes: int = Field(default=500, ge=0)
+
+    # Absolute file paths the watcher / scanner / bulk-retag must skip.
+    # Populated automatically when a change is "moved back" to its original
+    # directory so the file isn't immediately re-ingested.
+    scan_exempt_paths: list[str] = Field(default_factory=list)
+
+    # ----- logging -----
+    # 0=silent, 1=errors, 2=warnings, 3=info, 4=debug. Applied at runtime by
+    # logsetup.apply() on startup and whenever settings are saved.
+    log_verbosity: int = Field(default=3, ge=0, le=4)
+
     # ----- webhook notifications -----
     webhook_url: str = ""
     webhook_on_done: bool = True
@@ -297,6 +311,15 @@ def store() -> _Store:
     if _store is None:
         _store = _Store()
     return _store
+
+
+def reset_store() -> None:
+    """Drop the singleton so the next ``store()`` call re-reads settings.json.
+
+    Used by backup restore after swapping the config files on disk.
+    """
+    global _store
+    _store = None
 
 
 def env() -> Env:

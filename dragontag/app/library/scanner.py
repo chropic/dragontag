@@ -13,6 +13,7 @@ from pathlib import Path
 
 from sqlmodel import select
 
+from ..config import settings
 from ..db import session
 from ..identify.existing_tags import read as read_existing
 from ..ingest.pipeline import SUPPORTED_EXTS
@@ -23,26 +24,40 @@ log = logging.getLogger(__name__)
 _BATCH_SIZE = 50
 
 
-def scan_folder(folder_path: Path, folder_id: int) -> int:
+def scan_folder(folder_path: Path, folder_id: int, ctx=None) -> int:
     """Walk folder_path, upsert a Track row for every supported audio file.
 
-    Returns the count of files processed.
+    ``ctx`` is an optional ``tasks.TaskCtx`` for job-tracked progress/log
+    reporting. Returns the count of files processed.
     """
+    exempt = set(settings().scan_exempt_paths)
+    files = [
+        p
+        for p in sorted(folder_path.rglob("*"))
+        if p.is_file() and p.suffix.lower() in SUPPORTED_EXTS and str(p) not in exempt
+    ]
+    if ctx:
+        ctx.log(f"Scanning {folder_path} — {len(files)} file(s)")
+        ctx.progress(0, len(files))
+
     count = 0
     batch: list[Path] = []
-    for p in sorted(folder_path.rglob("*")):
-        if not p.is_file() or p.suffix.lower() not in SUPPORTED_EXTS:
-            continue
+    for p in files:
         batch.append(p)
         if len(batch) >= _BATCH_SIZE:
             _flush_batch(batch, folder_id)
             count += len(batch)
             batch = []
+            if ctx:
+                ctx.progress(count, len(files))
             if count % 500 == 0:
                 log.info("scanner: %d files indexed in %s", count, folder_path)
     if batch:
         _flush_batch(batch, folder_id)
         count += len(batch)
+    if ctx:
+        ctx.progress(count, len(files))
+        ctx.log(f"Finished — {count} file(s) indexed")
     log.info("scanner: finished %s — %d files", folder_path, count)
     return count
 

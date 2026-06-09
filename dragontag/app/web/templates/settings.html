@@ -226,6 +226,25 @@
     </label>
   </div>
 
+  <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-3">
+    <h3 class="font-mono font-semibold">Maintenance</h3>
+    <label class="block">
+      <span class="text-[#8a8a8a]">Recent changes kept</span>
+      {{ tip("How many entries the Changes page retains. Older audit rows are pruned automatically when new changes are recorded; pruned rows can no longer be reverted.") }}
+      <input type="number" name="max_recent_changes" min="0" value="{{ settings.max_recent_changes }}"
+             class="mt-1 p-1 bg-black border border-[#4a4a4a] w-32">
+    </label>
+    <div x-data="{ v: {{ settings.log_verbosity }} }">
+      <span class="text-[#8a8a8a]">Log verbosity</span>
+      {{ tip("Controls how much dragontag writes to the container logs. 0 = silent, 1 = errors only, 2 = warnings, 3 = info (default), 4 = debug. Applied immediately on save.") }}
+      <div class="flex items-center gap-3 mt-1">
+        <input type="range" name="log_verbosity" min="0" max="4" step="1" x-model="v" class="w-48">
+        <span class="font-mono text-xs text-[#cfcfcf]"
+              x-text="['0 — Silent','1 — Errors','2 — Warnings','3 — Info','4 — Debug'][v]"></span>
+      </div>
+    </div>
+  </div>
+
   <div class="flex items-center gap-4">
     <button class="px-4 py-2 bg-white text-black hover:bg-[#cfcfcf] font-mono font-semibold">Save settings</button>
     {% if saved %}
@@ -233,6 +252,44 @@
     {% endif %}
   </div>
 </form>
+
+<div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-3 mt-4 text-sm">
+  <h3 class="font-mono font-semibold">Scan exemptions</h3>
+  <p class="text-xs text-[#8a8a8a]">
+    Files moved back to their original directory from the Changes page are exempted from the
+    watcher, library scans and bulk re-tags so they aren't immediately re-ingested.
+    Currently exempt: <span class="text-[#cfcfcf]">{{ settings.scan_exempt_paths|length }}</span> path(s).
+  </p>
+  {% if settings.scan_exempt_paths %}
+  <details class="text-xs">
+    <summary class="cursor-pointer text-[#cfcfcf]">Show paths</summary>
+    <ul class="mt-1 font-mono text-[#8a8a8a] space-y-0.5">
+      {% for p in settings.scan_exempt_paths %}<li class="truncate" title="{{ p }}">{{ p }}</li>{% endfor %}
+    </ul>
+  </details>
+  <form method="post" action="/settings/clear-scan-exemptions"
+        onsubmit="return confirm('Clear all scan exemptions? Exempted files will be picked up again by the watcher and scans.');">
+    <button class="px-3 py-1 border border-[#4a4a4a] text-xs text-[#cfcfcf] hover:text-white">Clear exemptions</button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-3 mt-4 text-sm">
+  <h3 class="font-mono font-semibold">Backup &amp; restore</h3>
+  <p class="text-xs text-[#8a8a8a]">
+    A backup is a versioned tarball of the database, settings.json, password hash and AcoustID key.
+    Backups are also kept in <code class="text-xs">/config/backups</code> (last 10).
+    CLI restore: <code class="text-xs">python -m dragontag.tools.restore_backup &lt;file&gt;</code>.
+  </p>
+  <a href="/backup/download"
+     class="inline-block px-3 py-1 bg-white text-black hover:bg-[#cfcfcf] text-sm">Download backup</a>
+  <form method="post" action="/backup/restore" enctype="multipart/form-data"
+        class="flex items-center gap-2 flex-wrap"
+        onsubmit="return confirm('Restore this backup? The current database and settings will be replaced (old files kept as *.pre-restore). A container restart afterwards is recommended.');">
+    <input type="file" name="bundle" accept=".gz,.tar.gz,application/gzip" required class="text-xs text-[#cfcfcf]">
+    <button class="px-3 py-1 border border-[#ffb4b4] text-[#ffb4b4] hover:text-white hover:border-white text-sm">Restore</button>
+  </form>
+</div>
 </div>
 
 <script>

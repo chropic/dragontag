@@ -20,6 +20,7 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 from ..config import env, settings
+from ..library.filters import is_path_excluded
 from . import pipeline
 
 log = logging.getLogger(__name__)
@@ -34,15 +35,18 @@ class _Handler(FileSystemEventHandler):
         self._has_pending = threading.Event()
 
     def _is_ignored(self, p: Path) -> bool:
+        cfg = settings()
         name = p.name
-        for pat in settings().watcher_ignore_patterns:
+        for pat in cfg.watcher_ignore_patterns:
             if fnmatch.fnmatch(name, pat):
                 return True
         # Files moved back to their original directory are exempted so they
         # aren't immediately re-ingested (see library/revert.py move_back).
-        if str(p) in settings().scan_exempt_paths:
+        if str(p) in cfg.scan_exempt_paths:
             return True
-        return p.suffix.lower() not in pipeline.SUPPORTED_EXTS
+        if p.suffix.lower() not in pipeline.SUPPORTED_EXTS:
+            return True
+        return is_path_excluded(p, cfg.scan_filter_patterns, cfg.scan_exclude_dirs)
 
     def on_created(self, event):
         if event.is_directory:

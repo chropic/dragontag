@@ -7,10 +7,11 @@ backing the HTMX-driven UI.
 Routes are grouped:
 
 * ``/login`` / ``/logout``           — argon2-backed session auth
-* ``/`` and ``/jobs/...``            — dashboard and per-job detail
+* ``/`` and ``/jobs/{id}``           — dashboard and per-job detail
 * ``/upload``                        — multipart file upload, kicks pipeline
-* ``/review`` and ``/review/...``    — review queue (candidate picker,
-                                       conflict resolver)
+* ``/queue`` and ``/review/...``     — unified queue page (review candidate
+                                       picker, conflict resolver, job list);
+                                       bare /review and /jobs redirect here
 * ``/settings``                      — UI-editable runtime settings
 """
 from __future__ import annotations
@@ -18,9 +19,9 @@ from __future__ import annotations
 import json
 import logging
 import os
-import threading
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
@@ -99,6 +100,7 @@ app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "web" / "templates"))
 templates.env.globals["format_local"] = _format_local
+templates.env.globals["describe_cron"] = scheduler.describe_cron
 
 
 @app.on_event("startup")
@@ -163,15 +165,29 @@ def api_progress(request: Request, _: None = Depends(require_auth)):
         return JSONResponse({"active": False, "label": "", "percent": None, "queued": 0})
 
     percent = None
+    current = active.progress_current
+    total = active.progress_total
     label = active.original_name or active.kind
-    if active.progress_total:
-        percent = round(100 * (active.progress_current or 0) / active.progress_total)
-        label = f"{label} ({active.progress_current or 0}/{active.progress_total})"
+    if total:
+        percent = round(100 * (current or 0) / total)
     else:
         label = f"{label} — {active.status.value}"
-    if queued:
-        label += f" · {queued} queued"
-    return JSONResponse({"active": True, "label": label, "percent": percent, "queued": queued})
+    return JSONResponse({
+        "active": True,
+        "label": label,
+        "percent": percent,
+        "current": current,
+        "total": total,
+        "item": active.progress_item,
+        "queued": queued,
+    })
+
+
+@app.get("/api/cron-describe")
+def api_cron_describe(request: Request, _: None = Depends(require_auth), expr: str = ""):
+    """Live helper for the Schedule form: cron expression → human description."""
+    desc = scheduler.describe_cron(expr.strip())
+    return JSONResponse({"valid": desc is not None, "description": desc or ""})
 
 
 # ---------------------------------------------------------------------------
@@ -317,11 +333,16 @@ async def upload(request: Request, _: None = Depends(require_auth), files: list[
     return RedirectResponse("/", status_code=303)
 
 
-@app.get("/jobs", response_class=HTMLResponse)
-def jobs_page(request: Request, _: None = Depends(require_auth), page: int = 1):
-    """Full job queue page with all controls."""
+@app.get("/queue", response_class=HTMLResponse)
+def queue_page(request: Request, _: None = Depends(require_auth), page: int = 1):
+    """Unified queue page: review items on top, the full job list below."""
     page = max(1, page)
     with session() as s:
+        items = s.exec(
+            select(Job)
+            .where(Job.status == JobStatus.needs_review)
+            .order_by(Job.updated_at.desc())
+        ).all()
         total = s.exec(select(func.count(Job.id))).one()
         jobs = s.exec(
             select(Job).order_by(Job.updated_at.desc())
@@ -333,16 +354,24 @@ def jobs_page(request: Request, _: None = Depends(require_auth), page: int = 1):
         done_today = s.exec(select(func.count(Job.id)).where(Job.status == JobStatus.done)).one()
         errors = s.exec(select(func.count(Job.id)).where(Job.status == JobStatus.error)).one()
     total_pages = max(1, (total + _PER_PAGE - 1) // _PER_PAGE)
-    return templates.TemplateResponse(request, "jobs.html", {
+    return templates.TemplateResponse(request, "queue.html", {
         "request": request,
+        "items": items,
         "jobs": jobs,
         "page": page,
         "total_pages": total_pages,
         "pending": pending,
         "done_today": done_today,
         "errors": errors,
-        "active_page": "jobs",
+        "active_page": "queue",
     })
+
+
+@app.get("/jobs", response_class=HTMLResponse)
+def jobs_page(request: Request, page: int = 1):
+    """Legacy URL — the Jobs page merged into /queue."""
+    suffix = f"?page={page}" if page > 1 else ""
+    return RedirectResponse(f"/queue{suffix}", status_code=308)
 
 
 @app.post("/jobs/clear-completed")
@@ -352,7 +381,7 @@ def jobs_clear_completed(request: Request, _: None = Depends(require_auth)):
         for r in rows:
             s.delete(r)
         s.commit()
-    return _toast_response("/jobs", f"Cleared {len(rows)} completed job(s).")
+    return _toast_response("/queue", f"Cleared {len(rows)} completed job(s).")
 
 
 @app.post("/jobs/clear-errors")
@@ -362,7 +391,7 @@ def jobs_clear_errors(request: Request, _: None = Depends(require_auth)):
         for r in rows:
             s.delete(r)
         s.commit()
-    return _toast_response("/jobs", f"Cleared {len(rows)} error job(s).")
+    return _toast_response("/queue", f"Cleared {len(rows)} error job(s).")
 
 
 @app.post("/jobs/clear-all")
@@ -374,7 +403,7 @@ def jobs_clear_all(request: Request, _: None = Depends(require_auth)):
         for r in rows:
             s.delete(r)
         s.commit()
-    return _toast_response("/jobs", f"Cleared {len(rows)} job(s).")
+    return _toast_response("/queue", f"Cleared {len(rows)} job(s).")
 
 
 @app.post("/jobs/clear-selected")
@@ -397,7 +426,7 @@ def jobs_clear_selected(
                 s.delete(r)
                 deleted += 1
         s.commit()
-    return _toast_response("/jobs", f"Cleared {deleted} job(s).")
+    return _toast_response("/queue", f"Cleared {deleted} job(s).")
 
 
 @app.post("/jobs/clear-needs-review")
@@ -407,7 +436,7 @@ def jobs_clear_needs_review(request: Request, _: None = Depends(require_auth)):
         for r in rows:
             s.delete(r)
         s.commit()
-    return _toast_response("/jobs", f"Cleared {len(rows)} needs-review job(s).")
+    return _toast_response("/queue", f"Cleared {len(rows)} needs-review job(s).")
 
 
 @app.post("/jobs/cancel-queued")
@@ -418,7 +447,7 @@ def jobs_cancel_queued(request: Request, _: None = Depends(require_auth)):
             r.status = JobStatus.skipped
             s.add(r)
         s.commit()
-    return _toast_response("/jobs", f"Cancelled {len(rows)} queued job(s).")
+    return _toast_response("/queue", f"Cancelled {len(rows)} queued job(s).")
 
 
 @app.post("/jobs/{job_id}/cancel")
@@ -430,7 +459,7 @@ def job_cancel(job_id: int, request: Request, _: None = Depends(require_auth)):
         job.status = JobStatus.skipped
         s.add(job)
         s.commit()
-    return RedirectResponse("/jobs", status_code=303)
+    return RedirectResponse("/queue", status_code=303)
 
 
 @app.get("/jobs/{job_id}", response_class=HTMLResponse)
@@ -439,7 +468,7 @@ def job_detail(job_id: int, request: Request, _: None = Depends(require_auth)):
         job = s.get(Job, job_id)
         if not job:
             raise HTTPException(404)
-    return templates.TemplateResponse(request, "job_detail.html", {"request": request, "job": job, "active_page": "jobs"})
+    return templates.TemplateResponse(request, "job_detail.html", {"request": request, "job": job, "active_page": "queue"})
 
 
 @app.post("/jobs/{job_id}/requeue")
@@ -479,14 +508,9 @@ def job_log(job_id: int, request: Request, _: None = Depends(require_auth)):
 
 
 @app.get("/review", response_class=HTMLResponse)
-def review(request: Request, _: None = Depends(require_auth)):
-    with session() as s:
-        items = s.exec(
-            select(Job)
-            .where(Job.status == JobStatus.needs_review)
-            .order_by(Job.updated_at.desc())
-        ).all()
-    return templates.TemplateResponse(request, "review.html", {"request": request, "items": items, "active_page": "review"})
+def review(request: Request):
+    """Legacy URL — the Review page merged into /queue."""
+    return RedirectResponse("/queue", status_code=308)
 
 
 @app.post("/review/bulk-apply")
@@ -513,7 +537,7 @@ async def review_bulk_apply(
                 applied += 1
             except Exception:
                 pass
-    return _toast_response("/review", f"Applied {applied} job(s).")
+    return _toast_response("/queue", f"Applied {applied} job(s).")
 
 
 @app.post("/review/{job_id}/apply")
@@ -557,7 +581,7 @@ async def review_apply(
     rec = rec or manual_recording_id.strip()
     rel = rel or manual_release_id.strip()
     if not rec or not rel:
-        return _toast_response("/review", "Pick a candidate or enter MB ids first.", "error")
+        return _toast_response("/queue", "Pick a candidate or enter MB ids first.", "error")
 
     with session() as s:
         job = s.get(Job, job_id)
@@ -586,7 +610,7 @@ async def review_apply(
 
         from .ingest.pipeline import _commit_tag_path
         _commit_tag_path(s, job, Path(job.source_path), tags, score=job.score or 1.0)
-    return RedirectResponse("/review", status_code=303)
+    return RedirectResponse("/queue", status_code=303)
 
 
 @app.post("/review/{job_id}/resolve_conflict")
@@ -608,7 +632,7 @@ def resolve_conflict(
             job.status = JobStatus.skipped
             s.add(job)
             s.commit()
-            return RedirectResponse("/review", status_code=303)
+            return RedirectResponse("/queue", status_code=303)
 
         if action == "replace":
             res = move(src, dest, overwrite=True)
@@ -621,7 +645,7 @@ def resolve_conflict(
             job.destination_path = str(dest)
         s.add(job)
         s.commit()
-    return RedirectResponse("/review", status_code=303)
+    return RedirectResponse("/queue", status_code=303)
 
 
 # ---------------------------------------------------------------------------
@@ -664,6 +688,7 @@ def settings_update(
     watcher_enabled: str | None = Form(None),
     genre_limit: int = Form(3),
     genre_casing: str = Form("title"),
+    genre_whitelist_enabled: str | None = Form(None),
     skip_fields: list[str] = Form(default=[]),
     sep_ARTIST: str = Form(...),
     sep_album_artist: str = Form(...),
@@ -682,6 +707,8 @@ def settings_update(
     webhook_on_error: str | None = Form(None),
     max_recent_changes: int = Form(500),
     log_verbosity: int = Form(3),
+    scan_filter_patterns_raw: str = Form(""),
+    scan_exclude_dirs_raw: str = Form(""),
 ):
     """Persist a settings patch from the UI form.
 
@@ -710,6 +737,7 @@ def settings_update(
         "watcher_enabled": bool(watcher_enabled),
         "genre_limit": genre_limit,
         "genre_casing": genre_casing,
+        "genre_whitelist_enabled": bool(genre_whitelist_enabled),
         "skip_fields": skip_fields,
         "separators": {
             **settings().separators.model_dump(),
@@ -731,6 +759,12 @@ def settings_update(
         "webhook_on_error": bool(webhook_on_error),
         "max_recent_changes": max_recent_changes,
         "log_verbosity": log_verbosity,
+        "scan_filter_patterns": [
+            ln.strip() for ln in scan_filter_patterns_raw.splitlines() if ln.strip()
+        ],
+        "scan_exclude_dirs": [
+            ln.strip().lstrip("!") for ln in scan_exclude_dirs_raw.splitlines() if ln.strip()
+        ],
     }
     store().update(patch)
     logsetup.apply(settings().log_verbosity)
@@ -792,6 +826,7 @@ def library(
     sort: str = "album",
     dir: str = "asc",
 ):
+    from .library.actions import LIBRARY_ACTIONS
     fid: int | None = int(folder_id) if folder_id and folder_id.strip().isdigit() else None
     if page_size not in _LIBRARY_PAGE_SIZES:
         page_size = 50
@@ -812,6 +847,7 @@ def library(
             "request": request,
             "folders": folders,
             "active_id": active_id,
+            "library_actions": [(k, v[0], v[1]) for k, v in LIBRARY_ACTIONS.items()],
             "tracks": tracks,
             "q": q,
             "page": page,
@@ -930,7 +966,7 @@ def library_organize(request: Request, _: None = Depends(require_auth), folder_i
         fid, label = f.id, (f.label or f.path)
 
     from .library.organizer import organize_folder
-    tasks.run_task("organize", f"Organize {label}", lambda ctx: organize_folder(fid))
+    tasks.run_task("organize", f"Organize {label}", lambda ctx: organize_folder(fid, ctx=ctx))
     return _toast_response("/library", "Folder organization started — track it on the Jobs page.")
 
 
@@ -1032,34 +1068,10 @@ def library_tag_advisories(
     folder_id: int = Form(...),
 ):
     """Re-evaluate advisory rating from existing embedded lyrics."""
-    with session() as s:
-        tracks = s.exec(select(Track).where(Track.library_folder_id == folder_id)).all()
-    track_paths = [(t.id, Path(t.path)) for t in tracks if Path(t.path).exists()]
-
-    def _run():
-        from .tagging.advisory import is_explicit
-        from .tagging.partial import read_lyrics, write_advisory
-        for track_id, p in track_paths:
-            try:
-                lyrics = read_lyrics(p)
-                if not lyrics:
-                    continue
-                advisory = 1 if is_explicit(lyrics) else 0
-                write_advisory(p, advisory)
-                # Reflect the re-evaluated rating (and the fact that lyrics are
-                # present) in the DB so the dashboard stays accurate.
-                with session() as s2:
-                    t = s2.get(Track, track_id)
-                    if t:
-                        t.advisory = advisory
-                        t.has_lyrics = True
-                        s2.add(t)
-                        s2.commit()
-            except Exception:
-                pass
-
-    threading.Thread(target=_run, daemon=True, name="tag-advisories").start()
-    return _toast_response("/library", f"Tagging advisories for {len(track_paths)} tracks.")
+    from .library.actions import tag_advisories_for_folder
+    tasks.run_task("tag_advisories", f"Tag advisories (folder {folder_id})",
+                   lambda ctx: tag_advisories_for_folder(folder_id, ctx=ctx))
+    return _toast_response("/library", "Advisory tagging started — track it on the Queue page.")
 
 
 @app.post("/library/fetch-covers")
@@ -1077,49 +1089,222 @@ def library_fetch_covers(
 
 @app.post("/library/extract-covers")
 def library_extract_covers(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
-    def _run():
-        from .library.actions import extract_embedded_covers
-        extract_embedded_covers(folder_id)
-    threading.Thread(target=_run, daemon=True, name="extract-covers").start()
-    return _toast_response("/library", "Extracting embedded cover art.")
+    from .library.actions import extract_embedded_covers
+    tasks.run_task("extract_covers", f"Extract embedded covers (folder {folder_id})",
+                   lambda ctx: extract_embedded_covers(folder_id, ctx=ctx))
+    return _toast_response("/library", "Cover extraction started — track it on the Queue page.")
 
 
 @app.post("/library/replaygain")
 def library_replaygain(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
-    def _run():
-        from .library.actions import recompute_replaygain
-        result = recompute_replaygain(folder_id)
-        log = logging.getLogger(__name__)
-        log.info("replaygain result: %s", result)
-    threading.Thread(target=_run, daemon=True, name="replaygain").start()
+    from .library.actions import recompute_replaygain
+    tasks.run_task("replaygain", f"Recompute ReplayGain (folder {folder_id})",
+                   lambda ctx: recompute_replaygain(folder_id, ctx=ctx))
     return _toast_response("/library", "ReplayGain recompute started (requires rsgain/loudgain).")
 
 
 @app.post("/library/verify-integrity")
 def library_verify_integrity(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
-    def _run():
-        from .library.actions import verify_integrity
-        verify_integrity(folder_id)
-    threading.Thread(target=_run, daemon=True, name="verify-integrity").start()
-    return _toast_response("/library", "Integrity check started — see logs.")
+    from .library.actions import verify_integrity
+    tasks.run_task("verify_integrity", f"Verify integrity (folder {folder_id})",
+                   lambda ctx: verify_integrity(folder_id, ctx=ctx))
+    return _toast_response("/library", "Integrity check started — track it on the Queue page.")
 
 
 @app.post("/library/fix-disc-folders")
 def library_fix_disc_folders(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
-    def _run():
-        from .library.actions import fix_disc_folders
-        fix_disc_folders(folder_id)
-    threading.Thread(target=_run, daemon=True, name="fix-disc-folders").start()
+    from .library.actions import fix_disc_folders
+    tasks.run_task("fix_disc_folders", f"Fix disc folders (folder {folder_id})",
+                   lambda ctx: fix_disc_folders(folder_id, ctx=ctx))
     return _toast_response("/library", "Disc-folder normalization started.")
 
 
 @app.post("/library/find-missing-tracks")
 def library_find_missing_tracks(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
-    def _run():
-        from .library.actions import find_missing_tracks
-        find_missing_tracks(folder_id)
-    threading.Thread(target=_run, daemon=True, name="find-missing").start()
-    return _toast_response("/library", "Scanning for missing tracks — see logs.")
+    from .library.actions import find_missing_tracks
+    tasks.run_task("find_missing_tracks", f"Find missing tracks (folder {folder_id})",
+                   lambda ctx: find_missing_tracks(folder_id, ctx=ctx))
+    return _toast_response("/library", "Missing-track scan started — results land on the Library page's Incomplete tab.")
+
+
+@app.post("/library/find-duplicates")
+def library_find_duplicates(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
+    from .library.actions import find_duplicates
+    tasks.run_task("find_duplicates", f"Find duplicates (folder {folder_id})",
+                   lambda ctx: find_duplicates(folder_id, ctx=ctx))
+    return _toast_response("/library", "Duplicate scan started (report only) — see the job log.")
+
+
+@app.post("/library/prune")
+def library_prune(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
+    from .library.actions import prune_library
+    tasks.run_task("prune", f"Prune junk & empty folders (folder {folder_id})",
+                   lambda ctx: prune_library(folder_id, ctx=ctx))
+    return _toast_response("/library", "Prune started — junk files and empty folders will be removed.")
+
+
+@app.post("/library/normalize-filenames")
+def library_normalize_filenames(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
+    from .library.actions import normalize_filenames
+    tasks.run_task("normalize_filenames", f"Normalize filenames (folder {folder_id})",
+                   lambda ctx: normalize_filenames(folder_id, ctx=ctx))
+    return _toast_response("/library", "Filename normalization started.")
+
+
+@app.post("/library/validate-tags")
+def library_validate_tags(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
+    from .library.actions import validate_tags
+    tasks.run_task("validate_tags", f"Validate tags (folder {folder_id})",
+                   lambda ctx: validate_tags(folder_id, ctx=ctx))
+    return _toast_response("/library", "Tag validation started (report only) — see the job log.")
+
+
+def _chain_steps_for(action_keys: list[str], folder_id: int) -> list[tuple[str, Any]]:
+    """Map LIBRARY_ACTIONS keys to (label, fn) steps bound to ``folder_id``."""
+    from .library.actions import build_chain_steps
+    return build_chain_steps(action_keys, folder_id)
+
+
+def _batch_guard() -> str | None:
+    """Refuse a new batch while another background task is running.
+
+    Batches move files around; two running at once on the same folder could
+    race. Ingest jobs are fine — the pipeline worker is independent.
+    """
+    with session() as s:
+        running = s.exec(select(Job).where(
+            Job.status == JobStatus.running, Job.kind != "ingest"
+        )).first()
+    if running:
+        return f"'{running.original_name}' is still running — wait for it to finish first."
+    return None
+
+
+@app.post("/library/run-selected")
+def library_run_selected(
+    request: Request,
+    _: None = Depends(require_auth),
+    folder_id: int = Form(...),
+    actions: list[str] = Form(default=[]),
+):
+    """Queue several individual library actions as one sequential chain job."""
+    from .library.actions import LIBRARY_ACTIONS
+    # Run in registry (canonical) order regardless of checkbox order.
+    keys = [k for k in LIBRARY_ACTIONS if k in actions]
+    if not keys:
+        return _toast_response("/library", "Select at least one action first.", "error")
+    if msg := _batch_guard():
+        return _toast_response("/library", msg, "error")
+    steps = _chain_steps_for(keys, folder_id)
+    tasks.run_chain("library_chain", f"{len(steps)} library action(s) (folder {folder_id})", steps)
+    return _toast_response("/library", f"Queued {len(steps)} action(s) — track them on the Queue page.")
+
+
+@app.post("/library/batch/organize")
+def library_batch_organize(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
+    """Organize batch: structural cleanup of an existing library folder."""
+    from .library.actions import BATCH_ORGANIZE
+    from .library.organizer import organize_folder
+    if msg := _batch_guard():
+        return _toast_response("/library", msg, "error")
+    steps: list[tuple[str, Any]] = [
+        ("Organize files", lambda ctx: organize_folder(folder_id, ctx=ctx)),
+    ] + _chain_steps_for(BATCH_ORGANIZE, folder_id)
+    tasks.run_chain("batch_organize", f"Organize library (folder {folder_id})", steps)
+    return _toast_response("/library", "Organize batch started — covers, disc folders, junk, duplicates and missing tracks.")
+
+
+@app.post("/library/batch/retag")
+def library_batch_retag(
+    request: Request,
+    _: None = Depends(require_auth),
+    folder_id: int = Form(...),
+    dry_run: str | None = Form(None),
+):
+    """Re-tag batch: tag QA + advisories + ReplayGain, then the full
+    identify → tag → move pipeline over the folder."""
+    from .library.actions import BATCH_RETAG
+    if msg := _batch_guard():
+        return _toast_response("/library", msg, "error")
+    with session() as s:
+        f = s.get(LibraryFolder, folder_id)
+        if not f:
+            raise HTTPException(404)
+        folder_path = Path(f.path)
+    use_dry_run = bool(dry_run)
+
+    def _enqueue(ctx) -> dict:
+        from .ingest.bulk import enqueue_folder
+        job_ids = enqueue_folder(folder_path, dry_run=use_dry_run)
+        ctx.log(f"Enqueued {len(job_ids)} file(s) for identify → tag → move")
+        return {"enqueued": True}
+
+    steps = _chain_steps_for(BATCH_RETAG, folder_id) + [("Re-tag pipeline", _enqueue)]
+    tasks.run_chain("batch_retag", f"Full library re-tag (folder {folder_id})", steps)
+    return _toast_response("/library", "Re-tag batch started — validation, advisories, ReplayGain, then the full pipeline.")
+
+
+@app.post("/library/batch/nuclear")
+def library_batch_nuclear(
+    request: Request,
+    _: None = Depends(require_auth),
+    folder_id: int = Form(...),
+    dry_run: str | None = Form(None),
+):
+    """Nuclear option: every batch step in one chain."""
+    from .library.actions import BATCH_ORGANIZE, BATCH_RETAG
+    from .library.organizer import organize_folder
+    if msg := _batch_guard():
+        return _toast_response("/library", msg, "error")
+    with session() as s:
+        f = s.get(LibraryFolder, folder_id)
+        if not f:
+            raise HTTPException(404)
+        folder_path = Path(f.path)
+    use_dry_run = bool(dry_run)
+
+    def _enqueue(ctx) -> dict:
+        from .ingest.bulk import enqueue_folder
+        job_ids = enqueue_folder(folder_path, dry_run=use_dry_run)
+        ctx.log(f"Enqueued {len(job_ids)} file(s) for identify → tag → move")
+        return {"enqueued": True}
+
+    steps = (
+        [("Organize files", lambda ctx: organize_folder(folder_id, ctx=ctx))]
+        + _chain_steps_for(BATCH_ORGANIZE, folder_id)
+        + _chain_steps_for(BATCH_RETAG, folder_id)
+        + [("Re-tag pipeline", _enqueue)]
+    )
+    tasks.run_chain("batch_nuclear", f"Nuclear option (folder {folder_id})", steps)
+    return _toast_response("/library", "Nuclear option started — everything, in order. Godspeed.")
+
+
+@app.get("/library/incomplete", response_class=HTMLResponse)
+def library_incomplete(request: Request, _: None = Depends(require_auth)):
+    """The Library page's Incomplete tab: albums with fewer local tracks than MB expects."""
+    from .models import IncompleteAlbum
+    with session() as s:
+        folders = s.exec(select(LibraryFolder).order_by(LibraryFolder.priority, LibraryFolder.id)).all()
+        rows = s.exec(select(IncompleteAlbum).order_by(IncompleteAlbum.artist, IncompleteAlbum.album)).all()
+    folder_labels = {f.id: (f.label or f.path) for f in folders}
+    return templates.TemplateResponse(request, "library_incomplete.html", {
+        "request": request,
+        "folders": folders,
+        "folder_labels": folder_labels,
+        "rows": rows,
+        "active_page": "library",
+    })
+
+
+@app.post("/library/incomplete/{row_id}/delete")
+def library_incomplete_delete(row_id: int, request: Request, _: None = Depends(require_auth)):
+    from .models import IncompleteAlbum
+    with session() as s:
+        row = s.get(IncompleteAlbum, row_id)
+        if row:
+            s.delete(row)
+            s.commit()
+    return _toast_response("/library/incomplete", "Dismissed.")
 
 
 @app.get("/api/mb-search", response_class=HTMLResponse)
@@ -1270,7 +1455,7 @@ def schedule_create(
     if not scheduler.is_valid_cron(cron):
         return _toast_response("/schedule", f"Invalid cron expression: {cron}", "error")
     params: dict = {}
-    if task_type in ("scan", "organize", "fetch_lyrics", "fetch_covers"):
+    if task_type in ("scan", "organize", "batch_organize", "batch_retag", "fetch_lyrics", "fetch_covers"):
         if not folder_id.strip().isdigit():
             return _toast_response("/schedule", "Pick a library folder for this task type.", "error")
         params["folder_id"] = int(folder_id)
@@ -1278,6 +1463,7 @@ def schedule_create(
         if not source_path.strip():
             return _toast_response("/schedule", "A source path is required for bulk re-tag.", "error")
         params["source_path"] = source_path.strip()
+    if task_type in ("bulk_retag", "batch_retag"):
         params["dry_run"] = bool(dry_run)
     with session() as s:
         t = ScheduledTask(

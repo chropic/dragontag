@@ -446,8 +446,14 @@ def assemble_tags(*, release_id: str, recording_id: str) -> TrackTags:
     src_tags = rec.get("tag-list") or rg.get("tag-list") or []
     if src_tags:
         sorted_tags = sorted(src_tags, key=lambda t: int(t.get("count", 0)), reverse=True)
+        candidates = [t["name"] for t in sorted_tags]
+        # Drop non-genre community tags ("billboard top 100", "seen live", …)
+        # before the limit is applied, so junk can't crowd out real genres.
+        if cfg.genre_whitelist_enabled:
+            from . import genres as _genres
+            candidates = _genres.filter_genres(candidates)
         limit = cfg.genre_limit if cfg.genre_limit > 0 else None
-        raw_genres = [t["name"] for t in (sorted_tags[:limit] if limit else sorted_tags)]
+        raw_genres = candidates[:limit] if limit else candidates
         casing = cfg.genre_casing
         if casing == "lower":
             tags.genres = [g.lower() for g in raw_genres]

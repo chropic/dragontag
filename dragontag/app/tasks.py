@@ -32,19 +32,23 @@ class TaskCtx:
         self._lines: list[str] = []
         self._current: int | None = None
         self._total: int | None = None
+        self._item: str | None = None
+        self._prefix: str = ""  # set by run_chain to tag the current step
         self._last_commit = 0.0
         self._lock = threading.Lock()
 
     def log(self, line: str) -> None:
         with self._lock:
-            self._lines.append(line.rstrip())
+            self._lines.append(self._prefix + line.rstrip())
         self._maybe_flush()
 
-    def progress(self, current: int, total: int | None = None) -> None:
+    def progress(self, current: int, total: int | None = None, item: str | None = None) -> None:
         with self._lock:
             self._current = current
             if total is not None:
                 self._total = total
+            if item is not None:
+                self._item = self._prefix + item
         self._maybe_flush()
 
     def _maybe_flush(self, force: bool = False) -> None:
@@ -54,7 +58,7 @@ class TaskCtx:
         self._last_commit = now
         with self._lock:
             lines, self._lines = self._lines, []
-            current, total = self._current, self._total
+            current, total, item = self._current, self._total, self._item
         with session() as s:
             job = s.get(Job, self.job_id)
             if not job:
@@ -63,6 +67,7 @@ class TaskCtx:
                 job.log = (job.log or "") + "\n".join(lines) + "\n"
             job.progress_current = current
             job.progress_total = total
+            job.progress_item = item
             job.updated_at = datetime.utcnow()
             s.add(job)
             s.commit()
@@ -106,3 +111,44 @@ def run_task(kind: str, name: str, fn: Callable[[TaskCtx], Any]) -> int:
 
     threading.Thread(target=_run, daemon=True, name=f"dragontag-task-{kind}").start()
     return job_id
+
+
+def run_chain(kind: str, name: str, steps: list[tuple[str, Callable[[TaskCtx], Any]]]) -> int:
+    """Run several task callables sequentially under a single Job row.
+
+    Each step gets the shared ``TaskCtx``; its log lines and progress item are
+    prefixed with ``[i/n] label``. A failing step is logged and the chain
+    continues — the Job only ends in ``error`` when *every* step failed, so a
+    batch run always does as much work as it can.
+    """
+    total_steps = len(steps)
+
+    def _chain(ctx: TaskCtx) -> dict:
+        results: dict[str, Any] = {}
+        failures: list[str] = []
+        for i, (label, fn) in enumerate(steps, start=1):
+            with ctx._lock:
+                ctx._prefix = f"[{i}/{total_steps}] {label}: "
+                ctx._current = None
+                ctx._total = None
+                ctx._item = f"[{i}/{total_steps}] {label}"
+            ctx.log("started")
+            # Push the reset progress state immediately so the bar can't show
+            # the previous step's counters during the throttle window.
+            ctx._maybe_flush(force=True)
+            try:
+                results[label] = fn(ctx)
+                ctx.log("finished")
+            except Exception as e:
+                log.exception("chain step %r failed", label)
+                failures.append(label)
+                ctx.log(f"FAILED: {e}")
+        with ctx._lock:
+            ctx._prefix = ""
+        if failures and len(failures) == total_steps:
+            raise RuntimeError(f"all steps failed: {', '.join(failures)}")
+        if failures:
+            ctx.log(f"Completed with failures: {', '.join(failures)}")
+        return results
+
+    return run_task(kind, name, _chain)

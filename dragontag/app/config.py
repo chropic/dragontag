@@ -87,6 +87,10 @@ class UserSettings(BaseModel):
     genre_limit: int = 3
     # genre_casing: "title" (Title Case), "lower" (lowercase), "as-is" (raw MB tags)
     genre_casing: str = "title"
+    # genre_whitelist_enabled: filter MB community tags against the vendored
+    # canonical genre list (identify/genres.py) so junk like "billboard top
+    # 100" never lands in GENRE. Off = raw MB tags as before.
+    genre_whitelist_enabled: bool = True
     # skip_fields: list of TrackTags attribute names to omit when writing tags
     skip_fields: list[str] = Field(default_factory=list)
 
@@ -160,6 +164,15 @@ class UserSettings(BaseModel):
     # Populated automatically when a change is "moved back" to its original
     # directory so the file isn't immediately re-ingested.
     scan_exempt_paths: list[str] = Field(default_factory=list)
+
+    # ----- scan filters -----
+    # Regex patterns matched against filenames (not full paths). Files whose
+    # names match any pattern are excluded from all scan/ingest operations.
+    # Example: ["\.ini$", "Thumbs\.db$", "\.DS_Store$"]
+    scan_filter_patterns: list[str] = Field(default_factory=list)
+    # Directories to exclude from all scan/ingest operations. Stored as
+    # absolute paths (without the leading "!" the UI prepends for readability).
+    scan_exclude_dirs: list[str] = Field(default_factory=list)
 
     # ----- logging -----
     # 0=silent, 1=errors, 2=warnings, 3=info, 4=debug. Applied at runtime by

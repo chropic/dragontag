@@ -2,6 +2,31 @@
 
 # Changelog
 
+## Unreleased — queue merge, batch operations & UX sweep (2026-06-10)
+**Branch:** `claude/youthful-clarke-f181sj`
+
+### Added
+- **Queue page** (`/queue`) — Review and Jobs merged into one page: the needs-review section (candidate picker, manual MB search, conflict resolver, bulk apply) on top, the full job list (stats, bulk controls, pagination) below. Old `GET /review` / `GET /jobs` 308-redirect to it; `/jobs/{id}` detail and all POST routes keep their paths. Nav shows a single **Queue** item immediately left of Log out.
+- **Batch operations** — three one-click chains per library folder: **Organize** (organize files → fix disc folders → normalize filenames → extract covers → prune junk → find duplicates → find missing tracks), **Full re-tag** (validate tags → advisories → ReplayGain → full identify→tag→move pipeline, with per-run dry-run), and the **Nuclear option** (both). Also schedulable (`batch_organize` / `batch_retag` task types).
+- **`tasks.run_chain`** — runs several actions sequentially under one Job with `[i/n] step` prefixes on every log line and progress label; a failing step is logged and the chain continues (Job errors only when every step fails).
+- **Four new individual library actions** — *Normalize filenames* (extension casing, trailing dots/spaces), *Find duplicates* (MB recording ID + artist/title/duration match, report-only), *Prune junk & empty folders* (Thumbs.db/.DS_Store/*.tmp + empty dirs; audio never touched), *Validate tags* (missing core fields, mojibake, impossible track/disc numbers, report-only).
+- **Multi-select action queueing** — checkboxes on the individual library actions + **Queue selected** run any combination as a single sequential chain (`POST /library/run-selected`); a registry (`LIBRARY_ACTIONS`) drives buttons, chains and batches.
+- **Incomplete albums tab** — `find_missing_tracks` now persists results to the new `IncompleteAlbum` table (delete-then-insert per folder, including the missing track titles); rendered at `/library/incomplete` with MB links, per-row dismiss and re-check buttons.
+- **Real progress reporting** — extract-covers, ReplayGain (now per album folder), verify-integrity, fix-disc-folders, find-missing-tracks and tag-advisories converted from anonymous daemon threads to `tasks.run_task`; `TaskCtx.progress()` gained an `item` label persisted to `Job.progress_item`. `GET /api/progress` returns `current/total/item`, and the progress bar shows the percentage, counts and current file instead of an endless pulse.
+- **Genre junk filter** — MusicBrainz community tags are filtered against a vendored canonical genre list (~1500 entries, `identify/data/genres.txt`, from beets' lastgenre, MIT) before the genre limit applies, with hyphen/space-insensitive matching and a junk-blacklist fallback when nothing whitelists. New `genre_whitelist_enabled` setting (default on). Kills tags like "billboard top 100".
+- **Cron descriptions** — the Schedule form live-translates cron expressions to plain English ("At 06:00, only on Tuesday") via the new `cron-descriptor` dependency and `GET /api/cron-describe`; every schedule row shows its description too.
+- **Settings UX** — the Save button is now sticky at the top right of the form, glows red (with an "unsaved changes" hint) while the form is dirty, and a `beforeunload` warning prevents losing edits; the old bottom button is gone. The filename-template preview now also renders a multi-disc example (`Disc 2/07. Song Title.flac`), and every Skip-fields checkbox has an explanatory tooltip.
+- **Renamed** "Clear needs_review" → **"Clear Review Queue"**; new block-shadow dashboard ASCII banner.
+
+- **Scan filters** — two user-configurable lists in Settings → Scan filters: regex patterns matched against filenames (e.g. `\.ini$`, `Thumbs\.db$`) and excluded directory paths (absolute, SLSKD-style `!` prefix accepted). Both are applied by the drop-folder watcher, library scanner, and bulk re-tag. 9 unit tests in `test_scan_filters.py`.
+
+### Files changed
+Modified: `dragontag/app/{config,db,main,models,scheduler,tasks}.py`, `dragontag/app/identify/musicbrainz.py`, `dragontag/app/library/{actions,organizer}.py`, `dragontag/app/ingest/{bulk,watcher}.py`, `dragontag/app/library/scanner.py`, `dragontag/app/web/templates/{base,dashboard,docs,library,schedule,settings,_jobs_table}.html`, `pyproject.toml` (+`cron-descriptor`, package-data), `README.md`.
+New: `dragontag/app/identify/{genres.py,data/genres.txt}`, `dragontag/app/library/filters.py`, `dragontag/app/web/templates/{queue,library_incomplete}.html`, `tests/test_{routes_queue,tasks_chain,genre_filter,library_actions_new,incomplete_album,cron_describe,scan_filters}.py`, `PLAN.md`.
+Removed: `templates/{jobs,review}.html` (absorbed into `queue.html`).
+
+---
+
 ## Unreleased — scheduling, backup/restore, progress & job-tracking sweep (2026-06-09)
 **Branch:** `claude/exciting-pasteur-g0gphi`
 

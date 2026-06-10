@@ -117,6 +117,9 @@ class Job(SQLModel, table=True):
     # Coarse progress for long-running tasks (None = indeterminate).
     progress_current: int | None = None
     progress_total: int | None = None
+    # Short label of the item currently being processed ("Disc 1/03. Song.flac")
+    # so the progress bar can show *what* is happening, not just how much.
+    progress_item: str | None = None
 
     # Per-job dry-run override from the Library page checkboxes. None means
     # "follow the global settings().dry_run"; True/False is an explicit choice
@@ -147,6 +150,25 @@ class Job(SQLModel, table=True):
 
     # FK to the Track row created/updated when this job completed.
     track_id: int | None = Field(default=None, foreign_key="track.id")
+
+
+class IncompleteAlbum(SQLModel, table=True):
+    """An album whose local track count is below the MusicBrainz track count.
+
+    Written (delete-then-insert per folder) by ``library.actions
+    .find_missing_tracks`` and rendered on the Library page's "Incomplete" tab.
+    Rows are advisory only — dismissing one never touches files.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    library_folder_id: int | None = Field(default=None, foreign_key="libraryfolder.id", index=True)
+    mb_album_id: str = Field(index=True)
+    album: str = ""
+    artist: str = ""
+    local_count: int = 0
+    expected_count: int = 0
+    missing_titles_json: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    checked_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class ScheduledTask(SQLModel, table=True):

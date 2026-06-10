@@ -32,7 +32,9 @@ _POLL_SECONDS = 30.0
 TASK_TYPES = {
     "scan": "Scan library folder",
     "organize": "Organize library folder",
+    "batch_organize": "Organize batch (organize + cleanup actions)",
     "bulk_retag": "Full re-tag of a folder",
+    "batch_retag": "Re-tag batch (QA + advisories + ReplayGain + pipeline)",
     "fetch_lyrics": "Fetch lyrics for folder",
     "fetch_covers": "Fetch cover art for folder",
     "backup": "Create config backup",
@@ -41,6 +43,18 @@ TASK_TYPES = {
 
 def is_valid_cron(expr: str) -> bool:
     return croniter.is_valid(expr)
+
+
+def describe_cron(expr: str) -> str | None:
+    """Human-readable description of a cron expression ("At 06:00 AM, only on
+    Tuesday"), or None when the expression is invalid."""
+    if not is_valid_cron(expr):
+        return None
+    try:
+        from cron_descriptor import get_description
+        return get_description(expr)
+    except Exception:
+        return None
 
 
 def next_run(expr: str, base: datetime | None = None) -> datetime | None:
@@ -75,7 +89,35 @@ def run_task_by_type(task: ScheduledTask) -> int | None:
             raise ValueError("library folder not found")
         from .library.organizer import organize_folder
         fid = f.id
-        return tasks.run_task("organize", name, lambda ctx: organize_folder(fid))
+        return tasks.run_task("organize", name, lambda ctx: organize_folder(fid, ctx=ctx))
+
+    if kind == "batch_organize":
+        f = _folder(int(params.get("folder_id", 0)))
+        if not f:
+            raise ValueError("library folder not found")
+        from .library.actions import BATCH_ORGANIZE, build_chain_steps
+        from .library.organizer import organize_folder
+        fid = f.id
+        steps = [("Organize files", lambda ctx: organize_folder(fid, ctx=ctx))]
+        steps += build_chain_steps(BATCH_ORGANIZE, fid)
+        return tasks.run_chain("batch_organize", name, steps)
+
+    if kind == "batch_retag":
+        f = _folder(int(params.get("folder_id", 0)))
+        if not f:
+            raise ValueError("library folder not found")
+        from .ingest.bulk import enqueue_folder
+        from .library.actions import BATCH_RETAG, build_chain_steps
+        fid, fpath = f.id, Path(f.path)
+        dry = params.get("dry_run")
+
+        def _enqueue(ctx):
+            ids = enqueue_folder(fpath, dry_run=bool(dry))
+            ctx.log(f"Enqueued {len(ids)} file(s) for identify → tag → move")
+            return {"enqueued": len(ids)}
+
+        steps = build_chain_steps(BATCH_RETAG, fid) + [("Re-tag pipeline", _enqueue)]
+        return tasks.run_chain("batch_retag", name, steps)
 
     if kind == "bulk_retag":
         src = str(params.get("source_path") or "").strip()

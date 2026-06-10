@@ -18,6 +18,7 @@ from ..db import session
 from ..identify.existing_tags import read as read_existing
 from ..ingest.pipeline import SUPPORTED_EXTS
 from ..models import Track
+from .filters import is_path_excluded
 
 log = logging.getLogger(__name__)
 
@@ -30,11 +31,15 @@ def scan_folder(folder_path: Path, folder_id: int, ctx=None) -> int:
     ``ctx`` is an optional ``tasks.TaskCtx`` for job-tracked progress/log
     reporting. Returns the count of files processed.
     """
-    exempt = set(settings().scan_exempt_paths)
+    cfg = settings()
+    exempt = set(cfg.scan_exempt_paths)
     files = [
         p
         for p in sorted(folder_path.rglob("*"))
-        if p.is_file() and p.suffix.lower() in SUPPORTED_EXTS and str(p) not in exempt
+        if p.is_file()
+        and p.suffix.lower() in SUPPORTED_EXTS
+        and str(p) not in exempt
+        and not is_path_excluded(p, cfg.scan_filter_patterns, cfg.scan_exclude_dirs)
     ]
     if ctx:
         ctx.log(f"Scanning {folder_path} — {len(files)} file(s)")

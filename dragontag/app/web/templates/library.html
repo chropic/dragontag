@@ -22,6 +22,11 @@
     {{ f.label or f.path }}
   </a>
   {% endfor %}
+  <a href="/library/incomplete"
+     class="px-3 py-1 text-sm border bg-[#0c0c0c] border-[#f2e5b5] text-[#f2e5b5] hover:text-white hover:border-white"
+     title="Albums whose local track count is below what MusicBrainz expects. Populated by 'Find missing tracks'.">
+    Incomplete
+  </a>
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
@@ -54,89 +59,81 @@
     </form>
   </div>
 
-  {# Organize card #}
-  <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-2">
+  {# Organize batch card #}
+  <div class="bg-[#0c0c0c] p-4 border border-[#f2e5b5]/60 space-y-2">
     <h3 class="font-mono font-semibold text-sm">Organize library</h3>
-    <p class="text-xs text-[#8a8a8a]">Move files to match the current filename &amp; folder templates. Run a scan first.</p>
-    <p class="text-xs text-[#ffb4b4]">⚠ After moves complete, any leftover directories that contain no files at all will be removed.</p>
-    <form method="post" action="/library/organize"
-          onsubmit="return confirm('Organize library? Files will be moved to match the current templates. Empty leftover directories will be deleted (files are never deleted).');">
+    <p class="text-xs text-[#8a8a8a]">Structural cleanup batch: move files to match templates, fix disc folders, normalize filenames, extract embedded covers, prune junk &amp; empty folders, find duplicates and missing tracks.</p>
+    <p class="text-xs text-[#ffb4b4]">⚠ Files are moved/renamed; junk files and empty directories are deleted. Audio is never deleted.</p>
+    <form method="post" action="/library/batch/organize"
+          onsubmit="return confirm('Run the Organize batch? Files will be moved/renamed to match templates and junk + empty folders will be deleted (audio files are never deleted).');">
       <input type="hidden" name="folder_id" value="{{ active_id }}">
       <button class="mt-1 px-3 py-1 bg-[#f2e5b5] text-black hover:bg-[#f2e5b5]/80 text-sm">Organize</button>
     </form>
   </div>
 
-  {# Full library re-tag card #}
+  {# Re-tag batch card #}
   <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-2">
     <h3 class="font-mono font-semibold text-sm">Full library re-tag</h3>
-    <p class="text-xs text-[#8a8a8a]">Queue every audio file in a folder through the full identify → tag → move pipeline.</p>
-    <form method="post" action="/library/bulk-retag" class="space-y-1">
-      <input type="text" name="source_path" placeholder="/path/to/folder"
-             class="w-full p-1 bg-black border border-[#4a4a4a] text-xs font-mono">
+    <p class="text-xs text-[#8a8a8a]">Tag pipeline batch: validate tags, re-tag advisories, recompute ReplayGain, then queue every file through the full identify → tag → move pipeline.</p>
+    <form method="post" action="/library/batch/retag" class="space-y-1"
+          onsubmit="return confirm('Run the full re-tag batch on this library folder? Every file goes through identify → tag → move.');">
+      <input type="hidden" name="folder_id" value="{{ active_id }}">
       <div class="flex items-center gap-2 text-xs">
         <label class="flex items-center gap-1" title="Applies to this run only — the global dry-run setting is unchanged.">
           <input type="checkbox" name="dry_run"> Dry run (this run only)
         </label>
         {% if settings.dry_run %}<span class="text-[#f2e5b5]">global default: on</span>{% endif %}
       </div>
-      <button class="px-3 py-1 bg-white text-black hover:bg-[#cfcfcf] text-sm">Enqueue all</button>
+      <button class="px-3 py-1 bg-white text-black hover:bg-[#cfcfcf] text-sm">Re-tag</button>
     </form>
   </div>
 
-  {# Individual library actions #}
+  {# Nuclear card #}
+  <div class="bg-[#0c0c0c] p-4 border border-[#ffb4b4]/70 space-y-2">
+    <h3 class="font-mono font-semibold text-sm text-[#ffb4b4]">Nuclear option</h3>
+    <p class="text-xs text-[#8a8a8a]">Everything, in order: the whole Organize batch, then the whole Re-tag batch. One job, one progress bar, a long wait.</p>
+    <form method="post" action="/library/batch/nuclear" class="space-y-1"
+          onsubmit="return confirm('NUCLEAR OPTION: organize, fix, prune, validate, advisories, ReplayGain, then a full identify → tag → move re-tag of every file in this folder.\n\nThis is the most invasive thing dragontag can do. Continue?');">
+      <input type="hidden" name="folder_id" value="{{ active_id }}">
+      <div class="flex items-center gap-2 text-xs">
+        <label class="flex items-center gap-1" title="Applies to the re-tag pipeline portion of this run only.">
+          <input type="checkbox" name="dry_run"> Dry run (this run only)
+        </label>
+        {% if settings.dry_run %}<span class="text-[#f2e5b5]">global default: on</span>{% endif %}
+      </div>
+      <button class="px-3 py-1 bg-[#ffb4b4] text-black hover:bg-[#ffb4b4]/80 text-sm font-semibold">Launch</button>
+    </form>
+  </div>
+
+  {# Individual library actions — run one now, or tick several and queue them
+     as a single sequential chain. #}
   <div class="lg:col-span-3 bg-[#0c0c0c] p-4 border border-[#4a4a4a]">
-    <h3 class="font-mono font-semibold text-sm mb-3">Individual library actions</h3>
-    <div class="flex flex-wrap gap-2 items-center">
-
-      <form method="post" action="/library/fetch-lyrics" class="inline">
-        <input type="hidden" name="folder_id" value="{{ active_id }}">
-        <button class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white"
-                title="Fetch synced or plain-text lyrics from LRCLIB and embed them into each file. Does not run the full identify pipeline.">Fetch lyrics only</button>
-      </form>
-
-      <form method="post" action="/library/tag-advisories" class="inline">
-        <input type="hidden" name="folder_id" value="{{ active_id }}">
-        <button class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white"
-                title="Re-run the explicit-content classifier on already-embedded lyrics and update the advisory flag (0=clean, 1=explicit). Does not fetch new lyrics or re-identify tracks.">Tag advisories only</button>
-      </form>
-
-      <form method="post" action="/library/fetch-covers" class="inline">
-        <input type="hidden" name="folder_id" value="{{ active_id }}">
-        <button class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white"
-                title="Fetch missing cover art from the Cover Art Archive for any track with a MusicBrainz album ID and write it to the file plus the album folder.">Fetch cover art only</button>
-      </form>
-
-      <form method="post" action="/library/extract-covers" class="inline">
-        <input type="hidden" name="folder_id" value="{{ active_id }}">
-        <button class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white"
-                title="Extract embedded cover art from each track and write it as cover.jpg in the album folder (only if no cover.jpg is already there).">Extract embedded covers</button>
-      </form>
-
-      <form method="post" action="/library/replaygain" class="inline">
-        <input type="hidden" name="folder_id" value="{{ active_id }}">
-        <button class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white"
-                title="Compute ReplayGain album + track tags using rsgain or loudgain if installed. Skips gracefully when no tool is on PATH.">Recompute ReplayGain</button>
-      </form>
-
-      <form method="post" action="/library/verify-integrity" class="inline">
-        <input type="hidden" name="folder_id" value="{{ active_id }}">
-        <button class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white"
-                title="Read every audio file end-to-end via mutagen. Any file that fails to decode is logged so you can investigate corruption.">Verify file integrity</button>
-      </form>
-
-      <form method="post" action="/library/fix-disc-folders" class="inline">
-        <input type="hidden" name="folder_id" value="{{ active_id }}">
-        <button class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white"
-                title="Walk each album folder and normalize disc-N subfolders to match the configured multi-disc folder template (or flatten single-disc trees).">Fix disc folders</button>
-      </form>
-
-      <form method="post" action="/library/find-missing-tracks" class="inline">
-        <input type="hidden" name="folder_id" value="{{ active_id }}">
-        <button class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white"
-                title="For each album with a MusicBrainz release ID, compare the local track count to the MB release total and report albums that are missing tracks.">Find missing tracks</button>
-      </form>
-
+    <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+      <h3 class="font-mono font-semibold text-sm">Individual library actions</h3>
+      <button type="submit" form="actions-chain-form"
+              class="px-3 py-1 bg-[#c7f0c7] text-black hover:bg-[#c7f0c7]/80 text-sm"
+              title="Run all checked actions one after another as a single job.">Queue selected</button>
     </div>
+    <form id="actions-chain-form" method="post" action="/library/run-selected">
+      <input type="hidden" name="folder_id" value="{{ active_id }}">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        {% for key, label, desc in library_actions %}
+        <div class="flex items-center gap-2 border border-[#4a4a4a] px-2 py-1.5 hover:border-[#8a8a8a]" title="{{ desc }}">
+          <input type="checkbox" name="actions" value="{{ key }}" form="actions-chain-form">
+          <span class="text-sm flex-1">{{ label }}</span>
+          <button type="submit" form="action-run-{{ key }}"
+                  class="text-xs px-2 py-0.5 border border-[#4a4a4a] text-[#8a8a8a] hover:text-white hover:border-white"
+                  title="Run just this action now.">run</button>
+        </div>
+        {% endfor %}
+      </div>
+    </form>
+    {# Per-action single-run carrier forms (buttons reference them via form=). #}
+    {% for key, label, desc in library_actions %}
+    <form id="action-run-{{ key }}" method="post" action="/library/{{ key | replace('_', '-') }}" class="hidden">
+      <input type="hidden" name="folder_id" value="{{ active_id }}">
+    </form>
+    {% endfor %}
   </div>
 
 </div>

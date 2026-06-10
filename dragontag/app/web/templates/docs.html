@@ -77,6 +77,12 @@ Drop file  →  Read existing tags + filename clues
     <li><strong>Skip fields</strong> — checkbox grid: any checked field is omitted at write time across every format.</li>
     <li><strong>Webhooks</strong> — Discord-compatible URL with on-done / on-error toggles and a Test button.</li>
     <li><strong>Maintenance</strong> — how many Changes-page entries to keep (<code>0</code> = unlimited) and a 0–4 <strong>log verbosity</strong> slider (silent / errors / warnings / info / debug) applied immediately on save.</li>
+    <li><strong>Scan filters</strong> — two lists that exclude files/directories from all scan, ingest, and bulk-retag operations:
+      <ul class="list-disc list-inside ml-6 mt-1 space-y-1">
+        <li><strong>File filter patterns</strong> — one regex per line, matched against filenames. E.g. <code>\.ini$</code> skips all <code>.ini</code> files; <code>Thumbs\.db$</code> skips <code>Thumbs.db</code>.</li>
+        <li><strong>Excluded directories</strong> — one absolute path per line. Files inside these directories are never scanned or ingested. You may prefix paths with <code>!</code> (SLSKD style) — the <code>!</code> is stripped on save.</li>
+      </ul>
+    </li>
     <li><strong>Scan exemptions</strong> — files returned to their original directory via "Move back" are listed here and skipped by the watcher, scans and bulk re-tags until cleared.</li>
     <li><strong>Backup &amp; restore</strong> — see §10.</li>
   </ul>

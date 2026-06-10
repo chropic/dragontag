@@ -18,9 +18,11 @@
 - **Settings UX** — the Save button is now sticky at the top right of the form, glows red (with an "unsaved changes" hint) while the form is dirty, and a `beforeunload` warning prevents losing edits; the old bottom button is gone. The filename-template preview now also renders a multi-disc example (`Disc 2/07. Song Title.flac`), and every Skip-fields checkbox has an explanatory tooltip.
 - **Renamed** "Clear needs_review" → **"Clear Review Queue"**; new block-shadow dashboard ASCII banner.
 
+- **Scan filters** — two user-configurable lists in Settings → Scan filters: regex patterns matched against filenames (e.g. `\.ini$`, `Thumbs\.db$`) and excluded directory paths (absolute, SLSKD-style `!` prefix accepted). Both are applied by the drop-folder watcher, library scanner, and bulk re-tag. 9 unit tests in `test_scan_filters.py`.
+
 ### Files changed
-Modified: `dragontag/app/{config,db,main,models,scheduler,tasks}.py`, `dragontag/app/identify/musicbrainz.py`, `dragontag/app/library/{actions,organizer}.py`, `dragontag/app/web/templates/{base,dashboard,docs,library,schedule,settings,_jobs_table}.html`, `pyproject.toml` (+`cron-descriptor`, package-data), `README.md`.
-New: `dragontag/app/identify/{genres.py,data/genres.txt}`, `dragontag/app/web/templates/{queue,library_incomplete}.html`, `tests/test_{routes_queue,tasks_chain,genre_filter,library_actions_new,incomplete_album,cron_describe}.py`, `PLAN.md`.
+Modified: `dragontag/app/{config,db,main,models,scheduler,tasks}.py`, `dragontag/app/identify/musicbrainz.py`, `dragontag/app/library/{actions,organizer}.py`, `dragontag/app/ingest/{bulk,watcher}.py`, `dragontag/app/library/scanner.py`, `dragontag/app/web/templates/{base,dashboard,docs,library,schedule,settings,_jobs_table}.html`, `pyproject.toml` (+`cron-descriptor`, package-data), `README.md`.
+New: `dragontag/app/identify/{genres.py,data/genres.txt}`, `dragontag/app/library/filters.py`, `dragontag/app/web/templates/{queue,library_incomplete}.html`, `tests/test_{routes_queue,tasks_chain,genre_filter,library_actions_new,incomplete_album,cron_describe,scan_filters}.py`, `PLAN.md`.
 Removed: `templates/{jobs,review}.html` (absorbed into `queue.html`).
 
 ---

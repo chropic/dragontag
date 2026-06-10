@@ -43,6 +43,7 @@ High-confidence matches flow through completely hands-free. Everything else land
 | **Library actions** | Twelve individual actions (fetch lyrics/covers, extract covers, ReplayGain, verify integrity, validate tags, fix disc folders, normalize filenames, find duplicates, prune junk, find missing tracks, tag advisories) — run one, or multi-select several to queue as one sequential job |
 | **Incomplete albums tab** | "Find missing tracks" persists results: albums with fewer local tracks than the MusicBrainz total are listed with the missing titles, MB links and per-row dismiss |
 | **Genre junk filter** | MusicBrainz community tags are matched against a vendored canonical genre list (~1500 entries), killing junk like "billboard top 100"; non-junk tags survive as a fallback when nothing matches. Toggleable in Settings |
+| **Scan filters** | Configurable regex patterns to exclude files by filename (e.g. `\.ini$`, `Thumbs\.db$`) and directory exclusion lists (absolute paths, SLSKD-style `!` prefix supported) — applied to the watcher, library scanner, and bulk re-tag |
 | **Log verbosity** | 0–4 slider in Settings (silent / errors / warnings / info / debug), applied at runtime |
 | **Smart formatting** | Title Case, qualifier parenthesization ("Song Live" → "Song (Live)"), grammar correction (ALL-CAPS + contractions + possessives) |
 | **Library table** | Column sorting + standard pagination (10 / 25 / 50 / 100 / 200); explicit advisory badge on each track row |
@@ -125,6 +126,7 @@ Everything below is editable live from the **Settings** page and written atomica
 - Release-group cover fallback on/off (default **off**) — when on, a release with no Cover Art Archive image of its own borrows the release-group cover (shared across editions); left off to prevent the same art landing on different releases
 - Discord webhook URL, `on_done` and `on_error` toggles
 - Dry-run mode toggle (global default; Library actions also have per-run checkboxes)
+- Scan filter patterns (regex, matched against filename) and excluded directories (absolute paths, SLSKD-style `!` prefix accepted) — both applied to the watcher, scanner and bulk re-tag
 - Recent-changes retention cap (`0` = unlimited) and scan-exemption management
 - Log verbosity 0–4 (silent / errors / warnings / info / debug)
 - Backup download and validated restore
@@ -268,6 +270,7 @@ dragontag/app/
     ├── scanner.py         Index existing files into Track table
     ├── organizer.py       Reorganize library by current filename template
     ├── actions.py         Individual library actions (lyrics, covers, replaygain, …)
+    ├── filters.py         Scan filter helper (regex filename patterns + dir exclusions)
     └── revert.py          Undo a recorded FileChange / move a file back
 ```
 

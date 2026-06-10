@@ -56,6 +56,7 @@ dragontag/app/
     scanner.py             Index existing files into Track table (batches 50)
     organizer.py           Reorganize files; also prunes empty leftover dirs
     actions.py             Individual library actions (covers, replaygain, integrity, disc, missing)
+    filters.py             is_path_excluded(p, patterns, dirs) — applied by scanner, bulk, watcher
     revert.py              Undo a recorded FileChange (restore tags in place)
   web/
     templates/             Jinja2 (extends base.html)
@@ -97,6 +98,7 @@ FastAPI's built-in docs stay disabled on the app object (the user manual owns `G
 - **A new pipeline step** → `ingest/pipeline._process_inner`. Keep the function flat — the review-branch routing is at the bottom.
 - **A new identifier source** → `identify/` with the same shape as `musicbrainz` / `acoustid`; wire in `pipeline`.
 - **A new user-editable setting** → `config.UserSettings` field, `settings.html` form input (use the `tip()` macro), and the `/settings` POST handler in `main.py`.
+- **Scan filters** — `UserSettings.scan_filter_patterns` (regex list, matched against filenames) and `scan_exclude_dirs` (absolute paths, `!` prefix stripped on save) are applied by `library/filters.py::is_path_excluded()` in scanner, bulk, and watcher. Settings → Scan filters card has two textareas.
 - **A new long-running/background operation** → run it via `tasks.run_task(kind, name, fn)` so it shows on the Queue page and feeds the progress bar; accept an optional `ctx` (`TaskCtx`) in the underlying function for `.log()`/`.progress(current, total, item=...)`. Multi-step work → `tasks.run_chain(kind, name, [(label, fn), ...])` (one Job, `[i/n]`-prefixed logs, continues past failed steps).
 - **A new individual library action** → implement `(folder_id, ctx=None) -> dict` in `library/actions.py`, register it in `LIBRARY_ACTIONS` (key → (label, description, fn); key maps to route `/library/<key-with-dashes>`), and add it to `BATCH_ORGANIZE` or `BATCH_RETAG` if it belongs in a batch. The Library page buttons, multi-select chains, batches and scheduler all read the registry.
 - **UI note** → Review + Jobs are one page at `/queue` (template `queue.html`); old `/review` and bare `/jobs` 308-redirect there. Genres from MB are filtered through `identify/genres.py` (vendored whitelist + junk fallback, toggle `genre_whitelist_enabled`). `IncompleteAlbum` rows (written by find_missing_tracks) feed `/library/incomplete`.

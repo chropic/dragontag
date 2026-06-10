@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}dragontag | Incomplete albums{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h2 class="text-xl font-mono font-semibold">Incomplete albums</h2>
+  <a href="/library" class="text-sm text-[#cfcfcf] hover:text-white">&larr; Back to library</a>
+</div>
+
+<p class="text-xs text-[#8a8a8a] mb-4">
+  Albums whose local track count is below the MusicBrainz release total.
+  Populated by the <span class="text-[#cfcfcf]">Find missing tracks</span> action
+  (also part of the Organize batch). Dismissing a row only hides it until the next check.
+</p>
+
+<div class="flex gap-2 mb-4 flex-wrap">
+  {% for f in folders %}
+  <form method="post" action="/library/find-missing-tracks" class="inline">
+    <input type="hidden" name="folder_id" value="{{ f.id }}">
+    <button class="px-3 py-1 border border-[#4a4a4a] text-sm text-[#cfcfcf] hover:text-white hover:border-white">
+      Re-check {{ f.label or f.path }}
+    </button>
+  </form>
+  {% endfor %}
+</div>
+
+<div class="bg-[#0c0c0c] border border-[#4a4a4a] p-4">
+  <table class="w-full text-sm">
+    <thead class="text-[#8a8a8a] border-b border-[#4a4a4a]">
+      <tr>
+        <th class="text-left py-2 pr-3">Album</th>
+        <th class="text-left pr-3">Artist</th>
+        <th class="text-left pr-3">Folder</th>
+        <th class="text-left pr-3">Tracks</th>
+        <th class="text-left pr-3">Checked</th>
+        <th class="text-left"></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for r in rows %}
+      <tr class="border-b border-[#4a4a4a] hover:bg-[#131313] align-top">
+        <td class="py-2 pr-3">
+          <div>{{ r.album }}</div>
+          {% if r.missing_titles_json %}
+          <details class="mt-1">
+            <summary class="text-xs text-[#8a8a8a] cursor-pointer hover:text-white">
+              {{ r.missing_titles_json|length }} missing track(s)
+            </summary>
+            <ul class="text-xs text-[#8a8a8a] mt-1 pl-4 list-disc">
+              {% for t in r.missing_titles_json %}<li>{{ t }}</li>{% endfor %}
+            </ul>
+          </details>
+          {% endif %}
+        </td>
+        <td class="py-2 pr-3 text-[#cfcfcf]">{{ r.artist }}</td>
+        <td class="py-2 pr-3 text-[#8a8a8a] text-xs">{{ folder_labels.get(r.library_folder_id, "—") }}</td>
+        <td class="py-2 pr-3 font-mono">
+          <span class="text-[#ffb4b4]">{{ r.local_count }}</span><span class="text-[#8a8a8a]">/{{ r.expected_count }}</span>
+        </td>
+        <td class="py-2 pr-3 text-[#8a8a8a] text-xs">{{ format_local(r.checked_at) }}</td>
+        <td class="py-2 text-right">
+          <a href="https://musicbrainz.org/release/{{ r.mb_album_id }}" target="_blank"
+             class="text-xs text-[#cfcfcf] hover:underline mr-2">MB</a>
+          <form method="post" action="/library/incomplete/{{ r.id }}/delete" class="inline">
+            <button class="text-xs text-[#8a8a8a] hover:text-[#ffb4b4]">dismiss</button>
+          </form>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td class="py-4 text-[#8a8a8a]" colspan="6">
+        Nothing here. Run <span class="text-[#cfcfcf]">Find missing tracks</span> from the Library page to populate this list.
+      </td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

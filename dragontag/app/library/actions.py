@@ -756,19 +756,55 @@ def validate_tags(folder_id: int, ctx=None) -> dict:
 # and the batch operations. Order here is the canonical execution order.
 # ---------------------------------------------------------------------------
 
-LIBRARY_ACTIONS: dict[str, tuple[str, Any]] = {
-    "fix_disc_folders":  ("Fix disc folders", fix_disc_folders),
-    "normalize_filenames": ("Normalize filenames", normalize_filenames),
-    "extract_covers":    ("Extract embedded covers", extract_embedded_covers),
-    "fetch_covers":      ("Fetch covers", fetch_covers_for_folder),
-    "fetch_lyrics":      ("Fetch lyrics", fetch_lyrics_for_folder),
-    "tag_advisories":    ("Tag advisories", tag_advisories_for_folder),
-    "replaygain":        ("Recompute ReplayGain", recompute_replaygain),
-    "verify_integrity":  ("Verify integrity", verify_integrity),
-    "validate_tags":     ("Validate tags", validate_tags),
-    "find_duplicates":   ("Find duplicates", find_duplicates),
-    "prune":             ("Prune junk & empty folders", prune_library),
-    "find_missing_tracks": ("Find missing tracks", find_missing_tracks),
+LIBRARY_ACTIONS: dict[str, tuple[str, str, Any]] = {
+    "fix_disc_folders": (
+        "Fix disc folders",
+        "Normalize disc-N subfolders to the configured multi-disc folder template (or flatten single-disc trees).",
+        fix_disc_folders),
+    "normalize_filenames": (
+        "Normalize filenames",
+        "Lowercase extensions (.FLAC → .flac), strip trailing dots/spaces and collapse double spaces. No re-tagging.",
+        normalize_filenames),
+    "extract_covers": (
+        "Extract embedded covers",
+        "Write each album's embedded cover art out as cover.jpg in the album folder (only if none exists).",
+        extract_embedded_covers),
+    "fetch_covers": (
+        "Fetch cover art",
+        "Fetch missing cover art from the Cover Art Archive for tracks with a MusicBrainz album ID.",
+        fetch_covers_for_folder),
+    "fetch_lyrics": (
+        "Fetch lyrics",
+        "Fetch synced or plain-text lyrics from LRCLIB and embed them. Does not re-identify tracks.",
+        fetch_lyrics_for_folder),
+    "tag_advisories": (
+        "Tag advisories",
+        "Re-run the explicit-content classifier on embedded lyrics and update the advisory flag.",
+        tag_advisories_for_folder),
+    "replaygain": (
+        "Recompute ReplayGain",
+        "Compute ReplayGain album + track tags per album using rsgain or loudgain (skips if neither is installed).",
+        recompute_replaygain),
+    "verify_integrity": (
+        "Verify file integrity",
+        "Read every audio file via mutagen and report any that fail to decode.",
+        verify_integrity),
+    "validate_tags": (
+        "Validate tags",
+        "Report missing core tags, mis-encoded text and impossible track/disc numbers. Report only.",
+        validate_tags),
+    "find_duplicates": (
+        "Find duplicates",
+        "Report likely duplicate tracks by MusicBrainz ID and matching artist/title/duration. Report only.",
+        find_duplicates),
+    "prune": (
+        "Prune junk & empty folders",
+        "Delete OS litter (Thumbs.db, .DS_Store, *.tmp …) and completely empty folders. Audio is never touched.",
+        prune_library),
+    "find_missing_tracks": (
+        "Find missing tracks",
+        "Compare each album's local track count to MusicBrainz and list incomplete albums on the Incomplete tab.",
+        find_missing_tracks),
 }
 
 # Batch compositions (keys into LIBRARY_ACTIONS, executed in order). "organize"

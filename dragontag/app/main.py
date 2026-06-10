@@ -808,6 +808,7 @@ def library(
     sort: str = "album",
     dir: str = "asc",
 ):
+    from .library.actions import LIBRARY_ACTIONS
     fid: int | None = int(folder_id) if folder_id and folder_id.strip().isdigit() else None
     if page_size not in _LIBRARY_PAGE_SIZES:
         page_size = 50
@@ -828,6 +829,7 @@ def library(
             "request": request,
             "folders": folders,
             "active_id": active_id,
+            "library_actions": [(k, v[0], v[1]) for k, v in LIBRARY_ACTIONS.items()],
             "tracks": tracks,
             "q": q,
             "page": page,
@@ -1146,7 +1148,7 @@ def _chain_steps_for(action_keys: list[str], folder_id: int) -> list[tuple[str, 
     for key in action_keys:
         if key not in LIBRARY_ACTIONS:
             continue
-        label, fn = LIBRARY_ACTIONS[key]
+        label, _desc, fn = LIBRARY_ACTIONS[key]
         steps.append((label, (lambda f: lambda ctx: f(folder_id, ctx=ctx))(fn)))
     return steps
 

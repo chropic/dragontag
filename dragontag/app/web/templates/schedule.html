@@ -3,7 +3,7 @@
 {% block content %}
 <h2 class="text-xl font-mono font-semibold mb-3">Schedule</h2>
 <p class="text-[#8a8a8a] text-sm mb-4">Run library tasks automatically on a cron schedule. Scheduled runs appear on the
-Jobs page like any other task. Times are UTC.</p>
+Queue page like any other task. Times are UTC.</p>
 
 <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] mb-4">
   <h3 class="font-mono font-semibold text-sm mb-3">New schedule</h3>
@@ -14,9 +14,13 @@ Jobs page like any other task. Times are UTC.</p>
         <span class="text-[#8a8a8a] text-xs">Name</span>
         <input name="name" placeholder="Nightly scan" class="mt-1 w-full p-1 bg-black border border-[#4a4a4a]">
       </label>
-      <label class="block">
+      <label class="block" x-data="cronDescribe()">
         <span class="text-[#8a8a8a] text-xs">Cron expression</span>
-        <input name="cron" required placeholder="0 3 * * *" class="mt-1 w-full p-1 bg-black border border-[#4a4a4a] font-mono">
+        <input name="cron" required placeholder="0 3 * * *"
+               @input.debounce.300ms="describe($event.target.value)"
+               class="mt-1 w-full p-1 bg-black border border-[#4a4a4a] font-mono">
+        <span class="block mt-1 text-xs" x-cloak x-show="text"
+              :class="valid ? 'text-[#c7f0c7]' : 'text-[#ffb4b4]'" x-text="text"></span>
       </label>
       <label class="block">
         <span class="text-[#8a8a8a] text-xs">Task</span>
@@ -28,7 +32,7 @@ Jobs page like any other task. Times are UTC.</p>
       </label>
     </div>
     <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
-      <label class="block" x-show="['scan','organize','fetch_lyrics','fetch_covers'].includes(type)">
+      <label class="block" x-show="['scan','organize','batch_organize','batch_retag','fetch_lyrics','fetch_covers'].includes(type)">
         <span class="text-[#8a8a8a] text-xs">Library folder</span>
         <select name="folder_id" class="mt-1 w-full p-1 bg-black border border-[#4a4a4a]">
           {% for f in folders %}
@@ -40,7 +44,7 @@ Jobs page like any other task. Times are UTC.</p>
         <span class="text-[#8a8a8a] text-xs">Source path</span>
         <input name="source_path" placeholder="/path/to/folder" class="mt-1 w-full p-1 bg-black border border-[#4a4a4a] font-mono">
       </label>
-      <label class="flex items-end gap-2 text-xs text-[#8a8a8a] pb-1" x-show="type === 'bulk_retag'">
+      <label class="flex items-end gap-2 text-xs text-[#8a8a8a] pb-1" x-show="['bulk_retag','batch_retag'].includes(type)">
         <input type="checkbox" name="dry_run"> Dry run
       </label>
     </div>
@@ -69,7 +73,11 @@ Jobs page like any other task. Times are UTC.</p>
     {% for t in schedules %}
       <tr class="border-b border-[#4a4a4a] hover:bg-[#131313] {% if not t.enabled %}opacity-50{% endif %}">
         <td class="py-2 pr-3 text-[#cfcfcf]">{{ t.name }}</td>
-        <td class="pr-3 font-mono text-xs">{{ t.cron }}</td>
+        <td class="pr-3 text-xs">
+          <span class="font-mono">{{ t.cron }}</span>
+          {% set human = describe_cron(t.cron) %}
+          {% if human %}<div class="text-[#8a8a8a]">{{ human }}</div>{% endif %}
+        </td>
         <td class="pr-3 text-xs">
           {{ task_types.get(t.task_type, t.task_type) }}
           {% if t.params_json %}
@@ -110,4 +118,25 @@ Jobs page like any other task. Times are UTC.</p>
     </tbody>
   </table>
 </div>
+
+<script>
+  function cronDescribe() {
+    return {
+      text: '',
+      valid: false,
+      async describe(expr) {
+        expr = expr.trim();
+        if (!expr) { this.text = ''; return; }
+        try {
+          const r = await fetch('/api/cron-describe?expr=' + encodeURIComponent(expr));
+          if (r.ok) {
+            const d = await r.json();
+            this.valid = !!d.valid;
+            this.text = d.valid ? d.description : 'Invalid cron expression';
+          }
+        } catch (e) { /* leave previous text */ }
+      }
+    }
+  }
+</script>
 {% endblock %}

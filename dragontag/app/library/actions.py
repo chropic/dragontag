@@ -814,3 +814,15 @@ BATCH_ORGANIZE = [
     "prune", "find_duplicates", "find_missing_tracks",
 ]
 BATCH_RETAG = ["validate_tags", "tag_advisories", "replaygain"]
+
+
+def build_chain_steps(action_keys: list[str], folder_id: int) -> list[tuple[str, Any]]:
+    """Map registry keys to ``(label, fn)`` steps bound to ``folder_id``,
+    ready for ``tasks.run_chain``. Unknown keys are skipped."""
+    steps: list[tuple[str, Any]] = []
+    for key in action_keys:
+        if key not in LIBRARY_ACTIONS:
+            continue
+        label, _desc, fn = LIBRARY_ACTIONS[key]
+        steps.append((label, (lambda f: lambda ctx: f(folder_id, ctx=ctx))(fn)))
+    return steps

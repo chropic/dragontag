@@ -100,6 +100,7 @@ app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "web" / "templates"))
 templates.env.globals["format_local"] = _format_local
+templates.env.globals["describe_cron"] = scheduler.describe_cron
 
 
 @app.on_event("startup")
@@ -180,6 +181,13 @@ def api_progress(request: Request, _: None = Depends(require_auth)):
         "item": active.progress_item,
         "queued": queued,
     })
+
+
+@app.get("/api/cron-describe")
+def api_cron_describe(request: Request, _: None = Depends(require_auth), expr: str = ""):
+    """Live helper for the Schedule form: cron expression → human description."""
+    desc = scheduler.describe_cron(expr.strip())
+    return JSONResponse({"valid": desc is not None, "description": desc or ""})
 
 
 # ---------------------------------------------------------------------------
@@ -1145,14 +1153,8 @@ def library_validate_tags(request: Request, _: None = Depends(require_auth), fol
 
 def _chain_steps_for(action_keys: list[str], folder_id: int) -> list[tuple[str, Any]]:
     """Map LIBRARY_ACTIONS keys to (label, fn) steps bound to ``folder_id``."""
-    from .library.actions import LIBRARY_ACTIONS
-    steps: list[tuple[str, Any]] = []
-    for key in action_keys:
-        if key not in LIBRARY_ACTIONS:
-            continue
-        label, _desc, fn = LIBRARY_ACTIONS[key]
-        steps.append((label, (lambda f: lambda ctx: f(folder_id, ctx=ctx))(fn)))
-    return steps
+    from .library.actions import build_chain_steps
+    return build_chain_steps(action_keys, folder_id)
 
 
 def _batch_guard() -> str | None:
@@ -1445,7 +1447,7 @@ def schedule_create(
     if not scheduler.is_valid_cron(cron):
         return _toast_response("/schedule", f"Invalid cron expression: {cron}", "error")
     params: dict = {}
-    if task_type in ("scan", "organize", "fetch_lyrics", "fetch_covers"):
+    if task_type in ("scan", "organize", "batch_organize", "batch_retag", "fetch_lyrics", "fetch_covers"):
         if not folder_id.strip().isdigit():
             return _toast_response("/schedule", "Pick a library folder for this task type.", "error")
         params["folder_id"] = int(folder_id)
@@ -1453,6 +1455,7 @@ def schedule_create(
         if not source_path.strip():
             return _toast_response("/schedule", "A source path is required for bulk re-tag.", "error")
         params["source_path"] = source_path.strip()
+    if task_type in ("bulk_retag", "batch_retag"):
         params["dry_run"] = bool(dry_run)
     with session() as s:
         t = ScheduledTask(

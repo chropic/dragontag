@@ -29,18 +29,20 @@ High-confidence matches flow through completely hands-free. Everything else land
 | **MusicBrainz-first ID** | Short-circuits on an existing `MUSICBRAINZ_TRACKID`; otherwise searches by title / artist / album / duration with progressive fallback (drops album, then duration) to maximise hit rate |
 | **AcoustID fingerprint fallback** | Toggleable. Uses `fpcalc` (bundled in the image) when text search comes up empty |
 | **Confidence-scored auto-apply** | Matches above the threshold are tagged and moved without human intervention |
-| **Review queue** | Low-score matches, missing `RELEASETYPE`, and destination conflicts surface a candidate picker, manual MB search (by title / artist / album, or a pasted MusicBrainz URL / ID), and action buttons |
+| **Queue page** | Review and Jobs merged into one page: low-score matches, missing `RELEASETYPE`, and destination conflicts surface a candidate picker, manual MB search and action buttons, with the full job list (bulk controls, cancel/requeue, pagination) directly below. Old `/review` and `/jobs` URLs redirect |
 | **Format coverage** | FLAC · MP3 (ID3v2.4) · WAV (ID3 chunk) · M4A / MP4 |
 | **Cover art** | Best available resolution from the Cover Art Archive, resized to ≤ 1200 px for all formats, embedded in the file *and* written as `cover.jpg`. Per-release by default — the shared release-group cover is only used when explicitly enabled |
 | **Lyrics + advisory** | Synced LRC or plain text from LRCLIB, embedded per-format; explicit content auto-tagged as `ITUNESADVISORY` |
 | **Dry-run mode** | Preview destination paths and assembled tags without touching any files — global toggle in Settings, plus per-run checkboxes on Library actions that never change the global |
-| **Cron scheduling** | A Schedule tab runs scans, organizes, bulk re-tags, lyrics/cover fetches and backups on standard cron expressions, with run-now and next-run display |
+| **Cron scheduling** | A Schedule tab runs scans, organizes, batches, bulk re-tags, lyrics/cover fetches and backups on standard cron expressions, with run-now, next-run display and live plain-English cron descriptions ("At 06:00, only on Tuesday") |
 | **Backup / restore** | One-click versioned tarball of the DB, settings, password hash and AcoustID key; validated restore from the UI or a CLI fallback |
 | **Webhook notifications** | Discord-compatible webhook fires on job completion or error |
-| **Jobs page** | Full queue view with bulk controls (cancel, clear, requeue), per-row checkboxes + "Clear selected", and per-row actions. Background tasks (scan, organize, …) appear as jobs with live progress |
-| **Universal progress bar** | Thin progress line under the nav on every page while anything is running |
+| **Universal progress bar** | Determinate progress line under the nav on every page: percentage, item counts and the file currently being processed |
 | **Change history + revert** | Every pipeline tag-write is recorded; the `/changes` page lists recent changes, can revert a file's tags in place, or move the file back to its original directory (with automatic scan exemption). Retention is configurable |
-| **Library actions** | Scan library, organize, full library re-tag, remove stuck entries, plus individual actions: fetch lyrics, fetch covers, extract embedded covers, recompute ReplayGain, verify integrity, fix disc folders, find missing tracks |
+| **Batch operations** | Organize batch (organize + fix disc folders + normalize filenames + extract covers + prune junk + find duplicates + find missing tracks), Re-tag batch (validate tags + advisories + ReplayGain + full pipeline), and the Nuclear option (everything) — each one chained job with step-by-step progress |
+| **Library actions** | Twelve individual actions (fetch lyrics/covers, extract covers, ReplayGain, verify integrity, validate tags, fix disc folders, normalize filenames, find duplicates, prune junk, find missing tracks, tag advisories) — run one, or multi-select several to queue as one sequential job |
+| **Incomplete albums tab** | "Find missing tracks" persists results: albums with fewer local tracks than the MusicBrainz total are listed with the missing titles, MB links and per-row dismiss |
+| **Genre junk filter** | MusicBrainz community tags are matched against a vendored canonical genre list (~1500 entries), killing junk like "billboard top 100"; non-junk tags survive as a fallback when nothing matches. Toggleable in Settings |
 | **Log verbosity** | 0–4 slider in Settings (silent / errors / warnings / info / debug), applied at runtime |
 | **Smart formatting** | Title Case, qualifier parenthesization ("Song Live" → "Song (Live)"), grammar correction (ALL-CAPS + contractions + possessives) |
 | **Library table** | Column sorting + standard pagination (10 / 25 / 50 / 100 / 200); explicit advisory badge on each track row |
@@ -116,7 +118,7 @@ Everything below is editable live from the **Settings** page and written atomica
 - Filename templates — single-disc and multi-disc variants with `{track}`, `{disc}`, `{title}`, `{artist}`, `{ext}` vars
 - Artist-folder split separators — characters (e.g. `&,;`) that reduce a multi-artist album-artist to its first artist for the folder name. Empty by default, so "Tyler, The Creator" stays intact; `feat./ft./featuring` guests are always stripped, and slashes (`AC/DC`, `A//B`) are never split
 - Per-tag separators (`ARTIST`, `album_artist`, `ARTISTS`, `GENRE`, …) — note: multi-value fields are written as native multiple values, so these joiners are now a fallback only
-- Genre limit and casing (`Title Case` / `lowercase` / `as-is`)
+- Genre limit, casing (`Title Case` / `lowercase` / `as-is`) and the canonical-list junk filter toggle
 - Fields to skip entirely (suppressed at write time across all formats)
 - Watcher on/off, ignore patterns, settle window
 - Cover-art minimum pixel width before overwriting an existing `cover.jpg`

@@ -86,27 +86,33 @@ Drop file  →  Read existing tags + filename clues
   <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">5. Library</h3>
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
     <li><strong>Scan library</strong> — refresh the DB from on-disk tags. Run after manually editing tags outside dragontag.</li>
-    <li><strong>Organize library</strong> — move existing files to match the current templates. <span class="text-[#ffb4b4]">After moves complete, leftover directories that contain no files at all are removed (files are never deleted).</span></li>
-    <li><strong>Full library re-tag</strong> — re-run the full identify pipeline on every file in a folder. Supports a per-run dry-run override.</li>
-    <li><strong>Individual library actions</strong>
+    <li><strong>Organize library (batch)</strong> — structural cleanup chain: move files to match templates, fix disc folders, normalize filenames, extract embedded covers, prune junk &amp; empty folders, find duplicates, find missing tracks. <span class="text-[#ffb4b4]">Files are moved/renamed and junk + empty directories deleted; audio files are never deleted.</span></li>
+    <li><strong>Full library re-tag (batch)</strong> — validate tags, re-tag advisories, recompute ReplayGain, then queue every file through the full identify → tag → move pipeline. Supports a per-run dry-run override.</li>
+    <li><strong>Nuclear option</strong> — the Organize batch followed by the Re-tag batch, as one job. The most invasive thing dragontag can do.</li>
+    <li><strong>Individual library actions</strong> — each runs on its own via <em>run</em>, or tick several and <strong>Queue selected</strong> to run them sequentially as a single chained job:
       <ul class="ml-5 list-disc list-inside space-y-0.5 text-[#cfcfcf]">
-        <li><em>Fetch lyrics only</em> — LRCLIB fetch + embed, no identify.</li>
-        <li><em>Tag advisories only</em> — re-run the explicit-content classifier on already-embedded lyrics.</li>
-        <li><em>Fetch cover art only</em> — Cover Art Archive fetch for tracks with an MB album ID.</li>
-        <li><em>Extract embedded covers</em> — write a <code>cover.jpg</code> from each album's embedded picture when none exists on disk.</li>
-        <li><em>Recompute ReplayGain</em> — invokes <code>rsgain</code> or <code>loudgain</code> if installed.</li>
-        <li><em>Verify file integrity</em> — opens every file via mutagen, logs unreadable files.</li>
         <li><em>Fix disc folders</em> — normalize <code>Disc N</code> subfolders to the configured template; flatten stray single-disc folders.</li>
-        <li><em>Find missing tracks</em> — compare local count to the MB release total and report gaps.</li>
+        <li><em>Normalize filenames</em> — lowercase extensions, strip trailing dots/spaces, collapse double spaces. No re-tagging.</li>
+        <li><em>Extract embedded covers</em> — write a <code>cover.jpg</code> from each album's embedded picture when none exists on disk.</li>
+        <li><em>Fetch cover art</em> — Cover Art Archive fetch for tracks with an MB album ID.</li>
+        <li><em>Fetch lyrics</em> — LRCLIB fetch + embed, no identify.</li>
+        <li><em>Tag advisories</em> — re-run the explicit-content classifier on already-embedded lyrics.</li>
+        <li><em>Recompute ReplayGain</em> — invokes <code>rsgain</code> or <code>loudgain</code> per album folder if installed.</li>
+        <li><em>Verify file integrity</em> — opens every file via mutagen, logs unreadable files.</li>
+        <li><em>Validate tags</em> — report missing core tags, mis-encoded text and impossible track/disc numbers (report only).</li>
+        <li><em>Find duplicates</em> — report likely duplicates by MB recording ID or matching artist/title/duration (report only).</li>
+        <li><em>Prune junk &amp; empty folders</em> — delete OS litter (Thumbs.db, .DS_Store, *.tmp …) and completely empty directories.</li>
+        <li><em>Find missing tracks</em> — compare local counts to the MB release totals; incomplete albums land on the Library page's <strong>Incomplete</strong> tab with the missing track titles.</li>
       </ul>
     </li>
+    <li><strong>Incomplete tab</strong> — albums whose local track count is below the MusicBrainz total, with per-row MB links and dismiss. Repopulated on every "Find missing tracks" run.</li>
     <li><strong>Track table</strong> — click any column header to sort. Use the per-row checkboxes plus "Re-tag selected" to enqueue specific tracks. Choose your page size (10 / 25 / 50 / 100 / 200). The <code>×</code> at the end of a row removes a stuck entry from the DB only — the file is never touched, and a re-scan re-adds it.</li>
   </ul>
 </section>
 
 <section id="review" class="space-y-3">
-  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">6. Review queue</h3>
-  <p class="text-sm text-[#cfcfcf]">A file lands in Review when it scored below the threshold, no candidate was found, the destination already exists, RELEASETYPE was missing, or dry-run mode was on. From the Review page you can:</p>
+  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">6. Queue — review section</h3>
+  <p class="text-sm text-[#cfcfcf]">Review and Jobs now live together on the <strong>Queue</strong> page (the old <code>/review</code> and <code>/jobs</code> URLs redirect there). A file lands in the review section when it scored below the threshold, no candidate was found, the destination already exists, RELEASETYPE was missing, or dry-run mode was on. From there you can:</p>
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
     <li>Search MusicBrainz manually by title / artist / album or a pasted MB URL / ID — click <strong>Search</strong> (or press Enter in any field) to run the query.</li>
     <li>Pick any of the top candidates and apply.</li>
@@ -117,11 +123,12 @@ Drop file  →  Read existing tags + filename clues
 </section>
 
 <section id="jobs" class="space-y-3">
-  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">7. Jobs</h3>
-  <p class="text-sm text-[#cfcfcf]">The Jobs page shows every queued / processed file with pagination and per-row cancel/requeue. Background work — library scans, organizes, lyrics/cover fetches and scheduled runs — also appears here with a kind badge, a persistent log, and <code>n/total</code> progress. A thin progress line under the nav (visible on every page) tracks whatever is currently running. Bulk controls:</p>
+  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">7. Queue — jobs section</h3>
+  <p class="text-sm text-[#cfcfcf]">The jobs section of the Queue page shows every queued / processed file with pagination and per-row cancel/requeue. Background work — library scans, batches, lyrics/cover fetches and scheduled runs — also appears here with a kind badge, a persistent log, and <code>n/total</code> progress. A thin progress line under the nav (visible on every page) shows the percentage, item counts and the file currently being processed. Bulk controls:</p>
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
     <li><strong>Cancel all queued</strong> — mark every queued (not-yet-started) job as skipped.</li>
-    <li><strong>Clear completed / errors / needs_review</strong> — delete rows of that status.</li>
+    <li><strong>Clear completed / errors</strong> — delete rows of that status.</li>
+    <li><strong>Clear Review Queue</strong> — delete every needs-review row.</li>
     <li><strong>Clear all</strong> — delete every job row that is not currently in-flight.</li>
   </ul>
 </section>
@@ -139,7 +146,7 @@ Drop file  →  Read existing tags + filename clues
 
 <section id="schedule" class="space-y-3">
   <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">9. Schedule</h3>
-  <p class="text-sm text-[#cfcfcf]">The Schedule tab runs any maintenance task on a standard 5-field cron expression (UTC): scan, organize, bulk re-tag (with optional dry-run), fetch lyrics, fetch covers, or backup. Each schedule shows its next and last run; <strong>Run now</strong> fires it immediately, and runs appear on the Jobs page like any other task. A run is skipped if the previous run of the same kind is still going.</p>
+  <p class="text-sm text-[#cfcfcf]">The Schedule tab runs any maintenance task on a standard 5-field cron expression (UTC): scan, organize, the Organize / Re-tag batches, bulk re-tag (with optional dry-run), fetch lyrics, fetch covers, or backup. As you type a cron expression the form shows a plain-English description ("At 06:00, only on Tuesday"), also shown on every schedule row. Each schedule shows its next and last run; <strong>Run now</strong> fires it immediately, and runs appear on the Queue page like any other task. A run is skipped if the previous run of the same kind is still going.</p>
   <p class="text-sm text-[#8a8a8a]">Examples: <code>0 3 * * *</code> daily at 03:00 · <code>0 */6 * * *</code> every 6 hours · <code>0 4 * * 0</code> Sundays at 04:00.</p>
 </section>
 

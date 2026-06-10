@@ -15,25 +15,30 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from ..config import settings
 from .pipeline import SUPPORTED_EXTS, enqueue, submit
 
 log = logging.getLogger(__name__)
 
 
-def enqueue_folder(source_path: Path) -> list[int]:
+def enqueue_folder(source_path: Path, *, dry_run: bool | None = None) -> list[int]:
     """Enqueue all supported audio files under source_path for re-tagging.
 
+    ``dry_run`` is passed through as a per-job override (see ``pipeline.enqueue``).
     Raises ``ValueError`` if source_path is not an existing directory.
     Returns the list of created job IDs.
     """
     if not source_path.exists() or not source_path.is_dir():
         raise ValueError(f"Not a directory: {source_path}")
 
+    exempt = set(settings().scan_exempt_paths)
     job_ids: list[int] = []
     for p in sorted(source_path.rglob("*")):
         if not p.is_file() or p.suffix.lower() not in SUPPORTED_EXTS:
             continue
-        job = enqueue(p)
+        if str(p) in exempt:
+            continue
+        job = enqueue(p, dry_run=dry_run)
         submit(job.id)
         job_ids.append(job.id)
         log.info("bulk: enqueued %s (job %d)", p.name, job.id)

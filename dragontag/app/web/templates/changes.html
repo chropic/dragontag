@@ -3,12 +3,21 @@
 {% block content %}
 <div class="flex items-center justify-between mb-2">
   <h2 class="text-xl font-mono font-semibold">Recent changes</h2>
-  <span class="text-[#8a8a8a] text-sm">Last {{ changes|length }} change{% if changes|length != 1 %}s{% endif %}</span>
+  <div class="flex items-center gap-3">
+    <span class="text-[#8a8a8a] text-sm">Last {{ changes|length }} change{% if changes|length != 1 %}s{% endif %}</span>
+    {% if changes %}
+    <form method="post" action="/changes/clear" class="inline"
+          onsubmit="return confirm('Clear all change records? Files and tags are untouched, but revert / move-back will no longer be possible for these entries.');">
+      <button class="text-xs px-3 py-1 border border-[#ffb4b4] text-[#ffb4b4] hover:text-white hover:border-white">Clear all</button>
+    </form>
+    {% endif %}
+  </div>
 </div>
 
 <p class="text-[#8a8a8a] text-sm mb-4">Each row is a tag write the pipeline applied to a file. Reverting restores the
-file's original tags in place and removes the <code class="text-xs">cover.jpg</code> dragontag added — it does
-not move the file back to where it came from.</p>
+file's original tags in place and removes the <code class="text-xs">cover.jpg</code> dragontag added.
+"Move back" returns the file to its pre-pipeline directory and exempts it from automatic re-ingest.
+The number of records kept is configurable in Settings.</p>
 
 <div class="bg-[#0c0c0c] border border-[#4a4a4a] p-4">
   <table class="w-full text-sm table-fixed">
@@ -41,12 +50,23 @@ not move the file back to where it came from.</p>
           {% endif %}
         </td>
         <td class="py-2">
-          {% if not c.reverted_at %}
-          <form method="post" action="/changes/{{ c.id }}/revert" class="inline"
-                onsubmit="return confirm('Restore the original tags for this file? This rewrites the tags in place.');">
-            <button class="text-xs px-3 py-1 border border-[#f2e5b5] text-[#f2e5b5] hover:text-white hover:border-white">Revert</button>
-          </form>
-          {% endif %}
+          <div class="flex gap-1 flex-wrap">
+            {% if not c.reverted_at %}
+            <form method="post" action="/changes/{{ c.id }}/revert" class="inline"
+                  onsubmit="return confirm('Restore the original tags for this file? This rewrites the tags in place.');">
+              <button class="text-xs px-3 py-1 border border-[#f2e5b5] text-[#f2e5b5] hover:text-white hover:border-white">Revert</button>
+            </form>
+            {% endif %}
+            {% if c.original_path and c.original_path != c.file_path %}
+            {# Path is shown via the title tooltip, not interpolated into the JS
+               string — apostrophes in paths would break the inline handler. #}
+            <form method="post" action="/changes/{{ c.id }}/move-back" class="inline"
+                  onsubmit="return confirm('Move the file back to its original directory? It will be exempted from automatic scans so it is not re-ingested.');">
+              <button class="text-xs px-3 py-1 border border-[#4a4a4a] text-[#cfcfcf] hover:text-white hover:border-white"
+                      title="Move back to {{ c.original_path }}">Move back</button>
+            </form>
+            {% endif %}
+          </div>
         </td>
       </tr>
     {% else %}

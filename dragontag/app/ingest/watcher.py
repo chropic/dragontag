@@ -38,6 +38,10 @@ class _Handler(FileSystemEventHandler):
         for pat in settings().watcher_ignore_patterns:
             if fnmatch.fnmatch(name, pat):
                 return True
+        # Files moved back to their original directory are exempted so they
+        # aren't immediately re-ingested (see library/revert.py move_back).
+        if str(p) in settings().scan_exempt_paths:
+            return True
         return p.suffix.lower() not in pipeline.SUPPORTED_EXTS
 
     def on_created(self, event):

@@ -33,15 +33,19 @@ High-confidence matches flow through completely hands-free. Everything else land
 | **Format coverage** | FLAC · MP3 (ID3v2.4) · WAV (ID3 chunk) · M4A / MP4 |
 | **Cover art** | Best available resolution from the Cover Art Archive, resized to ≤ 1200 px for all formats, embedded in the file *and* written as `cover.jpg`. Per-release by default — the shared release-group cover is only used when explicitly enabled |
 | **Lyrics + advisory** | Synced LRC or plain text from LRCLIB, embedded per-format; explicit content auto-tagged as `ITUNESADVISORY` |
-| **Dry-run mode** | Preview destination paths and assembled tags without touching any files |
+| **Dry-run mode** | Preview destination paths and assembled tags without touching any files — global toggle in Settings, plus per-run checkboxes on Library actions that never change the global |
+| **Cron scheduling** | A Schedule tab runs scans, organizes, bulk re-tags, lyrics/cover fetches and backups on standard cron expressions, with run-now and next-run display |
+| **Backup / restore** | One-click versioned tarball of the DB, settings, password hash and AcoustID key; validated restore from the UI or a CLI fallback |
 | **Webhook notifications** | Discord-compatible webhook fires on job completion or error |
-| **Jobs page** | Full queue view with bulk controls (cancel, clear, requeue), per-row checkboxes + "Clear selected", and per-row actions |
-| **Change history + revert** | Every pipeline tag-write is recorded; the `/changes` page lists recent changes and can revert a file's tags in place |
-| **Library actions** | Scan library, organize, full library re-tag, plus individual actions: fetch lyrics, fetch covers, extract embedded covers, recompute ReplayGain, verify integrity, fix disc folders, find missing tracks |
+| **Jobs page** | Full queue view with bulk controls (cancel, clear, requeue), per-row checkboxes + "Clear selected", and per-row actions. Background tasks (scan, organize, …) appear as jobs with live progress |
+| **Universal progress bar** | Thin progress line under the nav on every page while anything is running |
+| **Change history + revert** | Every pipeline tag-write is recorded; the `/changes` page lists recent changes, can revert a file's tags in place, or move the file back to its original directory (with automatic scan exemption). Retention is configurable |
+| **Library actions** | Scan library, organize, full library re-tag, remove stuck entries, plus individual actions: fetch lyrics, fetch covers, extract embedded covers, recompute ReplayGain, verify integrity, fix disc folders, find missing tracks |
+| **Log verbosity** | 0–4 slider in Settings (silent / errors / warnings / info / debug), applied at runtime |
 | **Smart formatting** | Title Case, qualifier parenthesization ("Song Live" → "Song (Live)"), grammar correction (ALL-CAPS + contractions + possessives) |
 | **Library table** | Column sorting + standard pagination (10 / 25 / 50 / 100 / 200); explicit advisory badge on each track row |
 | **Toast notifications** | Global in-app success/error toasts on every action |
-| **In-app docs** | Built-in documentation page at `/docs` |
+| **In-app docs** | Built-in documentation page at `/docs`, plus an auth-guarded API reference (Swagger) at `/api-docs` and `/openapi.json` |
 | **SQLite-backed state** | All jobs and history survive container restarts |
 | **Alembic migrations** | Schema changes managed with Alembic for safe upgrades |
 | **First-run wizard** | Set credentials and AcoustID key from the browser on first boot — no Docker secrets required |
@@ -118,7 +122,10 @@ Everything below is editable live from the **Settings** page and written atomica
 - Cover-art minimum pixel width before overwriting an existing `cover.jpg`
 - Release-group cover fallback on/off (default **off**) — when on, a release with no Cover Art Archive image of its own borrows the release-group cover (shared across editions); left off to prevent the same art landing on different releases
 - Discord webhook URL, `on_done` and `on_error` toggles
-- Dry-run mode toggle
+- Dry-run mode toggle (global default; Library actions also have per-run checkboxes)
+- Recent-changes retention cap (`0` = unlimited) and scan-exemption management
+- Log verbosity 0–4 (silent / errors / warnings / info / debug)
+- Backup download and validated restore
 - MusicBrainz user-agent and server (for self-hosted mirrors)
 
 ---
@@ -229,9 +236,13 @@ dragontag/app/
 ├── main.py               FastAPI routes + HTMX wiring
 ├── config.py             Env vars · Docker secrets · settings.json layers
 ├── db.py                 SQLite engine bootstrap (SQLModel)
-├── models.py             Job · Track · LibraryFolder · enums
+├── models.py             Job · Track · LibraryFolder · ScheduledTask · FileChange · enums
 ├── auth.py               argon2 verify + session helpers
 ├── notify.py             Discord webhook sender (fire-and-forget)
+├── tasks.py              Background task runner (jobs with kind/progress/log)
+├── scheduler.py          Cron scheduler (croniter) dispatching tasks
+├── backup.py             Versioned backup tarball + validated restore
+├── logsetup.py           Runtime 0–4 log-verbosity application
 ├── ingest/
 │   ├── pipeline.py       Per-file orchestration + background worker queue
 │   ├── watcher.py        watchdog observer with settle window
@@ -253,7 +264,9 @@ dragontag/app/
     ├── paths.py           sanitize_segment + build_destination
     ├── mover.py           Move with conflict detection + cover.jpg writer
     ├── scanner.py         Index existing files into Track table
-    └── organizer.py       Reorganize library by current filename template
+    ├── organizer.py       Reorganize library by current filename template
+    ├── actions.py         Individual library actions (lyrics, covers, replaygain, …)
+    └── revert.py          Undo a recorded FileChange / move a file back
 ```
 
 ### Tests
@@ -277,8 +290,8 @@ Pure-logic, no-network tests cover the most failure-prone paths:
 
 ## Roadmap
 
-- [ ] **Backup / restore** — one-shot export of the SQLite DB, `settings.json`, password hash, and AcoustID key into a versioned tarball, plus a restore command that validates the bundle before swapping the live config in.
-- [ ] **Log verbosity scale** — replace the boolean-ish logging today with a 0–4 slider in Settings (silent / errors / warnings / info / debug), persisted to `settings.json` and applied at runtime to all loggers.
+- [x] **Backup / restore** — one-shot export of the SQLite DB, `settings.json`, password hash, and AcoustID key into a versioned tarball, plus a restore command that validates the bundle before swapping the live config in. *(Shipped: Settings → Backup, plus `python -m dragontag.tools.restore_backup`.)*
+- [x] **Log verbosity scale** — replace the boolean-ish logging today with a 0–4 slider in Settings (silent / errors / warnings / info / debug), persisted to `settings.json` and applied at runtime to all loggers. *(Shipped.)*
 
 ---
 

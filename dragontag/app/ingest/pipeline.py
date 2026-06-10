@@ -60,9 +60,13 @@ _ACTIVE_STATUSES = [
 ]
 
 
-def enqueue(path: Path) -> Job:
+def enqueue(path: Path, *, dry_run: bool | None = None) -> Job:
     """Persist a new ``Job`` and return it. Doesn't submit to the worker —
     callers call :func:`submit` after committing so the worker can see the row.
+
+    ``dry_run`` is a per-job override: ``None`` follows the global
+    ``settings().dry_run``; ``True``/``False`` is an explicit choice for this
+    job only (the Library page checkboxes) and never touches the global flag.
 
     Deduplicates by source path: if an active job already exists for this path
     it is returned as-is, preventing double-processing when the watcher fires
@@ -77,7 +81,12 @@ def enqueue(path: Path) -> Job:
         ).first()
         if existing:
             return existing
-        job = Job(source_path=str(path), original_name=path.name, status=JobStatus.queued)
+        job = Job(
+            source_path=str(path),
+            original_name=path.name,
+            status=JobStatus.queued,
+            dry_run_override=dry_run,
+        )
         s.add(job)
         s.commit()
         s.refresh(job)
@@ -318,7 +327,10 @@ def _process_inner(s: Session, job: Job) -> None:
     if not tags.release_status:
         tags.release_status = "Official"
 
-    if settings().dry_run:
+    effective_dry_run = (
+        job.dry_run_override if job.dry_run_override is not None else settings().dry_run
+    )
+    if effective_dry_run:
         lib_root = _pick_library_folder()
         dest = build_destination(tags, src.suffix, library_root=lib_root)
         job.chosen_tags_json = _tags_to_dict(tags)
@@ -457,9 +469,6 @@ def _commit_tag_path(s: Session, job: Job, src: Path, tags: TrackTags, *, score:
     post_done(job, tags)
 
 
-_MAX_CHANGES = 500
-
-
 def _record_change(
     s: Session,
     job: Job,
@@ -483,8 +492,12 @@ def _record_change(
     s.add(change)
     s.commit()
 
+    # 0 = unlimited (same convention as genre_limit).
+    cap = settings().max_recent_changes
+    if cap <= 0:
+        return
     stale = s.exec(
-        select(FileChange.id).order_by(FileChange.id.desc()).offset(_MAX_CHANGES)
+        select(FileChange.id).order_by(FileChange.id.desc()).offset(cap)
     ).all()
     if stale:
         for cid in stale:
@@ -618,18 +631,21 @@ def resubmit_pending() -> None:
     final move is the only destructive operation, and ``needs_review`` /
     ``done`` jobs are skipped).
     """
+    from ..models import ACTIVE_JOB_STATUSES
     with session() as s:
         rows = s.exec(
-            select(Job).where(
-                Job.status.in_(
-                    [
-                        JobStatus.queued,
-                        JobStatus.identifying,
-                        JobStatus.tagging,
-                        JobStatus.moving,
-                    ]
-                )
-            )
+            select(Job).where(Job.status.in_(list(ACTIVE_JOB_STATUSES)))
         ).all()
-    for j in rows:
-        submit(j.id)
+        # Non-ingest tasks (scans, organizes, …) don't carry enough state to
+        # resume — mark them failed instead of feeding them to the pipeline.
+        resubmit_ids: list[int] = []
+        for j in rows:
+            if j.kind != "ingest" or j.status == JobStatus.running:
+                j.status = JobStatus.error
+                j.error = "interrupted by restart"
+                s.add(j)
+            else:
+                resubmit_ids.append(j.id)
+        s.commit()
+    for jid in resubmit_ids:
+        submit(jid)

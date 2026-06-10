@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}dragontag | Schedule{% endblock %}
+{% block content %}
+<h2 class="text-xl font-mono font-semibold mb-3">Schedule</h2>
+<p class="text-[#8a8a8a] text-sm mb-4">Run library tasks automatically on a cron schedule. Scheduled runs appear on the
+Jobs page like any other task. Times are UTC.</p>
+
+<div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] mb-4">
+  <h3 class="font-mono font-semibold text-sm mb-3">New schedule</h3>
+  <form method="post" action="/schedule" class="space-y-2 text-sm"
+        x-data="{ type: 'scan' }">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+      <label class="block">
+        <span class="text-[#8a8a8a] text-xs">Name</span>
+        <input name="name" placeholder="Nightly scan" class="mt-1 w-full p-1 bg-black border border-[#4a4a4a]">
+      </label>
+      <label class="block">
+        <span class="text-[#8a8a8a] text-xs">Cron expression</span>
+        <input name="cron" required placeholder="0 3 * * *" class="mt-1 w-full p-1 bg-black border border-[#4a4a4a] font-mono">
+      </label>
+      <label class="block">
+        <span class="text-[#8a8a8a] text-xs">Task</span>
+        <select name="task_type" x-model="type" class="mt-1 w-full p-1 bg-black border border-[#4a4a4a]">
+          {% for key, label in task_types.items() %}
+          <option value="{{ key }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+      <label class="block" x-show="['scan','organize','fetch_lyrics','fetch_covers'].includes(type)">
+        <span class="text-[#8a8a8a] text-xs">Library folder</span>
+        <select name="folder_id" class="mt-1 w-full p-1 bg-black border border-[#4a4a4a]">
+          {% for f in folders %}
+          <option value="{{ f.id }}">{{ f.label or f.path }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="block md:col-span-2" x-show="type === 'bulk_retag'">
+        <span class="text-[#8a8a8a] text-xs">Source path</span>
+        <input name="source_path" placeholder="/path/to/folder" class="mt-1 w-full p-1 bg-black border border-[#4a4a4a] font-mono">
+      </label>
+      <label class="flex items-end gap-2 text-xs text-[#8a8a8a] pb-1" x-show="type === 'bulk_retag'">
+        <input type="checkbox" name="dry_run"> Dry run
+      </label>
+    </div>
+    <div class="text-xs text-[#8a8a8a]">
+      Examples: <code>0 3 * * *</code> daily at 03:00 · <code>0 */6 * * *</code> every 6 hours ·
+      <code>0 4 * * 0</code> Sundays at 04:00 · <code>*/30 * * * *</code> every 30 minutes
+    </div>
+    <button class="px-4 py-1 bg-white text-black hover:bg-[#cfcfcf] font-mono">Add schedule</button>
+  </form>
+</div>
+
+<div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a]">
+  <table class="w-full text-sm">
+    <thead class="text-[#8a8a8a] border-b border-[#4a4a4a]">
+      <tr>
+        <th class="text-left py-2 pr-3">Name</th>
+        <th class="text-left pr-3">Cron</th>
+        <th class="text-left pr-3">Task</th>
+        <th class="text-left pr-3">Next run</th>
+        <th class="text-left pr-3">Last run</th>
+        <th class="text-left pr-3">Status</th>
+        <th class="text-left">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for t in schedules %}
+      <tr class="border-b border-[#4a4a4a] hover:bg-[#131313] {% if not t.enabled %}opacity-50{% endif %}">
+        <td class="py-2 pr-3 text-[#cfcfcf]">{{ t.name }}</td>
+        <td class="pr-3 font-mono text-xs">{{ t.cron }}</td>
+        <td class="pr-3 text-xs">
+          {{ task_types.get(t.task_type, t.task_type) }}
+          {% if t.params_json %}
+          <span class="text-[#6a6a6a] font-mono">{{ t.params_json }}</span>
+          {% endif %}
+        </td>
+        <td class="pr-3 text-xs text-[#8a8a8a]">{% if t.enabled %}{{ format_local(t.next_run_at) }}{% else %}—{% endif %}</td>
+        <td class="pr-3 text-xs text-[#8a8a8a]">{{ format_local(t.last_run_at) }}</td>
+        <td class="pr-3 text-xs">
+          {% if t.last_status == 'ok' or t.last_status == 'ok (manual)' %}
+            <span class="text-[#c7f0c7]">{{ t.last_status }}</span>
+          {% elif t.last_status %}
+            <span class="text-[#ffb4b4]" title="{{ t.last_status }}">{{ t.last_status|truncate(40) }}</span>
+          {% else %}
+            <span class="text-[#8a8a8a]">never run</span>
+          {% endif %}
+        </td>
+        <td class="py-1">
+          <div class="flex gap-1 flex-wrap">
+            <form method="post" action="/schedule/{{ t.id }}/run-now" class="inline">
+              <button class="text-xs px-2 py-0.5 border border-[#c7f0c7] text-[#c7f0c7] hover:bg-[#c7f0c7] hover:text-black">Run now</button>
+            </form>
+            <form method="post" action="/schedule/{{ t.id }}/toggle" class="inline">
+              <button class="text-xs px-2 py-0.5 border border-[#4a4a4a] hover:border-white">
+                {% if t.enabled %}Disable{% else %}Enable{% endif %}
+              </button>
+            </form>
+            <form method="post" action="/schedule/{{ t.id }}/delete" class="inline"
+                  onsubmit="return confirm('Delete this schedule?');">
+              <button class="text-xs px-2 py-0.5 border border-[#ffb4b4] text-[#ffb4b4] hover:bg-[#ffb4b4] hover:text-black">Delete</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td class="py-4 text-[#8a8a8a]" colspan="7">No schedules yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

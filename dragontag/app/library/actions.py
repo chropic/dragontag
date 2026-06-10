@@ -22,6 +22,89 @@ log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Fetch lyrics / covers (shared by the route layer and the scheduler)
+# ---------------------------------------------------------------------------
+
+
+def fetch_lyrics_for_folder(folder_id: int, ctx=None) -> dict:
+    """Fetch and embed lyrics for all tracks in a folder without re-tagging.
+
+    ``ctx`` is an optional ``tasks.TaskCtx`` for progress reporting.
+    """
+    from ..tagging import lyrics_fetcher
+    from ..tagging.advisory import is_explicit
+    from ..tagging.partial import write_lyrics
+
+    with session() as s:
+        tracks = s.exec(select(Track).where(Track.library_folder_id == folder_id)).all()
+    items = [(t.id, t.title, t.artist, t.album, Path(t.path)) for t in tracks if Path(t.path).exists()]
+    if ctx:
+        ctx.progress(0, len(items))
+
+    fetched_count = 0
+    for i, (track_id, title, artist, album, p) in enumerate(items, start=1):
+        try:
+            fetched = lyrics_fetcher.fetch(artist=artist, title=title, album=album)
+            if fetched:
+                advisory = 1 if is_explicit(fetched) else 0
+                write_lyrics(p, fetched, advisory)
+                fetched_count += 1
+                # Keep the DB in sync so the dashboard counters update
+                # without requiring a full re-scan.
+                with session() as s2:
+                    t = s2.get(Track, track_id)
+                    if t:
+                        t.has_lyrics = True
+                        t.advisory = advisory
+                        s2.add(t)
+                        s2.commit()
+        except Exception:
+            log.exception("fetch-lyrics: failed for %s", p)
+        if ctx:
+            ctx.progress(i, len(items))
+    if ctx:
+        ctx.log(f"Lyrics embedded for {fetched_count}/{len(items)} track(s)")
+    return {"processed": len(items), "fetched": fetched_count}
+
+
+def fetch_covers_for_folder(folder_id: int, ctx=None) -> dict:
+    """Fetch and embed cover art for tracks that have MusicBrainz album IDs."""
+    from ..config import settings
+    from ..tagging.coverart import fetch_for_release
+    from ..tagging.partial import write_cover
+    from .mover import write_cover_jpg
+
+    with session() as s:
+        tracks = s.exec(select(Track).where(
+            Track.library_folder_id == folder_id,
+            Track.mb_album_id.is_not(None),
+        )).all()
+    items = [(Path(t.path), t.mb_album_id) for t in tracks if Path(t.path).exists()]
+    if ctx:
+        ctx.progress(0, len(items))
+
+    fetched_count = 0
+    for i, (p, mb_album_id) in enumerate(items, start=1):
+        try:
+            cover = fetch_for_release(mb_album_id)
+            if cover:
+                write_cover(p, cover.data, cover.mime)
+                write_cover_jpg(
+                    p.parent, cover.data,
+                    min_overwrite_pixels=settings().cover_min_overwrite_pixels,
+                    new_width=cover.width,
+                )
+                fetched_count += 1
+        except Exception:
+            log.exception("fetch-covers: failed for %s", p)
+        if ctx:
+            ctx.progress(i, len(items))
+    if ctx:
+        ctx.log(f"Covers fetched for {fetched_count}/{len(items)} track(s)")
+    return {"processed": len(items), "fetched": fetched_count}
+
+
+# ---------------------------------------------------------------------------
 # Extract embedded cover art
 # ---------------------------------------------------------------------------
 

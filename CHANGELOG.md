@@ -2,6 +2,30 @@
 
 # Changelog
 
+## Unreleased — scheduling, backup/restore, progress & job-tracking sweep (2026-06-09)
+**Branch:** `claude/exciting-pasteur-g0gphi`
+
+### Added
+- **Schedule tab** (`/schedule`) — cron-standard scheduling (5-field expressions via `croniter`) for scan / organize / bulk re-tag / fetch lyrics / fetch covers / backup, with run-now, enable/disable, next/last-run display and validation. New: `scheduler.py`, `models.ScheduledTask`, `templates/schedule.html`.
+- **Backup / restore** — `GET /backup/download` exports a versioned tarball (manifest + sha256) of the SQLite DB (consistent snapshot via the sqlite backup API), `settings.json`, password hash and AcoustID key; the last 10 also land in `/config/backups`. Restore via validated upload in Settings (refused while jobs are active; old files kept as `*.pre-restore`) or `python -m dragontag.tools.restore_backup` when the UI is down. New: `backup.py`, `tools/restore_backup.py`.
+- **Universal progress bar** — thin line pinned under the nav on every page, polling the new `GET /api/progress` endpoint (percent when known, pulse when indeterminate, queued count).
+- **Background tasks are tracked Jobs** — scan, organize, fetch-lyrics and fetch-covers now run through the new `tasks.run_task` runner: each gets a Job row with a `kind` badge, persistent log and `n/total` progress on the Jobs page. Tasks interrupted by a restart are marked `error` instead of silently lost. New: `tasks.py`, `Job.kind/progress_current/progress_total`, `JobStatus.running`.
+- **Move back + scan exemptions** — the Changes page gained a per-row **Move back** that returns a file to its pre-pipeline directory and auto-adds it to the new `scan_exempt_paths` setting, honored by the watcher, scanner and bulk re-tag (viewable/clearable in Settings). Also a **Clear all** button and a configurable retention cap (`max_recent_changes`, 0 = unlimited) replacing the hard-coded 500.
+- **Log verbosity slider** — 0–4 (silent/errors/warnings/info/debug) in Settings, persisted to `settings.json` and applied at runtime (`logsetup.py`); noisy third-party loggers stay capped at WARNING.
+- **OpenAPI access** — auth-guarded `GET /openapi.json` + Swagger UI at `GET /api-docs`, linked from the user-manual header (the manual keeps `/docs`).
+- **Explicit Search button** in the review queue's manual MB matching (plus Enter-to-search); no more per-keystroke queries, and Enter can no longer accidentally submit the apply form.
+- **Remove from library** — per-row × in the Library table deletes a stuck Track DB row only (the file is untouched; a re-scan re-adds it).
+
+### Fixed
+- **Dry-run checkbox never honored** — the Library page checkboxes silently wrote the global `dry_run` setting (and an unchecked box couldn't turn it off, so it appeared stuck on). They are now per-run only via `Job.dry_run_override` and never touch the global flag, which is set solely on the Settings page.
+- **Re-tag after revert failed with "Source file not found"** — reverting (and moving back) now repairs the originating Job's `source_path`/`destination_path` to the file's current location so a requeue works.
+
+### Files changed
+Modified: `dragontag/app/{config,db,main,models}.py`, `dragontag/app/ingest/{bulk,pipeline,watcher}.py`, `dragontag/app/library/{actions,revert,scanner}.py`, `dragontag/app/web/templates/{base,changes,docs,library,review,settings,_jobs_table,_library_tracks}.html`, `pyproject.toml` (+`croniter`), `README.md`, `CHANGELOG.md`.
+New: `dragontag/app/{backup,logsetup,scheduler,tasks}.py`, `dragontag/app/web/templates/schedule.html`, `dragontag/tools/restore_backup.py`.
+
+---
+
 ## Unreleased — dashboard counters, MB matching, foldering & cover bleed (2026-06-08)
 **Branch:** `task/dashboard-mb-folders-coverart`
 

@@ -39,6 +39,17 @@ def engine():
     return _engine
 
 
+def reset_engine() -> None:
+    """Dispose the engine so the next ``engine()`` call reopens the DB file.
+
+    Used by backup restore after swapping ``dragontag.db`` on disk.
+    """
+    global _engine
+    if _engine is not None:
+        _engine.dispose()
+        _engine = None
+
+
 def _migrate(engine):
     with engine.begin() as conn:
         # Each ALTER runs independently so a duplicate-column error on one
@@ -46,6 +57,10 @@ def _migrate(engine):
         for ddl in (
             "ALTER TABLE track ADD COLUMN advisory INTEGER",
             "ALTER TABLE track ADD COLUMN has_lyrics INTEGER DEFAULT 0",
+            "ALTER TABLE job ADD COLUMN kind VARCHAR DEFAULT 'ingest'",
+            "ALTER TABLE job ADD COLUMN progress_current INTEGER",
+            "ALTER TABLE job ADD COLUMN progress_total INTEGER",
+            "ALTER TABLE job ADD COLUMN dry_run_override INTEGER",
         ):
             try:
                 conn.execute(text(ddl))

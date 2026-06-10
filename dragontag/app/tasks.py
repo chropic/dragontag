@@ -133,6 +133,9 @@ def run_chain(kind: str, name: str, steps: list[tuple[str, Callable[[TaskCtx], A
                 ctx._total = None
                 ctx._item = f"[{i}/{total_steps}] {label}"
             ctx.log("started")
+            # Push the reset progress state immediately so the bar can't show
+            # the previous step's counters during the throttle window.
+            ctx._maybe_flush(force=True)
             try:
                 results[label] = fn(ctx)
                 ctx.log("finished")

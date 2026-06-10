@@ -81,13 +81,15 @@
        page while any job/scan/task is active. Polls /api/progress. -->
   <div x-data="progressBar()" x-init="poll()" x-show="active" x-cloak
        class="sticky top-[65px] z-40">
-    <div class="h-1 bg-[#1a1a1a] w-full overflow-hidden">
-      <div class="h-1 bg-[#c7f0c7] transition-all duration-500"
+    <div class="h-1.5 bg-[#1a1a1a] w-full overflow-hidden">
+      <div class="h-1.5 bg-[#c7f0c7] transition-all duration-500"
            :class="percent === null ? 'animate-pulse w-full opacity-60' : ''"
            :style="percent !== null ? 'width:' + percent + '%' : ''"></div>
     </div>
-    <div class="absolute right-2 top-1.5 px-2 py-0.5 bg-[#0c0c0c] border border-[#4a4a4a] text-[10px] font-mono text-[#c7f0c7] max-w-[60vw] truncate"
-         x-text="label"></div>
+    <div class="absolute right-2 top-2 px-2 py-0.5 bg-[#0c0c0c] border border-[#4a4a4a] text-[10px] font-mono max-w-[70vw] truncate flex items-center gap-2">
+      <span class="text-white font-semibold" x-show="percent !== null" x-text="percent + '%'"></span>
+      <span class="text-[#c7f0c7]" x-text="display"></span>
+    </div>
   </div>
 
   <main class="max-w-6xl mx-auto p-6">
@@ -134,7 +136,7 @@
     function progressBar() {
       return {
         active: false,
-        label: '',
+        display: '',
         percent: null,
         async poll() {
           if (!document.hidden) {
@@ -143,8 +145,13 @@
               if (r.ok && (r.headers.get('content-type') || '').includes('json')) {
                 const d = await r.json();
                 this.active = !!d.active;
-                this.label = d.label || '';
                 this.percent = (d.percent === undefined) ? null : d.percent;
+                // Build "Task (123/456) · current item · 3 queued" from the parts.
+                let parts = [d.label || ''];
+                if (d.total) parts[0] += ` (${d.current || 0}/${d.total})`;
+                if (d.item) parts.push(d.item);
+                if (d.queued) parts.push(`${d.queued} queued`);
+                this.display = parts.filter(Boolean).join(' · ');
               }
             } catch (e) { /* network hiccup — keep last state */ }
           }

@@ -29,9 +29,10 @@ from ..tagging.schema import TrackTags
 log = logging.getLogger(__name__)
 
 
-def organize_folder(folder_id: int) -> dict:
+def organize_folder(folder_id: int, ctx=None) -> dict:
     """Move all tracks in folder_id to their canonical paths.
 
+    ``ctx`` is an optional ``tasks.TaskCtx`` for progress reporting.
     Returns ``{"moved": N, "skipped": N, "errors": [...]}``.
     """
     moved = 0
@@ -48,7 +49,11 @@ def organize_folder(folder_id: int) -> dict:
             select(Track).where(Track.library_folder_id == folder_id)
         ).all()
 
-    for track in tracks:
+    if ctx:
+        ctx.progress(0, len(tracks))
+    for i, track in enumerate(tracks, start=1):
+        if ctx:
+            ctx.progress(i, len(tracks), item=Path(track.path).name)
         source_dirs.add(Path(track.path).parent)
         src = Path(track.path)
         if not src.exists():
@@ -85,6 +90,8 @@ def organize_folder(folder_id: int) -> dict:
         "removed_dirs": removed_dirs,
     }
     log.info("organize folder %d complete: %s", folder_id, summary)
+    if ctx:
+        ctx.log(f"Moved {moved}, skipped {skipped}, errors {len(errors)}, pruned {removed_dirs} empty dir(s)")
     return summary
 
 

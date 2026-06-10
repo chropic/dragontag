@@ -291,6 +291,34 @@
 </form>
 
 <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-3 mt-4 text-sm">
+  <h3 class="font-mono font-semibold">Scan filters</h3>
+  <p class="text-xs text-[#8a8a8a]">
+    Files matching any filter pattern (regex on filename) or inside an excluded directory are
+    silently skipped by the watcher, library scanner, and bulk re-tag.
+    Use one entry per line. Directory paths may start with <code class="text-[#cfcfcf]">!</code> (ignored) for SLSKD-style notation.
+  </p>
+  <div>
+    <label class="block text-[#8a8a8a] mb-1">
+      File filter patterns (regex, matched against filename)
+      {{ tip("Regex patterns matched against the filename. E.g. \\.ini$ excludes all .ini files, Thumbs\\.db$ excludes Thumbs.db. One pattern per line.") }}
+    </label>
+    <textarea name="scan_filter_patterns_raw" rows="4"
+              class="w-full font-mono text-xs p-2 bg-black border border-[#4a4a4a] text-[#cfcfcf] resize-y"
+              placeholder="\.ini$&#10;Thumbs\.db$&#10;\.DS_Store$">{{ settings.scan_filter_patterns | join('\n') }}</textarea>
+  </div>
+  <div>
+    <label class="block text-[#8a8a8a] mb-1">
+      Excluded directories (absolute paths)
+      {{ tip("Absolute directory paths to skip entirely. Files inside these directories are never scanned or ingested. You may prefix paths with ! (SLSKD style) — the ! is stripped automatically.") }}
+    </label>
+    <textarea name="scan_exclude_dirs_raw" rows="4"
+              class="w-full font-mono text-xs p-2 bg-black border border-[#4a4a4a] text-[#cfcfcf] resize-y"
+              placeholder="!/library/My Private Folder&#10;/library/Non-Music">{% for d in settings.scan_exclude_dirs %}!{{ d }}
+{% endfor %}</textarea>
+  </div>
+</div>
+
+<div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-3 mt-4 text-sm">
   <h3 class="font-mono font-semibold">Scan exemptions</h3>
   <p class="text-xs text-[#8a8a8a]">
     Files moved back to their original directory from the Changes page are exempted from the

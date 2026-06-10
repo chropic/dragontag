@@ -707,6 +707,8 @@ def settings_update(
     webhook_on_error: str | None = Form(None),
     max_recent_changes: int = Form(500),
     log_verbosity: int = Form(3),
+    scan_filter_patterns_raw: str = Form(""),
+    scan_exclude_dirs_raw: str = Form(""),
 ):
     """Persist a settings patch from the UI form.
 
@@ -757,6 +759,12 @@ def settings_update(
         "webhook_on_error": bool(webhook_on_error),
         "max_recent_changes": max_recent_changes,
         "log_verbosity": log_verbosity,
+        "scan_filter_patterns": [
+            ln.strip() for ln in scan_filter_patterns_raw.splitlines() if ln.strip()
+        ],
+        "scan_exclude_dirs": [
+            ln.strip().lstrip("!") for ln in scan_exclude_dirs_raw.splitlines() if ln.strip()
+        ],
     }
     store().update(patch)
     logsetup.apply(settings().log_verbosity)

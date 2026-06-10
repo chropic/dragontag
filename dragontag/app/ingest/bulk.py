@@ -16,6 +16,7 @@ import logging
 from pathlib import Path
 
 from ..config import settings
+from ..library.filters import is_path_excluded
 from .pipeline import SUPPORTED_EXTS, enqueue, submit
 
 log = logging.getLogger(__name__)
@@ -31,12 +32,15 @@ def enqueue_folder(source_path: Path, *, dry_run: bool | None = None) -> list[in
     if not source_path.exists() or not source_path.is_dir():
         raise ValueError(f"Not a directory: {source_path}")
 
-    exempt = set(settings().scan_exempt_paths)
+    cfg = settings()
+    exempt = set(cfg.scan_exempt_paths)
     job_ids: list[int] = []
     for p in sorted(source_path.rglob("*")):
         if not p.is_file() or p.suffix.lower() not in SUPPORTED_EXTS:
             continue
         if str(p) in exempt:
+            continue
+        if is_path_excluded(p, cfg.scan_filter_patterns, cfg.scan_exclude_dirs):
             continue
         job = enqueue(p, dry_run=dry_run)
         submit(job.id)

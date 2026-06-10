@@ -9,7 +9,20 @@
 {% block content %}
 <div class="max-w-2xl mx-auto">
 <h2 class="text-xl font-mono font-semibold mb-4">Settings</h2>
-<form method="post" action="/settings" class="space-y-4 text-sm">
+<form method="post" action="/settings" class="space-y-4 text-sm"
+      x-data="settingsForm()" x-init="init()"
+      @input="dirty = true" @change="dirty = true" @submit="dirty = false">
+
+  {# Sticky save button: follows the user down the page, glows red while
+     there are unsaved changes. #}
+  <div class="sticky top-[80px] z-30 flex justify-end items-center gap-3 pointer-events-none">
+    <span class="text-xs font-mono text-[#ffb4b4]" x-show="dirty" x-cloak>unsaved changes</span>
+    {% if saved %}<span class="text-[#c7f0c7] text-sm" x-show="!dirty">✓ Saved</span>{% endif %}
+    <button class="pointer-events-auto px-4 py-2 font-mono font-semibold transition-all duration-300"
+            :class="dirty
+              ? 'bg-[#ffb4b4] text-black shadow-[0_0_14px_rgba(255,90,90,0.9)] animate-pulse'
+              : 'bg-white text-black hover:bg-[#cfcfcf]'">Save settings</button>
+  </div>
 
   <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-3">
     <h3 class="font-mono font-semibold">Identification</h3>
@@ -116,7 +129,7 @@
     <label class="block">
       <span class="text-[#8a8a8a]">Multi-disc folder name</span>
       {{ tip("Folder name pattern wrapping each disc of a multi-disc release. {disc} expands to the 1-based disc number.") }}
-      <input name="multidisc_folder_template" value="{{ settings.multidisc_folder_template }}"
+      <input id="tpl_discfolder" name="multidisc_folder_template" value="{{ settings.multidisc_folder_template }}"
              class="mt-1 w-full p-1 bg-black border border-[#4a4a4a] font-mono">
     </label>
     <label class="block">
@@ -127,8 +140,9 @@
              class="mt-1 w-full p-1 bg-black border border-[#4a4a4a] font-mono">
     </label>
     <!-- Live preview -->
-    <div class="text-xs text-[#8a8a8a]">
-      Preview: <code id="tpl_preview" class="text-[#cfcfcf]"></code>
+    <div class="text-xs text-[#8a8a8a] space-y-0.5">
+      <div>Single disc: <code id="tpl_preview" class="text-[#cfcfcf]"></code></div>
+      <div>Multi-disc: <code id="tpl_preview_multi" class="text-[#cfcfcf]"></code></div>
     </div>
   </div>
 
@@ -178,21 +192,45 @@
     </h3>
     <p class="text-xs text-[#8a8a8a]">Checked fields will not be written to audio files.</p>
     {% set skipped = settings.skip_fields %}
+    {% set skip_field_tips = {
+      "acoustid_id": "AcoustID fingerprint UUID from acoustic identification. Lets other tools match the file without re-fingerprinting.",
+      "arranger": "Arranger credits from MusicBrainz work relationships (mostly classical/jazz).",
+      "artist_sort": "Sort-name variant of the artist (\"Beatles, The\"). Players use it for alphabetical ordering.",
+      "album_artist_sort": "Sort-name variant of the album artist, used for library ordering.",
+      "barcode": "Release barcode (UPC/EAN). Identifies the exact physical/digital edition.",
+      "catalog_number": "Record-label catalog number of the release (e.g. \"COL 480114 2\").",
+      "compilation": "iTunes-style flag marking various-artists compilations so players group them correctly.",
+      "composers": "Composer credits (mostly classical; also songwriting credits on pop releases).",
+      "conductor": "Conductor credits from MusicBrainz relationships.",
+      "disc": "Disc number within a multi-disc release.",
+      "disc_total": "Total number of discs in the release.",
+      "genres": "GENRE values derived from MusicBrainz community tags (filtered and capped per the Genre options).",
+      "isrcs": "International Standard Recording Codes — per-recording industry identifiers used for royalties/streaming matching.",
+      "labels": "Record label name(s) that issued the release.",
+      "language": "Language of the release's track listing (ISO code, e.g. eng).",
+      "lyricist": "Lyricist credits from MusicBrainz relationships.",
+      "mb_album_artist_ids": "MusicBrainz artist ID(s) of the album artist. Skipping MB IDs makes exact re-identification harder later.",
+      "mb_album_id": "MusicBrainz release ID — the strongest key for re-identifying the exact edition later. Also used by cover fetch.",
+      "mb_artist_ids": "MusicBrainz artist ID(s) of the track artist(s).",
+      "mb_release_group_id": "MusicBrainz release-group ID — groups all editions of the same album.",
+      "mb_releasetrack_id": "MusicBrainz track ID specific to this release's track list.",
+      "mb_track_id": "MusicBrainz recording ID — identifies the recording across all releases.",
+      "media": "Medium format of the release (CD, Vinyl, Digital Media …).",
+      "original_date": "Earliest release date of the release group — the album's true first release, not this edition's.",
+      "original_year": "Year portion of the original date. Many players sort by it.",
+      "release_country": "Country this edition was released in.",
+      "release_status": "Official / Promotion / Bootleg status of the release.",
+      "release_type": "Release-group type: Album, Single, EP, Compilation … Drives the foldering templates.",
+      "script": "Writing script of the track listing (Latn, Cyrl …).",
+      "track_total": "Total number of tracks on this disc."
+    } %}
     <div class="grid grid-cols-2 gap-1">
-      {% for field_name in [
-        "acoustid_id", "arranger", "artist_sort", "album_artist_sort",
-        "barcode", "catalog_number", "compilation", "composers",
-        "conductor", "disc", "disc_total", "genres", "isrcs",
-        "labels", "language", "lyricist", "mb_album_artist_ids",
-        "mb_album_id", "mb_artist_ids", "mb_release_group_id",
-        "mb_releasetrack_id", "mb_track_id", "media", "original_date",
-        "original_year", "release_country", "release_status",
-        "release_type", "script", "track_total"
-      ] %}
+      {% for field_name, field_tip in skip_field_tips.items() %}
       <label class="flex items-center gap-2">
         <input type="checkbox" name="skip_fields" value="{{ field_name }}"
                {% if field_name in skipped %}checked{% endif %}>
         <code class="text-xs">{{ field_name }}</code>
+        {{ tip(field_tip) }}
       </label>
       {% endfor %}
     </div>
@@ -245,12 +283,6 @@
     </div>
   </div>
 
-  <div class="flex items-center gap-4">
-    <button class="px-4 py-2 bg-white text-black hover:bg-[#cfcfcf] font-mono font-semibold">Save settings</button>
-    {% if saved %}
-    <span class="text-[#c7f0c7] text-sm">✓ Saved</span>
-    {% endif %}
-  </div>
 </form>
 
 <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-3 mt-4 text-sm">
@@ -293,33 +325,56 @@
 </div>
 
 <script>
+  function settingsForm() {
+    return {
+      dirty: false,
+      init() {
+        // Warn before leaving the page with unsaved edits. The submit handler
+        // clears `dirty` first, so saving never triggers the warning.
+        window.addEventListener('beforeunload', (e) => {
+          if (this.dirty) {
+            e.preventDefault();
+            e.returnValue = '';
+          }
+        });
+      }
+    }
+  }
+
   function insertToken(e, token) {
     const active = document.activeElement;
-    const inputs = [document.getElementById('tpl_single'), document.getElementById('tpl_multi')];
+    const inputs = [document.getElementById('tpl_single'), document.getElementById('tpl_multi'), document.getElementById('tpl_discfolder')];
     const target = inputs.includes(active) ? active : inputs[0];
     const start = target.selectionStart;
     const end = target.selectionEnd;
     target.value = target.value.slice(0, start) + token + target.value.slice(end);
     target.setSelectionRange(start + token.length, start + token.length);
+    target.dispatchEvent(new Event('input', { bubbles: true }));  // mark form dirty
     updatePreview();
   }
 
-  function updatePreview() {
-    const tpl = document.getElementById('tpl_single').value;
-    const example = tpl
-      .replace('{track:02d}', '01')
-      .replace('{track}', '1')
-      .replace('{disc}', '1')
-      .replace('{title}', 'Song Title')
-      .replace('{artist}', 'Artist Name')
-      .replace('{ext}', 'flac')
-      .replace('{tracktotal}', '12')
-      .replace('{disctotal}', '1');
-    document.getElementById('tpl_preview').textContent = example;
+  function fillTokens(tpl, vals) {
+    let out = tpl;
+    for (const [k, v] of Object.entries(vals)) out = out.replaceAll(k, v);
+    return out;
   }
 
-  document.getElementById('tpl_single').addEventListener('input', updatePreview);
-  document.getElementById('tpl_multi').addEventListener('input', updatePreview);
+  function updatePreview() {
+    const vals = {
+      '{track:02d}': '07', '{track}': '7', '{title}': 'Song Title',
+      '{artist}': 'Artist Name', '{ext}': 'flac', '{tracktotal}': '12',
+    };
+    const single = fillTokens(document.getElementById('tpl_single').value,
+                              { ...vals, '{disc}': '1', '{disctotal}': '1' });
+    const discVals = { ...vals, '{disc}': '2', '{disctotal}': '2' };
+    const discFolder = fillTokens(document.getElementById('tpl_discfolder').value, discVals);
+    const multi = discFolder + '/' + fillTokens(document.getElementById('tpl_multi').value, discVals);
+    document.getElementById('tpl_preview').textContent = single;
+    document.getElementById('tpl_preview_multi').textContent = multi;
+  }
+
+  ['tpl_single', 'tpl_multi', 'tpl_discfolder'].forEach(id =>
+    document.getElementById(id).addEventListener('input', updatePreview));
   updatePreview();
 </script>
 {% endblock %}

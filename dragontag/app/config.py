@@ -87,6 +87,10 @@ class UserSettings(BaseModel):
     genre_limit: int = 3
     # genre_casing: "title" (Title Case), "lower" (lowercase), "as-is" (raw MB tags)
     genre_casing: str = "title"
+    # genre_whitelist_enabled: filter MB community tags against the vendored
+    # canonical genre list (identify/genres.py) so junk like "billboard top
+    # 100" never lands in GENRE. Off = raw MB tags as before.
+    genre_whitelist_enabled: bool = True
     # skip_fields: list of TrackTags attribute names to omit when writing tags
     skip_fields: list[str] = Field(default_factory=list)
 

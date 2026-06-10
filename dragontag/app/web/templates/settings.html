@@ -148,6 +148,11 @@
 
   <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-2">
     <h3 class="font-mono font-semibold">Genre options</h3>
+    <label class="flex items-center gap-2">
+      <input type="checkbox" name="genre_whitelist_enabled" {% if settings.genre_whitelist_enabled %}checked{% endif %}>
+      Filter genres against canonical list
+      {{ tip("MusicBrainz genres are community tags, so junk like \"billboard top 100\" or \"seen live\" can outrank real genres. When on, tags are matched against a vendored list of ~1500 real genres; if none match, non-junk tags are kept as a fallback. Turn off to write raw MB tags.") }}
+    </label>
     <label class="block">
       <span class="text-[#8a8a8a]">Max genres (0 = no limit)</span>
       {{ tip("Caps how many GENRE values are written per track. MusicBrainz often returns long tail genres; 3 keeps things tidy.") }}

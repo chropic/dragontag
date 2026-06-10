@@ -680,6 +680,7 @@ def settings_update(
     watcher_enabled: str | None = Form(None),
     genre_limit: int = Form(3),
     genre_casing: str = Form("title"),
+    genre_whitelist_enabled: str | None = Form(None),
     skip_fields: list[str] = Form(default=[]),
     sep_ARTIST: str = Form(...),
     sep_album_artist: str = Form(...),
@@ -726,6 +727,7 @@ def settings_update(
         "watcher_enabled": bool(watcher_enabled),
         "genre_limit": genre_limit,
         "genre_casing": genre_casing,
+        "genre_whitelist_enabled": bool(genre_whitelist_enabled),
         "skip_fields": skip_fields,
         "separators": {
             **settings().separators.model_dump(),

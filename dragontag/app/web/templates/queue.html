@@ -1,12 +1,20 @@
 {% extends "base.html" %}
-{% block title %}dragontag | Review{% endblock %}
+{% block title %}dragontag | Queue{% endblock %}
 {% block content %}
-<h2 class="text-xl font-mono font-semibold mb-3">Review queue</h2>
+<div class="flex items-center justify-between mb-4">
+  <h2 class="text-xl font-mono font-semibold">Queue</h2>
+</div>
+
+{# ====================== Review section ====================== #}
+<div class="mb-8">
+  <h3 class="text-lg font-mono font-semibold mb-3">Needs review
+    {% if items %}<span class="text-xs px-2 py-0.5 bg-[#f2e5b5] text-black align-middle ml-1">{{ items|length }}</span>{% endif %}
+  </h3>
 
 {% if items %}
 <form method="post" action="/review/bulk-apply" id="review-bulk-form" class="mb-3 flex items-center gap-3 text-sm">
   <label class="flex items-center gap-2 text-[#8a8a8a]">
-    <input type="checkbox" id="review-select-all" onchange="document.querySelectorAll('input[name=job_ids]').forEach(c=>c.checked=this.checked)">
+    <input type="checkbox" id="review-select-all" onchange="document.querySelectorAll('input[name=job_ids][form=review-bulk-form]').forEach(c=>c.checked=this.checked)">
     Select all
   </label>
   <button type="submit" class="px-3 py-1 border border-[#c7f0c7] text-[#c7f0c7] hover:text-white hover:border-white"
@@ -232,8 +240,131 @@
   {% endif %}
 </div>
 {% else %}
-<p class="text-[#8a8a8a]">Review queue is empty.</p>
+<p class="text-[#8a8a8a]">Nothing needs review.</p>
 {% endfor %}
+</div>
+
+{# ====================== Jobs section ====================== #}
+<h3 class="text-lg font-mono font-semibold mb-3">Jobs</h3>
+
+<!-- Stats bar -->
+<div class="grid grid-cols-3 gap-4 mb-6">
+  <div class="bg-[#0c0c0c] border border-[#4a4a4a] p-3">
+    <p class="text-[#8a8a8a] text-xs font-mono uppercase tracking-widest mb-1">Pending</p>
+    <p class="font-mono font-bold text-xl">{{ pending }}</p>
+  </div>
+  <div class="bg-[#0c0c0c] border border-[#4a4a4a] p-3">
+    <p class="text-[#8a8a8a] text-xs font-mono uppercase tracking-widest mb-1">Done</p>
+    <p class="font-mono font-bold text-xl">{{ done_today }}</p>
+  </div>
+  <div class="bg-[#0c0c0c] border border-[#4a4a4a] p-3">
+    <p class="text-[#8a8a8a] text-xs font-mono uppercase tracking-widest mb-1">Errors</p>
+    <p class="font-mono font-bold text-xl {% if errors > 0 %}text-[#ffb4b4]{% endif %}">{{ errors }}</p>
+  </div>
+</div>
+
+<!-- Bulk controls -->
+<div class="flex gap-2 mb-4 items-center flex-wrap">
+  <form id="jobs-bulk-form" method="post" action="/jobs/clear-selected" class="inline flex items-center gap-2"
+        onsubmit="return confirm('Delete the selected job rows? In-flight jobs are skipped.');">
+    <label class="flex items-center gap-1 text-sm text-[#8a8a8a]">
+      <input type="checkbox" id="jobs-select-all"
+             onchange="document.querySelectorAll('input[name=job_ids][form=jobs-bulk-form]').forEach(c=>c.checked=this.checked)">
+      Select all
+    </label>
+    <button class="px-3 py-1 border border-[#ffb4b4] text-sm text-[#ffb4b4] hover:text-white hover:border-white">Clear selected</button>
+  </form>
+  <form method="post" action="/jobs/cancel-queued" class="inline">
+    <button class="px-3 py-1 border border-[#4a4a4a] text-sm text-[#cfcfcf] hover:text-white hover:border-white">Cancel all queued</button>
+  </form>
+  <form method="post" action="/jobs/clear-completed" class="inline">
+    <button class="px-3 py-1 border border-[#4a4a4a] text-sm text-[#cfcfcf] hover:text-white hover:border-white">Clear completed</button>
+  </form>
+  <form method="post" action="/jobs/clear-errors" class="inline">
+    <button class="px-3 py-1 border border-[#ffb4b4] text-sm text-[#ffb4b4] hover:text-white hover:border-white">Clear errors</button>
+  </form>
+  <form method="post" action="/jobs/clear-needs-review" class="inline"
+        onsubmit="return confirm('Clear the entire review queue? This cannot be undone.');">
+    <button class="px-3 py-1 border border-[#f2e5b5] text-sm text-[#f2e5b5] hover:text-white hover:border-white">Clear Review Queue</button>
+  </form>
+  <form method="post" action="/jobs/clear-all" class="inline ml-auto"
+        onsubmit="return confirm('Delete every non-active job? This removes done, error, skipped, and needs-review rows.');">
+    <button class="px-3 py-1 border border-[#ffb4b4] text-sm text-[#ffb4b4] hover:text-white hover:border-white">Clear all</button>
+  </form>
+</div>
+
+<!-- Job table -->
+<div class="bg-[#0c0c0c] border border-[#4a4a4a] p-4">
+  <table class="w-full text-sm">
+    <thead class="text-[#8a8a8a] border-b border-[#4a4a4a]">
+      <tr>
+        <th class="text-left py-2 pr-2 w-6"></th>
+        <th class="text-left py-2 pr-3 w-10">#</th>
+        <th class="text-left pr-3">File</th>
+        <th class="text-left pr-3">Status</th>
+        <th class="text-left pr-3">Score</th>
+        <th class="text-left pr-3">Updated</th>
+        <th class="text-left">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for j in jobs %}
+      <tr class="border-b border-[#4a4a4a] hover:bg-[#131313]">
+        <td class="py-2 pr-2"><input type="checkbox" name="job_ids" value="{{ j.id }}" form="jobs-bulk-form"></td>
+        <td class="py-2 pr-3 text-[#8a8a8a] font-mono text-xs">{{ j.id }}</td>
+        <td class="py-2 pr-3 truncate max-w-xs">
+          <a class="text-[#cfcfcf] hover:underline" href="/jobs/{{ j.id }}">{{ j.original_name }}</a>
+        </td>
+        <td class="py-2 pr-3">
+          <span class="px-2 py-0.5 text-xs
+            {% if j.status.value == 'done' %}bg-[#c7f0c7] text-black
+            {% elif j.status.value == 'error' %}bg-[#ffb4b4] text-black
+            {% elif j.status.value == 'needs_review' %}bg-[#f2e5b5] text-black
+            {% elif j.status.value == 'skipped' %}bg-[#2a2a2a] text-[#8a8a8a]
+            {% else %}bg-[#131313]{% endif %}">
+            {{ j.status.value }}
+          </span>
+        </td>
+        <td class="py-2 pr-3 text-[#8a8a8a]">
+          {% if j.score is not none %}{{ "%.2f"|format(j.score) }}{% endif %}
+        </td>
+        <td class="py-2 pr-3 text-[#8a8a8a] text-xs">{{ format_local(j.updated_at) }}</td>
+        <td class="py-2">
+          <div class="flex gap-2">
+            {% if j.status.value == 'queued' %}
+            <form method="post" action="/jobs/{{ j.id }}/cancel" class="inline">
+              <button class="text-xs text-[#8a8a8a] hover:text-[#ffb4b4]">cancel</button>
+            </form>
+            {% endif %}
+            {% if j.status.value in ['done', 'error', 'skipped'] %}
+            <form method="post" action="/jobs/{{ j.id }}/requeue" class="inline">
+              <button class="text-xs text-[#8a8a8a] hover:text-white">requeue</button>
+            </form>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      <tr id="log-{{ j.id }}" class="hidden border-b border-[#4a4a4a]">
+        <td colspan="7" class="p-0"></td>
+      </tr>
+    {% else %}
+      <tr><td class="py-4 text-[#8a8a8a]" colspan="7">No jobs yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  {% if total_pages > 1 %}
+  <div class="flex items-center gap-4 mt-3 text-sm text-[#8a8a8a]">
+    {% if page > 1 %}
+    <a href="/queue?page={{ page - 1 }}" class="hover:text-white">&larr; Prev</a>
+    {% endif %}
+    <span>Page {{ page }} / {{ total_pages }}</span>
+    {% if page < total_pages %}
+    <a href="/queue?page={{ page + 1 }}" class="hover:text-white">Next &rarr;</a>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
 
 <script>
 window.addEventListener('pageshow', function(e) {

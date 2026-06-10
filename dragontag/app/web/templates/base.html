@@ -56,9 +56,7 @@
 
     {% set nav_items = [
       ('/', 'dashboard', 'Dashboard'),
-      ('/review', 'review', 'Review'),
       ('/library', 'library', 'Library'),
-      ('/jobs', 'jobs', 'Jobs'),
       ('/changes', 'changes', 'Changes'),
       ('/schedule', 'schedule', 'Schedule'),
       ('/docs', 'docs', 'Docs'),
@@ -72,7 +70,13 @@
       {% endif %}
     {% endfor %}
 
-    <form action="/logout" method="post" class="ml-auto">
+    {# Queue sits apart from the main nav, right next to Log out. #}
+    {% if active_page == 'queue' %}
+      <a href="/queue" class="ml-auto text-white font-bold text-sm border-b-2 border-white pb-0.5">Queue</a>
+    {% else %}
+      <a href="/queue" class="ml-auto text-[#cfcfcf] hover:text-white text-sm">Queue</a>
+    {% endif %}
+    <form action="/logout" method="post">
       <button class="text-[#8a8a8a] hover:text-white text-sm">Log out</button>
     </form>
   </nav>

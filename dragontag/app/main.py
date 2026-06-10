@@ -7,10 +7,11 @@ backing the HTMX-driven UI.
 Routes are grouped:
 
 * ``/login`` / ``/logout``           — argon2-backed session auth
-* ``/`` and ``/jobs/...``            — dashboard and per-job detail
+* ``/`` and ``/jobs/{id}``           — dashboard and per-job detail
 * ``/upload``                        — multipart file upload, kicks pipeline
-* ``/review`` and ``/review/...``    — review queue (candidate picker,
-                                       conflict resolver)
+* ``/queue`` and ``/review/...``     — unified queue page (review candidate
+                                       picker, conflict resolver, job list);
+                                       bare /review and /jobs redirect here
 * ``/settings``                      — UI-editable runtime settings
 """
 from __future__ import annotations
@@ -324,11 +325,16 @@ async def upload(request: Request, _: None = Depends(require_auth), files: list[
     return RedirectResponse("/", status_code=303)
 
 
-@app.get("/jobs", response_class=HTMLResponse)
-def jobs_page(request: Request, _: None = Depends(require_auth), page: int = 1):
-    """Full job queue page with all controls."""
+@app.get("/queue", response_class=HTMLResponse)
+def queue_page(request: Request, _: None = Depends(require_auth), page: int = 1):
+    """Unified queue page: review items on top, the full job list below."""
     page = max(1, page)
     with session() as s:
+        items = s.exec(
+            select(Job)
+            .where(Job.status == JobStatus.needs_review)
+            .order_by(Job.updated_at.desc())
+        ).all()
         total = s.exec(select(func.count(Job.id))).one()
         jobs = s.exec(
             select(Job).order_by(Job.updated_at.desc())
@@ -340,16 +346,24 @@ def jobs_page(request: Request, _: None = Depends(require_auth), page: int = 1):
         done_today = s.exec(select(func.count(Job.id)).where(Job.status == JobStatus.done)).one()
         errors = s.exec(select(func.count(Job.id)).where(Job.status == JobStatus.error)).one()
     total_pages = max(1, (total + _PER_PAGE - 1) // _PER_PAGE)
-    return templates.TemplateResponse(request, "jobs.html", {
+    return templates.TemplateResponse(request, "queue.html", {
         "request": request,
+        "items": items,
         "jobs": jobs,
         "page": page,
         "total_pages": total_pages,
         "pending": pending,
         "done_today": done_today,
         "errors": errors,
-        "active_page": "jobs",
+        "active_page": "queue",
     })
+
+
+@app.get("/jobs", response_class=HTMLResponse)
+def jobs_page(request: Request, page: int = 1):
+    """Legacy URL — the Jobs page merged into /queue."""
+    suffix = f"?page={page}" if page > 1 else ""
+    return RedirectResponse(f"/queue{suffix}", status_code=308)
 
 
 @app.post("/jobs/clear-completed")
@@ -359,7 +373,7 @@ def jobs_clear_completed(request: Request, _: None = Depends(require_auth)):
         for r in rows:
             s.delete(r)
         s.commit()
-    return _toast_response("/jobs", f"Cleared {len(rows)} completed job(s).")
+    return _toast_response("/queue", f"Cleared {len(rows)} completed job(s).")
 
 
 @app.post("/jobs/clear-errors")
@@ -369,7 +383,7 @@ def jobs_clear_errors(request: Request, _: None = Depends(require_auth)):
         for r in rows:
             s.delete(r)
         s.commit()
-    return _toast_response("/jobs", f"Cleared {len(rows)} error job(s).")
+    return _toast_response("/queue", f"Cleared {len(rows)} error job(s).")
 
 
 @app.post("/jobs/clear-all")
@@ -381,7 +395,7 @@ def jobs_clear_all(request: Request, _: None = Depends(require_auth)):
         for r in rows:
             s.delete(r)
         s.commit()
-    return _toast_response("/jobs", f"Cleared {len(rows)} job(s).")
+    return _toast_response("/queue", f"Cleared {len(rows)} job(s).")
 
 
 @app.post("/jobs/clear-selected")
@@ -404,7 +418,7 @@ def jobs_clear_selected(
                 s.delete(r)
                 deleted += 1
         s.commit()
-    return _toast_response("/jobs", f"Cleared {deleted} job(s).")
+    return _toast_response("/queue", f"Cleared {deleted} job(s).")
 
 
 @app.post("/jobs/clear-needs-review")
@@ -414,7 +428,7 @@ def jobs_clear_needs_review(request: Request, _: None = Depends(require_auth)):
         for r in rows:
             s.delete(r)
         s.commit()
-    return _toast_response("/jobs", f"Cleared {len(rows)} needs-review job(s).")
+    return _toast_response("/queue", f"Cleared {len(rows)} needs-review job(s).")
 
 
 @app.post("/jobs/cancel-queued")
@@ -425,7 +439,7 @@ def jobs_cancel_queued(request: Request, _: None = Depends(require_auth)):
             r.status = JobStatus.skipped
             s.add(r)
         s.commit()
-    return _toast_response("/jobs", f"Cancelled {len(rows)} queued job(s).")
+    return _toast_response("/queue", f"Cancelled {len(rows)} queued job(s).")
 
 
 @app.post("/jobs/{job_id}/cancel")
@@ -437,7 +451,7 @@ def job_cancel(job_id: int, request: Request, _: None = Depends(require_auth)):
         job.status = JobStatus.skipped
         s.add(job)
         s.commit()
-    return RedirectResponse("/jobs", status_code=303)
+    return RedirectResponse("/queue", status_code=303)
 
 
 @app.get("/jobs/{job_id}", response_class=HTMLResponse)
@@ -446,7 +460,7 @@ def job_detail(job_id: int, request: Request, _: None = Depends(require_auth)):
         job = s.get(Job, job_id)
         if not job:
             raise HTTPException(404)
-    return templates.TemplateResponse(request, "job_detail.html", {"request": request, "job": job, "active_page": "jobs"})
+    return templates.TemplateResponse(request, "job_detail.html", {"request": request, "job": job, "active_page": "queue"})
 
 
 @app.post("/jobs/{job_id}/requeue")
@@ -486,14 +500,9 @@ def job_log(job_id: int, request: Request, _: None = Depends(require_auth)):
 
 
 @app.get("/review", response_class=HTMLResponse)
-def review(request: Request, _: None = Depends(require_auth)):
-    with session() as s:
-        items = s.exec(
-            select(Job)
-            .where(Job.status == JobStatus.needs_review)
-            .order_by(Job.updated_at.desc())
-        ).all()
-    return templates.TemplateResponse(request, "review.html", {"request": request, "items": items, "active_page": "review"})
+def review(request: Request):
+    """Legacy URL — the Review page merged into /queue."""
+    return RedirectResponse("/queue", status_code=308)
 
 
 @app.post("/review/bulk-apply")
@@ -520,7 +529,7 @@ async def review_bulk_apply(
                 applied += 1
             except Exception:
                 pass
-    return _toast_response("/review", f"Applied {applied} job(s).")
+    return _toast_response("/queue", f"Applied {applied} job(s).")
 
 
 @app.post("/review/{job_id}/apply")
@@ -564,7 +573,7 @@ async def review_apply(
     rec = rec or manual_recording_id.strip()
     rel = rel or manual_release_id.strip()
     if not rec or not rel:
-        return _toast_response("/review", "Pick a candidate or enter MB ids first.", "error")
+        return _toast_response("/queue", "Pick a candidate or enter MB ids first.", "error")
 
     with session() as s:
         job = s.get(Job, job_id)
@@ -593,7 +602,7 @@ async def review_apply(
 
         from .ingest.pipeline import _commit_tag_path
         _commit_tag_path(s, job, Path(job.source_path), tags, score=job.score or 1.0)
-    return RedirectResponse("/review", status_code=303)
+    return RedirectResponse("/queue", status_code=303)
 
 
 @app.post("/review/{job_id}/resolve_conflict")
@@ -615,7 +624,7 @@ def resolve_conflict(
             job.status = JobStatus.skipped
             s.add(job)
             s.commit()
-            return RedirectResponse("/review", status_code=303)
+            return RedirectResponse("/queue", status_code=303)
 
         if action == "replace":
             res = move(src, dest, overwrite=True)
@@ -628,7 +637,7 @@ def resolve_conflict(
             job.destination_path = str(dest)
         s.add(job)
         s.commit()
-    return RedirectResponse("/review", status_code=303)
+    return RedirectResponse("/queue", status_code=303)
 
 
 # ---------------------------------------------------------------------------

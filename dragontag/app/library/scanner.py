@@ -32,14 +32,14 @@ def scan_folder(folder_path: Path, folder_id: int, ctx=None) -> int:
     reporting. Returns the count of files processed.
     """
     cfg = settings()
-    exempt = set(cfg.scan_exempt_paths)
     files = [
         p
         for p in sorted(folder_path.rglob("*"))
         if p.is_file()
         and p.suffix.lower() in SUPPORTED_EXTS
-        and str(p) not in exempt
-        and not is_path_excluded(p, cfg.scan_filter_patterns, cfg.scan_exclude_dirs)
+        and not is_path_excluded(
+            p, cfg.scan_filter_patterns, cfg.scan_exclude_dirs, cfg.scan_exclude_files
+        )
     ]
     if ctx:
         ctx.log(f"Scanning {folder_path} — {len(files)} file(s)")
@@ -48,6 +48,8 @@ def scan_folder(folder_path: Path, folder_id: int, ctx=None) -> int:
     count = 0
     batch: list[Path] = []
     for p in files:
+        if ctx:
+            ctx.check_cancelled()
         batch.append(p)
         if len(batch) >= _BATCH_SIZE:
             _flush_batch(batch, folder_id)

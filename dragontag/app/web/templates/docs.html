@@ -1,12 +1,11 @@
 {% extends "base.html" %}
-{% block title %}dragontag | User manual{% endblock %}
+{% block title %}dragontag | Docs{% endblock %}
 {% block content %}
 <div class="max-w-3xl mx-auto space-y-8">
 <div class="flex items-center justify-between mb-2">
   <h2 class="text-xl font-mono font-semibold">User manual</h2>
   <span class="text-xs">
     <a href="/api-docs" class="px-3 py-1 border border-[#4a4a4a] text-[#cfcfcf] hover:text-white hover:border-white">API reference (Swagger)</a>
-    <a href="/openapi.json" class="ml-1 px-3 py-1 border border-[#4a4a4a] text-[#cfcfcf] hover:text-white hover:border-white">openapi.json</a>
   </span>
 </div>
 <p class="text-[#8a8a8a] text-sm">Everything you need to know to drive dragontag day-to-day. Reference material (env vars, tokens, payloads) is at the bottom.</p>
@@ -77,13 +76,13 @@ Drop file  →  Read existing tags + filename clues
     <li><strong>Skip fields</strong> — checkbox grid: any checked field is omitted at write time across every format.</li>
     <li><strong>Webhooks</strong> — Discord-compatible URL with on-done / on-error toggles and a Test button.</li>
     <li><strong>Maintenance</strong> — how many Changes-page entries to keep (<code>0</code> = unlimited) and a 0–4 <strong>log verbosity</strong> slider (silent / errors / warnings / info / debug) applied immediately on save.</li>
-    <li><strong>Scan filters</strong> — two lists that exclude files/directories from all scan, ingest, and bulk-retag operations:
+    <li><strong>Scan filters</strong> — three lists that exclude files/directories from all scan, ingest, and bulk-retag operations. A <strong>Clear all scan filters</strong> button (with confirmation) empties them in one go.
       <ul class="list-disc list-inside ml-6 mt-1 space-y-1">
         <li><strong>File filter patterns</strong> — one regex per line, matched against filenames. E.g. <code>\.ini$</code> skips all <code>.ini</code> files; <code>Thumbs\.db$</code> skips <code>Thumbs.db</code>.</li>
-        <li><strong>Excluded directories</strong> — one absolute path per line. Files inside these directories are never scanned or ingested. You may prefix paths with <code>!</code> (SLSKD style) — the <code>!</code> is stripped on save.</li>
+        <li><strong>Excluded directories</strong> — one absolute path per line. Files inside these directories are never scanned or ingested.</li>
+        <li><strong>Excluded files</strong> — one absolute file path per line. Files returned to their original directory via "Move back" are added here automatically so they aren't immediately re-ingested; you can also edit the list by hand.</li>
       </ul>
     </li>
-    <li><strong>Scan exemptions</strong> — files returned to their original directory via "Move back" are listed here and skipped by the watcher, scans and bulk re-tags until cleared.</li>
     <li><strong>Backup &amp; restore</strong> — see §10.</li>
   </ul>
 </section>
@@ -130,7 +129,7 @@ Drop file  →  Read existing tags + filename clues
 
 <section id="jobs" class="space-y-3">
   <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">7. Queue — jobs section</h3>
-  <p class="text-sm text-[#cfcfcf]">The jobs section of the Queue page shows every queued / processed file with pagination and per-row cancel/requeue. Background work — library scans, batches, lyrics/cover fetches and scheduled runs — also appears here with a kind badge, a persistent log, and <code>n/total</code> progress. A thin progress line under the nav (visible on every page) shows the percentage, item counts and the file currently being processed. Bulk controls:</p>
+  <p class="text-sm text-[#cfcfcf]">The jobs section of the Queue page shows every queued / processed file with pagination and per-row cancel/requeue. Background work — library scans, batches, lyrics/cover fetches and scheduled runs — also appears here with a kind badge, a persistent log, and <code>n/total</code> progress. A running task can be stopped from its row (or the <em>stop</em> control on the progress line); work done so far is kept and the job is marked skipped. A thin progress line under the nav (visible on every page) shows the percentage, item counts and the file currently being processed. Bulk controls:</p>
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
     <li><strong>Cancel all queued</strong> — mark every queued (not-yet-started) job as skipped.</li>
     <li><strong>Clear completed / errors</strong> — delete rows of that status.</li>
@@ -144,7 +143,7 @@ Drop file  →  Read existing tags + filename clues
   <p class="text-sm text-[#cfcfcf]">Every pipeline tag-write records a full pre-write snapshot. From the Changes page you can:</p>
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
     <li><strong>Revert</strong> — restore the original tags in place and remove the <code>cover.jpg</code> dragontag created. The job can be requeued afterwards to re-tag.</li>
-    <li><strong>Move back</strong> — return the file to its pre-pipeline directory. The restored path is automatically added to the scan exemptions so the watcher doesn't immediately re-ingest it.</li>
+    <li><strong>Move back</strong> — return the file to its pre-pipeline directory. The restored path is automatically added to the excluded files (Settings → Scan filters) so the watcher doesn't immediately re-ingest it.</li>
     <li><strong>Clear all</strong> — wipe the audit log (files are untouched, but revert/move-back is then no longer possible for those entries).</li>
   </ul>
   <p class="text-sm text-[#8a8a8a]">Retention is configurable in Settings → Maintenance (default 500, <code>0</code> = unlimited).</p>

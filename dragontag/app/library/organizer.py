@@ -53,6 +53,7 @@ def organize_folder(folder_id: int, ctx=None) -> dict:
         ctx.progress(0, len(tracks))
     for i, track in enumerate(tracks, start=1):
         if ctx:
+            ctx.check_cancelled()
             ctx.progress(i, len(tracks), item=Path(track.path).name)
         source_dirs.add(Path(track.path).parent)
         src = Path(track.path)

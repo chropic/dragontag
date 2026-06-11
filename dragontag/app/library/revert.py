@@ -61,7 +61,7 @@ def revert_change(change_id: int) -> tuple[bool, str]:
 def move_back(change_id: int) -> tuple[bool, str]:
     """Move a changed file back to its pre-pipeline directory.
 
-    The restored path is added to ``settings().scan_exempt_paths`` so the
+    The restored path is added to the ``scan_exclude_files`` filter list so the
     watcher / scanner / bulk-retag don't immediately re-ingest it (the original
     location is often the watched drop folder).
     """
@@ -87,12 +87,12 @@ def move_back(change_id: int) -> tuple[bool, str]:
         except Exception as e:  # noqa: BLE001 - surface any failure to the user
             return False, f"Move back failed: {e}"
 
-        # Exempt the restored path from future automatic scans/ingests.
-        exempt = list(settings().scan_exempt_paths)
-        if str(dest) not in exempt:
-            exempt.append(str(dest))
+        # Exclude the restored path from future automatic scans/ingests.
+        excluded = list(settings().scan_exclude_files)
+        if str(dest) not in excluded:
+            excluded.append(str(dest))
             # FIFO cap so the list can't grow without bound.
-            store().update({"scan_exempt_paths": exempt[-500:]})
+            store().update({"scan_exclude_files": excluded[-500:]})
 
         track = s.exec(select(Track).where(Track.path == str(change.file_path))).first()
         if track:

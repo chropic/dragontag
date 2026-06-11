@@ -36,11 +36,12 @@ def is_path_excluded(
                 return True
         except re.error:
             log.debug("scan_filter_patterns: invalid regex %r (skipped)", raw)
-    resolved = str(p.resolve())
-    if exclude_files and (str(p) in exclude_files or resolved in exclude_files):
+    resolved = p.resolve()
+    resolved_str = str(resolved)
+    if exclude_files and (str(p) in exclude_files or resolved_str in exclude_files):
         return True
     for d in exclude_dirs:
-        d = d.rstrip("/\\")
-        if resolved == d or resolved.startswith(d + "/") or resolved.startswith(d + "\\"):
+        resolved_dir = Path(d.rstrip("/\\")).resolve()
+        if resolved == resolved_dir or resolved.is_relative_to(resolved_dir):
             return True
     return False

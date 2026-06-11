@@ -336,6 +336,12 @@
               <button class="text-xs text-[#8a8a8a] hover:text-[#ffb4b4]">cancel</button>
             </form>
             {% endif %}
+            {% if j.status.value == 'running' %}
+            <form method="post" action="/jobs/{{ j.id }}/cancel" class="inline"
+                  onsubmit="return confirm('Stop this task? Work done so far is kept.');">
+              <button class="text-xs text-[#8a8a8a] hover:text-[#ffb4b4]">stop</button>
+            </form>
+            {% endif %}
             {% if j.status.value in ['done', 'error', 'skipped'] %}
             <form method="post" action="/jobs/{{ j.id }}/requeue" class="inline">
               <button class="text-xs text-[#8a8a8a] hover:text-white">requeue</button>

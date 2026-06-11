@@ -38,12 +38,12 @@ High-confidence matches flow through completely hands-free. Everything else land
 | **Backup / restore** | One-click versioned tarball of the DB, settings, password hash and AcoustID key; validated restore from the UI or a CLI fallback |
 | **Webhook notifications** | Discord-compatible webhook fires on job completion or error |
 | **Universal progress bar** | Determinate progress line under the nav on every page: percentage, item counts and the file currently being processed |
-| **Change history + revert** | Every pipeline tag-write is recorded; the `/changes` page lists recent changes, can revert a file's tags in place, or move the file back to its original directory (with automatic scan exemption). Retention is configurable |
+| **Change history + revert** | Every pipeline tag-write is recorded; the `/changes` page lists recent changes, can revert a file's tags in place, or move the file back to its original directory (auto-added to the excluded-files scan filter). Retention is configurable |
 | **Batch operations** | Organize batch (organize + fix disc folders + normalize filenames + extract covers + prune junk + find duplicates + find missing tracks), Re-tag batch (validate tags + advisories + ReplayGain + full pipeline), and the Nuclear option (everything) — each one chained job with step-by-step progress |
 | **Library actions** | Twelve individual actions (fetch lyrics/covers, extract covers, ReplayGain, verify integrity, validate tags, fix disc folders, normalize filenames, find duplicates, prune junk, find missing tracks, tag advisories) — run one, or multi-select several to queue as one sequential job |
 | **Incomplete albums tab** | "Find missing tracks" persists results: albums with fewer local tracks than the MusicBrainz total are listed with the missing titles, MB links and per-row dismiss |
 | **Genre junk filter** | MusicBrainz community tags are matched against a vendored canonical genre list (~1500 entries), killing junk like "billboard top 100"; non-junk tags survive as a fallback when nothing matches. Toggleable in Settings |
-| **Scan filters** | Configurable regex patterns to exclude files by filename (e.g. `\.ini$`, `Thumbs\.db$`) and directory exclusion lists (absolute paths, SLSKD-style `!` prefix supported) — applied to the watcher, library scanner, and bulk re-tag |
+| **Scan filters** | Regex patterns to exclude files by filename (e.g. `\.ini$`, `Thumbs\.db$`), excluded directories, and excluded files (auto-populated by "Move back", hand-editable) — applied to the watcher, library scanner, and bulk re-tag; clearable in one click |
 | **Log verbosity** | 0–4 slider in Settings (silent / errors / warnings / info / debug), applied at runtime |
 | **Smart formatting** | Title Case, qualifier parenthesization ("Song Live" → "Song (Live)"), grammar correction (ALL-CAPS + contractions + possessives) |
 | **Library table** | Column sorting + standard pagination (10 / 25 / 50 / 100 / 200); explicit advisory badge on each track row |
@@ -126,8 +126,8 @@ Everything below is editable live from the **Settings** page and written atomica
 - Release-group cover fallback on/off (default **off**) — when on, a release with no Cover Art Archive image of its own borrows the release-group cover (shared across editions); left off to prevent the same art landing on different releases
 - Discord webhook URL, `on_done` and `on_error` toggles
 - Dry-run mode toggle (global default; Library actions also have per-run checkboxes)
-- Scan filter patterns (regex, matched against filename) and excluded directories (absolute paths, SLSKD-style `!` prefix accepted) — both applied to the watcher, scanner and bulk re-tag
-- Recent-changes retention cap (`0` = unlimited) and scan-exemption management
+- Scan filters: filter patterns (regex, matched against filename), excluded directories and excluded files (absolute paths) — all applied to the watcher, scanner and bulk re-tag, with a clear-all button
+- Recent-changes retention cap (`0` = unlimited)
 - Log verbosity 0–4 (silent / errors / warnings / info / debug)
 - Backup download and validated restore
 - MusicBrainz user-agent and server (for self-hosted mirrors)

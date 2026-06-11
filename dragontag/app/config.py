@@ -160,19 +160,18 @@ class UserSettings(BaseModel):
     # How many FileChange audit rows to keep (pruned oldest-first on insert).
     max_recent_changes: int = Field(default=500, ge=0)
 
-    # Absolute file paths the watcher / scanner / bulk-retag must skip.
-    # Populated automatically when a change is "moved back" to its original
-    # directory so the file isn't immediately re-ingested.
-    scan_exempt_paths: list[str] = Field(default_factory=list)
-
     # ----- scan filters -----
     # Regex patterns matched against filenames (not full paths). Files whose
     # names match any pattern are excluded from all scan/ingest operations.
     # Example: ["\.ini$", "Thumbs\.db$", "\.DS_Store$"]
     scan_filter_patterns: list[str] = Field(default_factory=list)
-    # Directories to exclude from all scan/ingest operations. Stored as
-    # absolute paths (without the leading "!" the UI prepends for readability).
+    # Directories to exclude from all scan/ingest operations, as absolute paths.
     scan_exclude_dirs: list[str] = Field(default_factory=list)
+    # Absolute file paths excluded from all scan/ingest operations. Edited in
+    # the UI like the other filter lists, and also populated automatically when
+    # a change is "moved back" to its original directory so the file isn't
+    # immediately re-ingested.
+    scan_exclude_files: list[str] = Field(default_factory=list)
 
     # ----- logging -----
     # 0=silent, 1=errors, 2=warnings, 3=info, 4=debug. Applied at runtime by
@@ -287,9 +286,19 @@ class _Store:
         """
         if self._settings_path.exists():
             try:
-                return UserSettings.model_validate_json(
-                    self._settings_path.read_text("utf-8")
-                )
+                data = json.loads(self._settings_path.read_text("utf-8"))
+                # Migration: scan_exempt_paths (≤0.8) was merged into the scan
+                # filters as scan_exclude_files.
+                legacy = data.pop("scan_exempt_paths", None)
+                if legacy:
+                    files = data.get("scan_exclude_files") or []
+                    data["scan_exclude_files"] = files + [
+                        p for p in legacy if p not in files
+                    ]
+                u = UserSettings.model_validate(data)
+                if legacy:
+                    self._save(u)
+                return u
             except Exception:
                 pass
         u = UserSettings()

@@ -33,14 +33,13 @@ def enqueue_folder(source_path: Path, *, dry_run: bool | None = None) -> list[in
         raise ValueError(f"Not a directory: {source_path}")
 
     cfg = settings()
-    exempt = set(cfg.scan_exempt_paths)
     job_ids: list[int] = []
     for p in sorted(source_path.rglob("*")):
         if not p.is_file() or p.suffix.lower() not in SUPPORTED_EXTS:
             continue
-        if str(p) in exempt:
-            continue
-        if is_path_excluded(p, cfg.scan_filter_patterns, cfg.scan_exclude_dirs):
+        if is_path_excluded(
+            p, cfg.scan_filter_patterns, cfg.scan_exclude_dirs, cfg.scan_exclude_files
+        ):
             continue
         job = enqueue(p, dry_run=dry_run)
         submit(job.id)

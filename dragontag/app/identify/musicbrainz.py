@@ -55,7 +55,7 @@ def _ensure_configured() -> None:
         from importlib.metadata import version as _pkg_version
         _version = _pkg_version("dragontag")
     except Exception:
-        _version = "0.1.5"
+        _version = "0.9.0"
     mb.set_useragent("dragontag", _version, s.musicbrainz_user_agent)
     mb.set_hostname(s.musicbrainz_server)
     mb.set_rate_limit(True)

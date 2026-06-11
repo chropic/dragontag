@@ -57,10 +57,11 @@
     {% set nav_items = [
       ('/', 'dashboard', 'Dashboard'),
       ('/library', 'library', 'Library'),
+      ('/queue', 'queue', 'Queue'),
       ('/changes', 'changes', 'Changes'),
       ('/schedule', 'schedule', 'Schedule'),
-      ('/docs', 'docs', 'Docs'),
       ('/settings', 'settings', 'Settings'),
+      ('/docs', 'docs', 'Docs'),
     ] %}
     {% for href, page_key, label in nav_items %}
       {% if active_page == page_key %}
@@ -70,13 +71,7 @@
       {% endif %}
     {% endfor %}
 
-    {# Queue sits apart from the main nav, right next to Log out. #}
-    {% if active_page == 'queue' %}
-      <a href="/queue" class="ml-auto text-white font-bold text-sm border-b-2 border-white pb-0.5">Queue</a>
-    {% else %}
-      <a href="/queue" class="ml-auto text-[#cfcfcf] hover:text-white text-sm">Queue</a>
-    {% endif %}
-    <form action="/logout" method="post">
+    <form action="/logout" method="post" class="ml-auto">
       <button class="text-[#8a8a8a] hover:text-white text-sm">Log out</button>
     </form>
   </nav>
@@ -93,6 +88,8 @@
     <div class="absolute right-2 top-2 px-2 py-0.5 bg-[#0c0c0c] border border-[#4a4a4a] text-[10px] font-mono max-w-[70vw] truncate flex items-center gap-2">
       <span class="text-white font-semibold" x-show="percent !== null" x-text="percent + '%'"></span>
       <span class="text-[#c7f0c7]" x-text="display"></span>
+      <button x-show="stoppable" @click="stop()"
+              class="text-[#ffb4b4] hover:text-white uppercase tracking-widest">stop</button>
     </div>
   </div>
 
@@ -142,6 +139,8 @@
         active: false,
         display: '',
         percent: null,
+        stoppable: false,
+        jobId: null,
         async poll() {
           if (!document.hidden) {
             try {
@@ -150,6 +149,8 @@
                 const d = await r.json();
                 this.active = !!d.active;
                 this.percent = (d.percent === undefined) ? null : d.percent;
+                this.stoppable = !!d.stoppable;
+                this.jobId = (d.job_id === undefined) ? null : d.job_id;
                 // Build "Task (123/456) · current item · 3 queued" from the parts.
                 let parts = [d.label || ''];
                 if (d.total) parts[0] += ` (${d.current || 0}/${d.total})`;
@@ -160,6 +161,11 @@
             } catch (e) { /* network hiccup — keep last state */ }
           }
           setTimeout(() => this.poll(), 3000);
+        },
+        async stop() {
+          if (this.jobId === null) return;
+          if (!confirm('Stop this task? Work done so far is kept.')) return;
+          try { await fetch(`/jobs/${this.jobId}/cancel`, { method: 'POST' }); } catch (e) {}
         }
       }
     }

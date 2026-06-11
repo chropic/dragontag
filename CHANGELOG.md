@@ -2,6 +2,26 @@
 
 # Changelog
 
+## 0.9.0 — scan-filter merge, task stopping & UI polish (2026-06-10)
+**Branch:** `feature/0.9.0-polish`
+
+### Added
+- **Stop running tasks** — running background tasks (scan, organize, batches, …) can now be stopped: a per-row **stop** button on the Queue page and a **stop** control on the universal progress bar (both with confirmation). `tasks.py` gained per-job cancel events (`request_cancel`, `TaskCtx.cancelled/check_cancelled`, `TaskCancelled`); the scanner, organizer and `run_chain` check cooperatively. A stopped task keeps the work done so far and is marked `skipped` with a "Stopped by user." log line. `POST /jobs/{id}/cancel` now accepts running task jobs; `GET /api/progress` reports `job_id`/`stoppable`.
+- **Clear all scan filters** — one button (with confirmation) empties filter patterns, excluded directories and excluded files (`POST /settings/clear-scan-filters`, replacing `/settings/clear-scan-exemptions`).
+
+### Changed
+- **Scan exemptions merged into Scan filters** — `scan_exempt_paths` is replaced by the editable `scan_exclude_files` list (third textarea in Settings → Scan filters). "Move back" on the Changes page auto-adds the restored path there (FIFO-capped at 500); the watcher/scanner/bulk re-tag all go through `filters.is_path_excluded`, which now also takes excluded files. Existing `scan_exempt_paths` entries in `settings.json` are migrated on first load.
+- **Excluded directories: SLSKD-style `!` prefix removed** — plain absolute paths only; the UI no longer prepends `!` for display.
+- **Nav reordered** — Queue moved between Library and Changes; Docs is now last (right of Settings); Log out stays right-aligned.
+- **Docs page** — title renamed to "dragontag | Docs"; the `openapi.json` header button removed (Swagger link stays; the endpoint itself is unchanged).
+- **Dashboard banner** — dropped the "identify — tag — organize" tagline and fixed the slightly off-center art (stray trailing whitespace line inside the `<pre>`).
+- Version bumped to **0.9.0**.
+
+### Fixed
+- **Scan filter settings never saved** — the Scan filters card sat *outside* the settings `<form>`, so its textareas were never submitted and every save reset both lists to empty. The card now lives inside the form.
+
+---
+
 ## Unreleased — queue merge, batch operations & UX sweep (2026-06-10)
 **Branch:** `claude/youthful-clarke-f181sj`
 

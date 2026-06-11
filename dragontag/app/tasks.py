@@ -23,6 +23,26 @@ log = logging.getLogger(__name__)
 # per-file loop doesn't hammer SQLite.
 _COMMIT_INTERVAL = 1.0
 
+# Cancel events for currently running tasks, keyed by job id. Set via
+# request_cancel() (the "Stop" button); task callables notice through
+# TaskCtx.cancelled / check_cancelled() at their next loop iteration.
+_cancel_events: dict[int, threading.Event] = {}
+_cancel_lock = threading.Lock()
+
+
+class TaskCancelled(Exception):
+    """Raised inside a task callable when the user requested a stop."""
+
+
+def request_cancel(job_id: int) -> bool:
+    """Signal a running task to stop. Returns False if no such task is running."""
+    with _cancel_lock:
+        ev = _cancel_events.get(job_id)
+    if ev is None:
+        return False
+    ev.set()
+    return True
+
 
 class TaskCtx:
     """Handle given to a task callable for progress + log reporting."""
@@ -36,6 +56,17 @@ class TaskCtx:
         self._prefix: str = ""  # set by run_chain to tag the current step
         self._last_commit = 0.0
         self._lock = threading.Lock()
+        self._cancel_event: threading.Event | None = None  # set by run_task
+
+    @property
+    def cancelled(self) -> bool:
+        """True once the user has requested this task to stop."""
+        return self._cancel_event is not None and self._cancel_event.is_set()
+
+    def check_cancelled(self) -> None:
+        """Raise ``TaskCancelled`` if a stop was requested. Call inside loops."""
+        if self.cancelled:
+            raise TaskCancelled()
 
     def log(self, line: str) -> None:
         with self._lock:
@@ -83,6 +114,9 @@ def run_task(kind: str, name: str, fn: Callable[[TaskCtx], Any]) -> int:
         job_id = job.id
 
     ctx = TaskCtx(job_id)
+    ctx._cancel_event = threading.Event()
+    with _cancel_lock:
+        _cancel_events[job_id] = ctx._cancel_event
 
     def _run() -> None:
         try:
@@ -97,6 +131,17 @@ def run_task(kind: str, name: str, fn: Callable[[TaskCtx], Any]) -> int:
                     j.updated_at = datetime.utcnow()
                     s.add(j)
                     s.commit()
+        except TaskCancelled:
+            log.info("task %s (%s) stopped by user", name, kind)
+            ctx.log("Stopped by user.")
+            ctx._maybe_flush(force=True)
+            with session() as s:
+                j = s.get(Job, job_id)
+                if j:
+                    j.status = JobStatus.skipped
+                    j.updated_at = datetime.utcnow()
+                    s.add(j)
+                    s.commit()
         except Exception as e:
             log.exception("task %s (%s) failed", name, kind)
             ctx._maybe_flush(force=True)
@@ -108,6 +153,9 @@ def run_task(kind: str, name: str, fn: Callable[[TaskCtx], Any]) -> int:
                     j.updated_at = datetime.utcnow()
                     s.add(j)
                     s.commit()
+        finally:
+            with _cancel_lock:
+                _cancel_events.pop(job_id, None)
 
     threading.Thread(target=_run, daemon=True, name=f"dragontag-task-{kind}").start()
     return job_id
@@ -127,6 +175,7 @@ def run_chain(kind: str, name: str, steps: list[tuple[str, Callable[[TaskCtx], A
         results: dict[str, Any] = {}
         failures: list[str] = []
         for i, (label, fn) in enumerate(steps, start=1):
+            ctx.check_cancelled()
             with ctx._lock:
                 ctx._prefix = f"[{i}/{total_steps}] {label}: "
                 ctx._current = None
@@ -139,6 +188,8 @@ def run_chain(kind: str, name: str, steps: list[tuple[str, Callable[[TaskCtx], A
             try:
                 results[label] = fn(ctx)
                 ctx.log("finished")
+            except TaskCancelled:
+                raise  # a stop request aborts the whole chain
             except Exception as e:
                 log.exception("chain step %r failed", label)
                 failures.append(label)

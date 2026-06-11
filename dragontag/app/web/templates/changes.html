@@ -16,7 +16,7 @@
 
 <p class="text-[#8a8a8a] text-sm mb-4">Each row is a tag write the pipeline applied to a file. Reverting restores the
 file's original tags in place and removes the <code class="text-xs">cover.jpg</code> dragontag added.
-"Move back" returns the file to its pre-pipeline directory and exempts it from automatic re-ingest.
+"Move back" returns the file to its pre-pipeline directory and adds it to the excluded files (Settings → Scan filters) so it isn't automatically re-ingested.
 The number of records kept is configurable in Settings.</p>
 
 <div class="bg-[#0c0c0c] border border-[#4a4a4a] p-4">
@@ -61,7 +61,7 @@ The number of records kept is configurable in Settings.</p>
             {# Path is shown via the title tooltip, not interpolated into the JS
                string — apostrophes in paths would break the inline handler. #}
             <form method="post" action="/changes/{{ c.id }}/move-back" class="inline"
-                  onsubmit="return confirm('Move the file back to its original directory? It will be exempted from automatic scans so it is not re-ingested.');">
+                  onsubmit="return confirm('Move the file back to its original directory? It will be added to the excluded files so it is not re-ingested.');">
               <button class="text-xs px-3 py-1 border border-[#4a4a4a] text-[#cfcfcf] hover:text-white hover:border-white"
                       title="Move back to {{ c.original_path }}">Move back</button>
             </form>

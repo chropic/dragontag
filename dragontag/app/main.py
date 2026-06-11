@@ -180,6 +180,10 @@ def api_progress(request: Request, _: None = Depends(require_auth)):
         "total": total,
         "item": active.progress_item,
         "queued": queued,
+        # Running background tasks (scan/organize/…) can be stopped via
+        # POST /jobs/{id}/cancel; pipeline ingest jobs cannot.
+        "job_id": active.id,
+        "stoppable": active.status == JobStatus.running,
     })
 
 
@@ -454,8 +458,16 @@ def jobs_cancel_queued(request: Request, _: None = Depends(require_auth)):
 def job_cancel(job_id: int, request: Request, _: None = Depends(require_auth)):
     with session() as s:
         job = s.get(Job, job_id)
-        if not job or job.status != JobStatus.queued:
-            raise HTTPException(400, "only queued jobs can be cancelled")
+        if not job:
+            raise HTTPException(404)
+        if job.status == JobStatus.running:
+            # Running background task (scan, organize, …): signal it to stop;
+            # the task thread marks the Job skipped at its next check.
+            if not tasks.request_cancel(job_id):
+                raise HTTPException(400, "task is no longer running")
+            return _toast_response("/queue", "Stop requested — the task will halt shortly.")
+        if job.status != JobStatus.queued:
+            raise HTTPException(400, "only queued jobs and running tasks can be cancelled")
         job.status = JobStatus.skipped
         s.add(job)
         s.commit()
@@ -709,6 +721,7 @@ def settings_update(
     log_verbosity: int = Form(3),
     scan_filter_patterns_raw: str = Form(""),
     scan_exclude_dirs_raw: str = Form(""),
+    scan_exclude_files_raw: str = Form(""),
 ):
     """Persist a settings patch from the UI form.
 
@@ -763,7 +776,10 @@ def settings_update(
             ln.strip() for ln in scan_filter_patterns_raw.splitlines() if ln.strip()
         ],
         "scan_exclude_dirs": [
-            ln.strip().lstrip("!") for ln in scan_exclude_dirs_raw.splitlines() if ln.strip()
+            ln.strip() for ln in scan_exclude_dirs_raw.splitlines() if ln.strip()
+        ],
+        "scan_exclude_files": [
+            ln.strip() for ln in scan_exclude_files_raw.splitlines() if ln.strip()
         ],
     }
     store().update(patch)
@@ -1412,11 +1428,19 @@ def changes_clear(request: Request, _: None = Depends(require_auth)):
     return _toast_response("/changes", f"Cleared {len(rows)} change record(s).")
 
 
-@app.post("/settings/clear-scan-exemptions")
-def settings_clear_scan_exemptions(request: Request, _: None = Depends(require_auth)):
-    n = len(settings().scan_exempt_paths)
-    store().update({"scan_exempt_paths": []})
-    return _toast_response("/settings", f"Cleared {n} scan exemption(s).")
+@app.post("/settings/clear-scan-filters")
+def settings_clear_scan_filters(request: Request, _: None = Depends(require_auth)):
+    """Empty all three scan filter lists (patterns, excluded dirs, excluded files)."""
+    cfg = settings()
+    n = (
+        len(cfg.scan_filter_patterns)
+        + len(cfg.scan_exclude_dirs)
+        + len(cfg.scan_exclude_files)
+    )
+    store().update(
+        {"scan_filter_patterns": [], "scan_exclude_dirs": [], "scan_exclude_files": []}
+    )
+    return _toast_response("/settings", f"Cleared {n} scan filter entries.")
 
 
 # ---------------------------------------------------------------------------

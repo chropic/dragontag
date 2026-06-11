@@ -53,3 +53,13 @@ def test_exclude_dir_trailing_slash():
     """Trailing slash on exclude dir should still match."""
     p = Path("/library/Private/track.flac")
     assert is_path_excluded(p, [], ["/library/Private/"])
+
+
+def test_exclude_file_exact():
+    p = Path("/drop/keep-me.flac")
+    assert is_path_excluded(p, [], [], [str(p)])
+
+
+def test_exclude_file_no_match():
+    p = Path("/drop/other.flac")
+    assert not is_path_excluded(p, [], [], [str(Path("/drop/keep-me.flac"))])

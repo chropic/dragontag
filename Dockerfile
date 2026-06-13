@@ -4,13 +4,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
-# rsgain ships a prebuilt Debian package; apt-get install ./file.deb resolves
-# its ffmpeg/libav runtime deps. Pinned for reproducible builds.
-ARG RSGAIN_VERSION=3.6
+# rsgain ships a prebuilt Debian package built for bookworm (this image's base);
+# apt-get install ./file.deb resolves its ffmpeg/libav runtime deps. Pinned for
+# reproducible builds. The release asset has no Debian revision suffix.
+ARG RSGAIN_VERSION=3.7
 RUN apt-get update \
  && apt-get install -y --no-install-recommends libchromaprint-tools ca-certificates curl \
- && curl -fsSL -o /tmp/rsgain.deb \
-      "https://github.com/complexlogic/rsgain/releases/download/v${RSGAIN_VERSION}/rsgain_${RSGAIN_VERSION}-1_amd64.deb" \
+ && curl -fsSL --retry 3 -o /tmp/rsgain.deb \
+      "https://github.com/complexlogic/rsgain/releases/download/v${RSGAIN_VERSION}/rsgain_${RSGAIN_VERSION}_amd64.deb" \
  && apt-get install -y --no-install-recommends /tmp/rsgain.deb \
  && rm -f /tmp/rsgain.deb \
  && rm -rf /var/lib/apt/lists/* \

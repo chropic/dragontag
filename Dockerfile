@@ -1,4 +1,8 @@
-FROM python:3.12-slim
+# Pinned to bookworm: the prebuilt rsgain .deb below targets bookworm's ffmpeg
+# (libav*59/57/4). The unqualified python:3.12-slim tag follows Debian stable and
+# has rolled to trixie (libav*61/59/5), which makes those deps unsatisfiable and
+# fails the rsgain install. Pinning keeps the base and the .deb in lockstep.
+FROM python:3.12-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

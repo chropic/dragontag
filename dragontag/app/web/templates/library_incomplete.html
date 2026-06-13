@@ -23,6 +23,12 @@
   {% endfor %}
 </div>
 
+<form method="get" action="/library/incomplete" class="mb-4">
+  <input type="hidden" name="page_size" value="{{ page_size }}">
+  <input type="text" name="q" value="{{ q }}" placeholder="Search album or artist…"
+         class="w-full p-2 bg-black border border-[#4a4a4a] text-sm">
+</form>
+
 <div class="bg-[#0c0c0c] border border-[#4a4a4a] p-4">
   <table class="w-full text-sm">
     <thead class="text-[#8a8a8a] border-b border-[#4a4a4a]">
@@ -67,10 +73,40 @@
       </tr>
     {% else %}
       <tr><td class="py-4 text-[#8a8a8a]" colspan="6">
-        Nothing here. Run <span class="text-[#cfcfcf]">Find missing tracks</span> from the Library page to populate this list.
+        {% if q %}No incomplete albums match "{{ q }}".
+        {% else %}Nothing here. Run <span class="text-[#cfcfcf]">Find missing tracks</span> from the Library page to populate this list.{% endif %}
       </td></tr>
     {% endfor %}
     </tbody>
   </table>
+
+  <div class="flex items-center justify-between mt-3 text-xs text-[#8a8a8a]">
+    <div>
+      {% if total %}Showing {{ ((page - 1) * page_size) + 1 }}–{{ ((page - 1) * page_size) + rows|length }} of {{ total }}{% else %}0 results{% endif %}
+    </div>
+    <div class="flex items-center gap-3">
+      <label class="flex items-center gap-1">
+        Per page:
+        <select onchange="window.location.search = new URLSearchParams({...Object.fromEntries(new URLSearchParams(window.location.search)), page_size: this.value, page: 1}).toString()"
+                class="bg-black border border-[#4a4a4a] px-1 py-0.5">
+          {% for ps in page_sizes %}
+          <option value="{{ ps }}" {% if ps == page_size %}selected{% endif %}>{{ ps }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% if total_pages > 1 %}
+      {% set base = "?q=" ~ q ~ "&page_size=" ~ page_size %}
+      <div class="flex items-center gap-1">
+        {% if page > 1 %}
+        <a href="{{ base }}&page={{ page - 1 }}" class="px-2 py-0.5 border border-[#4a4a4a] hover:text-white">Prev</a>
+        {% endif %}
+        <span class="px-2">Page {{ page }} / {{ total_pages }}</span>
+        {% if page < total_pages %}
+        <a href="{{ base }}&page={{ page + 1 }}" class="px-2 py-0.5 border border-[#4a4a4a] hover:text-white">Next</a>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
 </div>
 {% endblock %}

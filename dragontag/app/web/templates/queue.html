@@ -29,6 +29,9 @@
     <input type="checkbox" name="job_ids" value="{{ j.id }}" form="review-bulk-form">
     <a href="/jobs/{{ j.id }}" class="font-medium text-[#cfcfcf] hover:underline truncate">{{ j.original_name }}</a>
     <span class="text-xs px-2 py-0.5 bg-[#f2e5b5] text-black">{{ j.review_reason.value if j.review_reason else "review" }}</span>
+    {% if j.dry_run_override == true or (j.review_reason and j.review_reason.value == "dry_run") %}
+    <span class="text-xs px-2 py-0.5 bg-[#2a2a2a] text-[#8a8a8a]" title="Ran in dry-run mode (no files written)">DRY</span>
+    {% endif %}
     {% if j.score is not none %}<span class="text-xs text-[#8a8a8a]">score {{ "%.2f"|format(j.score) }}</span>{% endif %}
   </div>
 
@@ -314,6 +317,9 @@
         <td class="py-2 pr-3 text-[#8a8a8a] font-mono text-xs">{{ j.id }}</td>
         <td class="py-2 pr-3 truncate max-w-xs">
           <a class="text-[#cfcfcf] hover:underline" href="/jobs/{{ j.id }}">{{ j.original_name }}</a>
+          {% if j.dry_run_override == true or (j.review_reason and j.review_reason.value == "dry_run") %}
+          <span class="text-xs px-2 py-0.5 bg-[#2a2a2a] text-[#8a8a8a] ml-1" title="Ran in dry-run mode (no files written)">DRY</span>
+          {% endif %}
         </td>
         <td class="py-2 pr-3">
           <span class="px-2 py-0.5 text-xs

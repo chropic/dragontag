@@ -55,6 +55,14 @@
       Allow release-group cover fallback
       {{ tip("When a specific release has no cover in the Cover Art Archive, fall back to the release-group cover. That image is shared across every edition in the group, so enabling this can apply the same art to different releases. Off by default to prevent cover bleed.") }}
     </label>
+    <label class="block">
+      <span class="flex items-center gap-2">ReplayGain tool path
+        {{ tip("Absolute path to the rsgain (or loudgain) binary. Leave blank to auto-discover on PATH and in common install dirs. Set this when the tool is installed somewhere non-standard.") }}
+      </span>
+      <input name="replaygain_tool_path" value="{{ settings.replaygain_tool_path }}"
+             placeholder="(auto-discover)"
+             class="mt-1 w-full p-1 bg-black border border-[#4a4a4a] font-mono text-sm">
+    </label>
     <label class="flex items-center gap-2">
       <input type="checkbox" name="dry_run" {% if settings.dry_run %}checked{% endif %}>
       Dry-run mode (global)

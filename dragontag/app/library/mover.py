@@ -7,6 +7,7 @@ it's an auto-generated sidecar, not the audio file itself.
 """
 from __future__ import annotations
 
+import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,9 +27,19 @@ def move(source: Path, destination: Path, *, overwrite: bool = False) -> MoveRes
     rename (fast) and cross-FS copy+delete (slow but correct) transparently.
     """
     destination.parent.mkdir(parents=True, exist_ok=True)
-    if destination.exists() and not overwrite:
-        return MoveResult(moved=False, destination=destination, conflict=True)
     if destination.exists():
+        # Re-tagging a file already at its canonical path resolves
+        # ``source == destination`` (the Re-tag / Nuclear batches re-ingest
+        # files in place). That's a successful no-op, not a conflict — without
+        # this guard every correctly-placed file would be flagged as a
+        # destination conflict, and an ``overwrite`` self-move would unlink the
+        # file and then fail on the now-missing source.
+        if source == destination or (
+            source.exists() and os.path.samefile(str(source), str(destination))
+        ):
+            return MoveResult(moved=True, destination=destination)
+        if not overwrite:
+            return MoveResult(moved=False, destination=destination, conflict=True)
         # ``shutil.move`` refuses to overwrite on Windows, so we unlink first.
         destination.unlink()
     shutil.move(str(source), str(destination))

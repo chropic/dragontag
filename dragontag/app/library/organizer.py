@@ -70,12 +70,26 @@ def organize_folder(folder_id: int, ctx=None) -> dict:
             if result.conflict:
                 errors.append(f"conflict: {src} -> {dest}")
                 continue
-            with session() as s2:
-                t = s2.get(Track, track.id)
-                if t:
-                    t.path = str(dest)
-                    s2.add(t)
-                    s2.commit()
+            # The file has already moved on disk. ``Track.path`` is the only
+            # record of where it now lives, so if the DB update fails we must
+            # move the file back rather than leave the library pointing at a
+            # path that no longer holds the file.
+            try:
+                with session() as s2:
+                    t = s2.get(Track, track.id)
+                    if t:
+                        t.path = str(dest)
+                        s2.add(t)
+                        s2.commit()
+            except Exception:
+                log.exception("organize: DB update failed; rolling %s back to %s", dest, src)
+                try:
+                    move(dest, src, overwrite=False)
+                    errors.append(f"db-failed (rolled back): {src}")
+                except Exception:
+                    log.exception("organize: rollback move failed for %s", dest)
+                    errors.append(f"DIVERGED: file at {dest} but DB has {src}")
+                continue
             moved += 1
             log.info("organize: %s -> %s", src.name, dest)
         except Exception as e:

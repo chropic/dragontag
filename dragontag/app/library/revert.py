@@ -7,6 +7,7 @@ doing so could land it back in the watched drop folder and trigger a re-ingest.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from pathlib import Path
 
@@ -19,6 +20,8 @@ from ..models import FileChange, Job, Track
 from ..tagging import snapshot
 from .mover import move
 from .paths import unique_path
+
+log = logging.getLogger(__name__)
 
 
 def revert_change(change_id: int) -> tuple[bool, str]:
@@ -87,13 +90,10 @@ def move_back(change_id: int) -> tuple[bool, str]:
         except Exception as e:  # noqa: BLE001 - surface any failure to the user
             return False, f"Move back failed: {e}"
 
-        # Exclude the restored path from future automatic scans/ingests.
-        excluded = list(settings().scan_exclude_files)
-        if str(dest) not in excluded:
-            excluded.append(str(dest))
-            # FIFO cap so the list can't grow without bound.
-            store().update({"scan_exclude_files": excluded[-500:]})
-
+        # The file has moved on disk. Persist the DB record of its new location
+        # *before* touching the persistent exclude-list setting, and roll the
+        # file back if the commit fails — otherwise a failed commit would leave
+        # the file at ``dest`` while the DB (and the exclude list) disagree.
         track = s.exec(select(Track).where(Track.path == str(change.file_path))).first()
         if track:
             track.path = str(dest)
@@ -101,7 +101,25 @@ def move_back(change_id: int) -> tuple[bool, str]:
         _repair_job(s, change.job_id, dest)
         change.file_path = str(dest)
         s.add(change)
-        s.commit()
+        try:
+            s.commit()
+        except Exception as e:  # noqa: BLE001
+            log.exception("move-back: DB commit failed; restoring %s to %s", dest, file)
+            try:
+                move(dest, file, overwrite=False)
+            except Exception:
+                log.exception("move-back: rollback move failed for %s", dest)
+            return False, f"Move back failed (DB); file restored to its previous location: {e}"
+
+        # Only after the DB is durable do we exclude the restored path from
+        # future automatic scans/ingests (the original location is often the
+        # watched drop folder).
+        excluded = list(settings().scan_exclude_files)
+        if str(dest) not in excluded:
+            excluded.append(str(dest))
+            # FIFO cap so the list can't grow without bound.
+            store().update({"scan_exclude_files": excluded[-500:]})
+
         return True, f"Moved {dest.name} back to {dest.parent}."
 
 

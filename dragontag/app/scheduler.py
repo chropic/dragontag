@@ -123,7 +123,7 @@ def run_task_by_type(task: ScheduledTask) -> int | None:
         src = str(params.get("source_path") or "").strip()
         if not src:
             raise ValueError("source_path required")
-        dry = params.get("dry_run")
+        dry = bool(params.get("dry_run"))
         from .ingest.bulk import enqueue_folder
 
         def _run(ctx):
@@ -171,8 +171,10 @@ def _tick() -> None:
             row = s.get(ScheduledTask, t.id)
             if not row:
                 continue
-            row.next_run_at = due_at if t.enabled else None
-            if not t.enabled or due_at is None or due_at > now:
+            # Gate on the freshly-fetched row, not the stale loop copy ``t``:
+            # the task may have been toggled between the two reads.
+            row.next_run_at = due_at if row.enabled else None
+            if not row.enabled or due_at is None or due_at > now:
                 s.add(row)
                 s.commit()
                 continue

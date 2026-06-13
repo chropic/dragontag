@@ -27,7 +27,7 @@ def write_lyrics(path: Path, lyrics: str, advisory: int | None = None) -> None:
     elif s in (".mp3", ".wav"):
         import mutagen.id3 as _id3
         from mutagen.mp3 import MP3
-        from mutagen.wav import WAVE
+        from mutagen.wave import WAVE
         cls = MP3 if s == ".mp3" else WAVE
         f = cls(str(path))
         if f.tags is None:
@@ -60,7 +60,7 @@ def write_advisory(path: Path, advisory: int) -> None:
     elif s in (".mp3", ".wav"):
         import mutagen.id3 as _id3
         from mutagen.mp3 import MP3
-        from mutagen.wav import WAVE
+        from mutagen.wave import WAVE
         cls = MP3 if s == ".mp3" else WAVE
         f = cls(str(path))
         if f.tags is None:
@@ -87,7 +87,7 @@ def read_lyrics(path: Path) -> str | None:
         return v[0] if v else None
     elif s in (".mp3", ".wav"):
         from mutagen.mp3 import MP3
-        from mutagen.wav import WAVE
+        from mutagen.wave import WAVE
         cls = MP3 if s == ".mp3" else WAVE
         f = cls(str(path))
         if not f.tags:
@@ -104,6 +104,10 @@ def read_lyrics(path: Path) -> str | None:
 
 def write_cover(path: Path, data: bytes, mime: str = "image/jpeg") -> None:
     """Embed cover art bytes into ``path``."""
+    # Resize through the same cap the full writers use so the "Fetch cover art"
+    # action doesn't embed full-resolution (often 1500px+) CAA images.
+    from .writers._id3common import _cap_cover
+    data, mime = _cap_cover(data, mime)
     s = _suffix(path)
     if s == ".flac":
         from mutagen.flac import FLAC, Picture
@@ -118,7 +122,7 @@ def write_cover(path: Path, data: bytes, mime: str = "image/jpeg") -> None:
     elif s in (".mp3", ".wav"):
         import mutagen.id3 as _id3
         from mutagen.mp3 import MP3
-        from mutagen.wav import WAVE
+        from mutagen.wave import WAVE
         cls = MP3 if s == ".mp3" else WAVE
         f = cls(str(path))
         if f.tags is None:
@@ -128,7 +132,7 @@ def write_cover(path: Path, data: bytes, mime: str = "image/jpeg") -> None:
         f.save()
     elif s in (".m4a", ".mp4"):
         from mutagen.mp4 import MP4, MP4Cover
-        fmt = MP4Cover.FORMAT_PNG if mime == "image/png" else MP4Cover.FORMAT_JPEG
+        fmt = MP4Cover.FORMAT_PNG if "png" in mime.lower() else MP4Cover.FORMAT_JPEG
         f = MP4(str(path))
         if f.tags is None:
             f.add_tags()

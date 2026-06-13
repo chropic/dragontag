@@ -51,15 +51,23 @@ def fetch_lyrics_for_folder(folder_id: int, ctx=None) -> dict:
                 advisory = 1 if is_explicit(fetched) else 0
                 write_lyrics(p, fetched, advisory)
                 fetched_count += 1
-                # Keep the DB in sync so the dashboard counters update
-                # without requiring a full re-scan.
-                with session() as s2:
-                    t = s2.get(Track, track_id)
-                    if t:
-                        t.has_lyrics = True
-                        t.advisory = advisory
-                        s2.add(t)
-                        s2.commit()
+                # Keep the DB in sync so the dashboard counters update without
+                # requiring a full re-scan. The lyrics are already on disk, so a
+                # DB failure here is a recoverable cache miss (a re-scan rebuilds
+                # has_lyrics/advisory) — log it explicitly instead of letting it
+                # look like the embed itself failed.
+                try:
+                    with session() as s2:
+                        t = s2.get(Track, track_id)
+                        if t:
+                            t.has_lyrics = True
+                            t.advisory = advisory
+                            s2.add(t)
+                            s2.commit()
+                except Exception:
+                    log.exception(
+                        "fetch-lyrics: DB sync failed for %s (lyrics already written)", p
+                    )
         except Exception:
             log.exception("fetch-lyrics: failed for %s", p)
         if ctx:
@@ -560,14 +568,21 @@ def tag_advisories_for_folder(folder_id: int, ctx=None) -> dict:
             write_advisory(p, advisory)
             tagged += 1
             # Reflect the re-evaluated rating (and the fact that lyrics are
-            # present) in the DB so the dashboard stays accurate.
-            with session() as s2:
-                t = s2.get(Track, track_id)
-                if t:
-                    t.advisory = advisory
-                    t.has_lyrics = True
-                    s2.add(t)
-                    s2.commit()
+            # present) in the DB so the dashboard stays accurate. The advisory
+            # is already on disk; a DB failure is a recoverable cache miss, so
+            # log it explicitly rather than masking it as a write failure.
+            try:
+                with session() as s2:
+                    t = s2.get(Track, track_id)
+                    if t:
+                        t.advisory = advisory
+                        t.has_lyrics = True
+                        s2.add(t)
+                        s2.commit()
+            except Exception:
+                log.exception(
+                    "tag-advisories: DB sync failed for %s (advisory already written)", p
+                )
         except Exception:
             log.exception("tag-advisories: failed for %s", p)
     if ctx:

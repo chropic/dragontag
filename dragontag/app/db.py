@@ -7,10 +7,15 @@ rest of the persisted state.
 ``check_same_thread=False`` is required because the background worker thread
 (see ``ingest/pipeline.py``) accesses the engine concurrently with the FastAPI
 request threads. SQLModel/SQLAlchemy serialize writes internally.
+
+To survive that concurrency the engine runs SQLite in WAL mode with a busy
+timeout: WAL lets readers and a single writer proceed at once, and the busy
+timeout makes a contended writer wait-and-retry rather than fail immediately
+with "database is locked".
 """
 from __future__ import annotations
 from sqlalchemy.exc import OperationalError
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from .config import env
@@ -31,8 +36,20 @@ def engine():
         _engine = create_engine(
             f"sqlite:///{db_path}",
             echo=False,
-            connect_args={"check_same_thread": False},
+            connect_args={"check_same_thread": False, "timeout": 30},
         )
+
+        @event.listens_for(_engine, "connect")
+        def _set_sqlite_pragmas(dbapi_conn, _record):  # noqa: ANN001
+            # Run once per new DBAPI connection. WAL + busy_timeout are what keep
+            # the worker thread and request threads from colliding with
+            # "database is locked"; synchronous=NORMAL is the WAL-safe default.
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA journal_mode=WAL")
+            cur.execute("PRAGMA busy_timeout=30000")
+            cur.execute("PRAGMA synchronous=NORMAL")
+            cur.close()
+
         _migrate(_engine)
         SQLModel.metadata.create_all(_engine)
         _seed_library_folder()

@@ -122,6 +122,12 @@ class UserSettings(BaseModel):
     # different releases — left OFF by default to prevent cover bleed.
     cover_allow_release_group_fallback: bool = False
 
+    # ----- replaygain -----
+    # Absolute path to the rsgain (or loudgain) binary. Empty = auto-discover on
+    # PATH and in common install dirs. Set this when the tool lives somewhere
+    # non-standard or isn't on the service's PATH.
+    replaygain_tool_path: str = ""
+
     # ----- library foldering -----
     # Separators on which a multi-artist *album-artist* credit is reduced to its
     # first artist when building the folder name. Empty (default) keeps the full

@@ -697,6 +697,7 @@ def settings_update(
     multidisc_folder_template: str = Form(...),
     folder_artist_split_separators: str = Form(""),
     cover_allow_release_group_fallback: str | None = Form(None),
+    replaygain_tool_path: str = Form(""),
     watcher_enabled: str | None = Form(None),
     genre_limit: int = Form(3),
     genre_casing: str = Form("title"),
@@ -747,6 +748,7 @@ def settings_update(
         "multidisc_folder_template": multidisc_folder_template,
         "folder_artist_split_separators": folder_artist_split_separators,
         "cover_allow_release_group_fallback": bool(cover_allow_release_group_fallback),
+        "replaygain_tool_path": replaygain_tool_path.strip(),
         "watcher_enabled": bool(watcher_enabled),
         "genre_limit": genre_limit,
         "genre_casing": genre_casing,
@@ -1296,18 +1298,46 @@ def library_batch_nuclear(
 
 
 @app.get("/library/incomplete", response_class=HTMLResponse)
-def library_incomplete(request: Request, _: None = Depends(require_auth)):
+def library_incomplete(
+    request: Request,
+    _: None = Depends(require_auth),
+    q: str = "",
+    page: int = 1,
+    page_size: int = 50,
+):
     """The Library page's Incomplete tab: albums with fewer local tracks than MB expects."""
     from .models import IncompleteAlbum
+    q = q.strip()
+    page = max(1, page)
+    if page_size not in _LIBRARY_PAGE_SIZES:
+        page_size = 50
     with session() as s:
         folders = s.exec(select(LibraryFolder).order_by(LibraryFolder.priority, LibraryFolder.id)).all()
-        rows = s.exec(select(IncompleteAlbum).order_by(IncompleteAlbum.artist, IncompleteAlbum.album)).all()
+        stmt = select(IncompleteAlbum)
+        count_stmt = select(func.count(IncompleteAlbum.id))
+        if q:
+            like = f"%{q}%"
+            cond = or_(IncompleteAlbum.album.ilike(like), IncompleteAlbum.artist.ilike(like))
+            stmt = stmt.where(cond)
+            count_stmt = count_stmt.where(cond)
+        total = s.exec(count_stmt).one() or 0
+        rows = s.exec(
+            stmt.order_by(IncompleteAlbum.artist, IncompleteAlbum.album)
+            .offset((page - 1) * page_size).limit(page_size)
+        ).all()
+    total_pages = max(1, (total + page_size - 1) // page_size)
     folder_labels = {f.id: (f.label or f.path) for f in folders}
     return templates.TemplateResponse(request, "library_incomplete.html", {
         "request": request,
         "folders": folders,
         "folder_labels": folder_labels,
         "rows": rows,
+        "q": q,
+        "page": page,
+        "page_size": page_size,
+        "page_sizes": _LIBRARY_PAGE_SIZES,
+        "total": total,
+        "total_pages": total_pages,
         "active_page": "library",
     })
 

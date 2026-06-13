@@ -43,6 +43,8 @@ def fetch_lyrics_for_folder(folder_id: int, ctx=None) -> dict:
 
     fetched_count = 0
     for i, (track_id, title, artist, album, p) in enumerate(items, start=1):
+        if ctx:
+            ctx.check_cancelled()
         try:
             fetched = lyrics_fetcher.fetch(artist=artist, title=title, album=album)
             if fetched:
@@ -85,6 +87,8 @@ def fetch_covers_for_folder(folder_id: int, ctx=None) -> dict:
 
     fetched_count = 0
     for i, (p, mb_album_id) in enumerate(items, start=1):
+        if ctx:
+            ctx.check_cancelled()
         try:
             cover = fetch_for_release(mb_album_id)
             if cover:
@@ -123,6 +127,7 @@ def extract_embedded_covers(folder_id: int, ctx=None) -> dict:
     for i, t in enumerate(tracks, start=1):
         p = Path(t.path)
         if ctx:
+            ctx.check_cancelled()
             ctx.progress(i, len(tracks), item=p.name)
         if not p.exists():
             continue
@@ -206,17 +211,43 @@ def _read_embedded_picture(path: Path) -> tuple[bytes | None, str]:
 # ---------------------------------------------------------------------------
 
 
+def _find_replaygain_tool() -> str | None:
+    """Locate the rsgain/loudgain binary.
+
+    Checks, in order: the configured ``replaygain_tool_path`` setting, the
+    system PATH, then common install dirs. Returns the absolute path or None.
+    """
+    from ..config import settings
+
+    configured = (settings().replaygain_tool_path or "").strip()
+    if configured and os.access(configured, os.X_OK):
+        return configured
+
+    for name in ("rsgain", "loudgain"):
+        found = shutil.which(name)
+        if found:
+            return found
+        for d in ("/usr/bin", "/usr/local/bin"):
+            cand = os.path.join(d, name)
+            if os.access(cand, os.X_OK):
+                return cand
+    return None
+
+
 def recompute_replaygain(folder_id: int, ctx=None) -> dict:
-    """Invoke rsgain / loudgain per album folder if available on PATH.
+    """Invoke rsgain / loudgain per album folder if available.
 
     Running per album directory (rather than one process over the whole
     library) keeps album-gain semantics identical while giving real progress.
     """
-    tool = shutil.which("rsgain") or shutil.which("loudgain")
+    tool = _find_replaygain_tool()
     if not tool:
         if ctx:
-            ctx.log("Neither rsgain nor loudgain is on PATH — skipping")
-        return {"ok": False, "reason": "Neither rsgain nor loudgain is on PATH"}
+            ctx.log(
+                "Neither rsgain nor loudgain found — install one, or set "
+                "'replaygain_tool_path' in Settings — skipping"
+            )
+        return {"ok": False, "reason": "rsgain/loudgain not found"}
     with session() as s:
         folder = s.get(LibraryFolder, folder_id)
         if not folder:
@@ -237,6 +268,7 @@ def recompute_replaygain(folder_id: int, ctx=None) -> dict:
         ctx.progress(0, len(dirs))
     for i, d in enumerate(dirs, start=1):
         if ctx:
+            ctx.check_cancelled()
             ctx.progress(i, len(dirs), item=d.name)
         try:
             if "rsgain" in tool:
@@ -277,6 +309,7 @@ def verify_integrity(folder_id: int, ctx=None) -> dict:
     for i, t in enumerate(tracks, start=1):
         p = Path(t.path)
         if ctx:
+            ctx.check_cancelled()
             ctx.progress(i, len(tracks), item=p.name)
         if not p.exists():
             bad.append(f"missing: {t.path}")
@@ -339,6 +372,7 @@ def fix_disc_folders(folder_id: int, ctx=None) -> dict:
             ctx.progress(0, len(album_dirs))
         for ai, album in enumerate(sorted(album_dirs), start=1):
             if ctx:
+                ctx.check_cancelled()
                 ctx.progress(ai, len(album_dirs), item=album.name)
             if not album.exists():
                 continue
@@ -435,6 +469,7 @@ def find_missing_tracks(folder_id: int, ctx=None) -> dict:
         ctx.progress(0, len(grouped))
     for i, (mb_album_id, group) in enumerate(grouped.items(), start=1):
         if ctx:
+            ctx.check_cancelled()
             ctx.progress(i, len(grouped), item=group[0].album or mb_album_id)
         try:
             rel = mbq.fetch_release(mb_album_id)
@@ -515,6 +550,7 @@ def tag_advisories_for_folder(folder_id: int, ctx=None) -> dict:
     tagged = 0
     for i, (track_id, p) in enumerate(items, start=1):
         if ctx:
+            ctx.check_cancelled()
             ctx.progress(i, len(items), item=p.name)
         try:
             lyrics = read_lyrics(p)
@@ -564,6 +600,7 @@ def find_duplicates(folder_id: int, ctx=None) -> dict:
         ctx.progress(0, len(tracks))
     for i, t in enumerate(tracks, start=1):
         if ctx:
+            ctx.check_cancelled()
             ctx.progress(i, len(tracks), item=Path(t.path).name)
         if t.mb_track_id:
             by_mbid.setdefault(t.mb_track_id, []).append(t)
@@ -633,6 +670,7 @@ def prune_library(folder_id: int, ctx=None) -> dict:
     removed = 0
     for i, f in enumerate(junk, start=1):
         if ctx:
+            ctx.check_cancelled()
             ctx.progress(i, len(junk), item=f.name)
         try:
             f.unlink()
@@ -672,6 +710,7 @@ def normalize_filenames(folder_id: int, ctx=None) -> dict:
         for i, t in enumerate(items, start=1):
             p = Path(t.path)
             if ctx:
+                ctx.check_cancelled()
                 ctx.progress(i, len(items), item=p.name)
             stem = re.sub(r"\s+", " ", p.stem).strip(" .")
             new_name = (stem or p.stem) + p.suffix.lower()
@@ -728,6 +767,7 @@ def validate_tags(folder_id: int, ctx=None) -> dict:
     for i, t in enumerate(items, start=1):
         name = Path(t.path).name
         if ctx:
+            ctx.check_cancelled()
             ctx.progress(i, len(items), item=name)
         if not t.title:
             problems.append(f"{name}: missing title")

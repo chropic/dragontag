@@ -117,7 +117,7 @@ def write(path: Path, tags: TrackTags, sep) -> None:
     # ----- embedded front cover -----
     if tags.cover_bytes:
         cover_data, cover_mime = _cap_cover(tags.cover_bytes, tags.cover_mime or "image/jpeg")
-        fmt = MP4Cover.FORMAT_PNG if cover_mime == "image/png" else MP4Cover.FORMAT_JPEG
+        fmt = MP4Cover.FORMAT_PNG if "png" in cover_mime.lower() else MP4Cover.FORMAT_JPEG
         t["covr"] = [MP4Cover(cover_data, imageformat=fmt)]
 
     # ----- lyrics & advisory -----

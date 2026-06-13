@@ -2,6 +2,24 @@
 
 # Changelog
 
+## Unreleased — codebase bug-fix sweep (2026-06-13)
+**Branch:** `claude/clever-ramanujan-d4dzwm`
+
+### Fixed
+- **Scanner could silently drop files (data loss)** — when indexing a folder, one unreadable file in a 50-file batch triggered `s.rollback()`, discarding every already-upserted Track in that batch; the final commit then persisted only files added after the failure. Each file now gets its own SAVEPOINT (`s.begin_nested()`), so a bad file loses only itself. (`library/scanner.py`)
+- **Partial tag actions crashed on WAV files** — `tagging/partial.py` imported `mutagen.wav` (no such module; it is `mutagen.wave`), so *Fetch lyrics*, *Tag advisories* and *Fetch cover art* raised `ModuleNotFoundError` on every `.wav`. Fixed all four call sites.
+- **ID3 sort names written twice** — `ARTISTSORT`/`ALBUMARTISTSORT` were emitted both as the canonical `TSOP`/`TSO2` frames *and* as redundant `TXXX` frames. Removed the duplicate `TXXX` entries. (`tagging/writers/_id3common.py`)
+- **Cover art consistency** — the case-sensitive `"png" in mime` check mis-encoded `image/PNG` cover art as JPEG (fixed to be case-insensitive across FLAC/MP3/WAV/MP4); the *Fetch cover art* action embedded un-resized full-resolution images (now routed through the shared 1200px `_cap_cover`); and the duplicate `_cap_cover` copy in `flac.py` was consolidated into `_id3common.py`.
+- **Grammar correction corrupted common words** — the contraction map rewrote valid standalone words (`were→we're`, `well→we'll`, `wed→we'd`, `ill→I'll`, `id→I'd`), mangling titles like "We Were Young". Those ambiguous entries were removed. (`tagging/formatter.py`)
+- **File/DB divergence on commit failure** — `organize_folder` and `revert.move_back` moved a file on disk before updating its `Track.path` in a separate transaction; a failed commit left the library pointing at a path the file no longer occupied. Both now roll the file back (compensating move) on DB failure, and `move_back` persists the DB record before touching the persistent exclude-list setting. The lyrics/advisory DB-sync failures in `library/actions.py` are now logged explicitly instead of masquerading as write failures.
+- **Scheduler `dry_run` not normalized** — the `bulk_retag` task passed the raw `params_json` value through, while the parallel `batch_retag` used `bool(...)`; a stored `"false"`/`0`/`None` could mis-trigger. Also fixed `_tick` gating on a stale `enabled` flag instead of the freshly-fetched row. (`scheduler.py`)
+- **Silent exception swallows** — `review_bulk_apply` now counts and logs per-job failures and surfaces them in the toast; `dashboard_stats` logs its top-artists query failure instead of swallowing it. (`main.py`, `db.py`)
+
+### Tests
+- New regression suites for the scanner batch rollback, organizer/revert file-vs-DB consistency, cover-art capping + ID3 sort frames, and scheduler `dry_run` normalization; extended the grammar tests to lock in the contraction fix. (`tests/test_{scanner_batch,organizer,revert_move_back,writers_cover,scheduler}.py`, `tests/test_grammar.py`)
+
+---
+
 ## 0.9.0 — scan-filter merge, task stopping & UI polish (2026-06-10)
 **Branch:** `feature/0.9.0-polish`
 

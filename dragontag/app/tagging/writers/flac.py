@@ -7,38 +7,14 @@ text tag.
 """
 from __future__ import annotations
 
-from io import BytesIO
 from pathlib import Path
 
 from mutagen.flac import FLAC, Picture
 
 from ..schema import TrackTags
-
-_MAX_COVER_PX = 1200
-
-
-def _cap_cover(data: bytes, mime: str) -> tuple[bytes, str]:
-    """Resize cover art to at most _MAX_COVER_PX on the longest side.
-
-    Returns the original bytes and mime unchanged when the image is small
-    enough or can't be decoded — re-encoding always reports the mime that
-    matches the bytes actually produced, never the original declared one.
-    """
-    from PIL import Image
-    try:
-        img = Image.open(BytesIO(data))
-        if max(img.size) <= _MAX_COVER_PX:
-            return data, mime
-        img.thumbnail((_MAX_COVER_PX, _MAX_COVER_PX), Image.LANCZOS)
-        out = BytesIO()
-        if "png" in mime:
-            fmt, out_mime = "PNG", "image/png"
-        else:
-            fmt, out_mime = "JPEG", "image/jpeg"
-        img.convert("RGB").save(out, format=fmt, quality=85)
-        return out.getvalue(), out_mime
-    except Exception:
-        return data, mime
+# _cap_cover lives in _id3common as the single canonical implementation; all
+# writers share it so the 1200px cap and PNG/JPEG handling stay consistent.
+from ._id3common import _cap_cover
 
 
 def write(path: Path, tags: TrackTags, sep) -> None:

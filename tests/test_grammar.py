@@ -36,3 +36,14 @@ def test_apply_idempotent():
 def test_apply_grammar_empty():
     assert apply_grammar("") == ""
     assert apply_grammar(None) is None
+
+
+def test_common_words_are_not_mangled_into_contractions():
+    # "were"/"well"/"wed"/"ill"/"id" are valid standalone words and must NOT be
+    # rewritten to we're/we'll/we'd/I'll/I'd (Finding 6).
+    assert apply_grammar("We Were Young") == "We Were Young"
+    assert apply_grammar("All Is Well") == "All Is Well"
+    assert apply_grammar("The Day We Wed") == "The Day We Wed"
+    assert apply_grammar("So Ill") == "So Ill"
+    # Real contractions still get fixed.
+    assert "don't" in apply_grammar("i dont care")

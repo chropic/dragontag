@@ -14,11 +14,14 @@ timeout makes a contended writer wait-and-retry rather than fail immediately
 with "database is locked".
 """
 from __future__ import annotations
+import logging
 from sqlalchemy.exc import OperationalError
 from sqlalchemy import event, text
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from .config import env
+
+log = logging.getLogger(__name__)
 
 _engine = None
 
@@ -104,8 +107,7 @@ def _seed_library_folder() -> None:
 def dashboard_stats() -> dict:
     """Aggregate library stats for the dashboard.
 
-    Returns top genres (from each track's ``album`` proxy is too rough — we
-    use ``genre`` if present, falling back to album_artist), explicit count,
+    Returns the top artists (by ``album_artist`` count), explicit count,
     lyrics count, and average duration (formatted mm:ss).
     """
     from sqlalchemy import func as _func, case
@@ -131,9 +133,8 @@ def dashboard_stats() -> dict:
             m = int(avg) // 60
             sec = int(avg) % 60
             out["avg_duration"] = f"{m}:{sec:02d}"
-        # Top genres by album_artist as a fallback; without a genre column we
-        # synthesize from album_artist counts. If a real genre col is later
-        # added, swap here.
+        # Top artists by album_artist count. (No genre column exists yet; if one
+        # is later added this is the place to surface top genres too.)
         try:
             from sqlalchemy import text as _text
             rows = list(s.exec(_text(
@@ -143,7 +144,7 @@ def dashboard_stats() -> dict:
             )))
             out["top_artists"] = [(r[0], r[1]) for r in rows]
         except Exception:
-            pass
+            log.exception("dashboard_stats: top_artists query failed")
     return out
 
 

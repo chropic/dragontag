@@ -77,6 +77,7 @@ def _toast_response(redirect_url: str, message: str, level: str = "success") -> 
     return resp
 
 logging.basicConfig(level=logging.INFO)
+log = logging.getLogger(__name__)
 
 # docs_url/redoc_url/openapi_url disabled so FastAPI's built-in Swagger UI does
 # not shadow our custom user-manual route at GET /docs (see docs() below).
@@ -533,6 +534,7 @@ async def review_bulk_apply(
 ):
     """Apply the top candidate for each selected review job."""
     applied = 0
+    failed = 0
     with session() as s:
         for job_id in job_ids:
             job = s.get(Job, job_id)
@@ -548,8 +550,10 @@ async def review_bulk_apply(
                 _commit_tag_path(s, job, Path(job.source_path), tags, score=job.score or 1.0)
                 applied += 1
             except Exception:
-                pass
-    return _toast_response("/queue", f"Applied {applied} job(s).")
+                failed += 1
+                log.exception("bulk-apply: job %s failed", job_id)
+    msg = f"Applied {applied} job(s)." + (f" {failed} failed." if failed else "")
+    return _toast_response("/queue", msg, "error" if failed and not applied else "success")
 
 
 @app.post("/review/{job_id}/apply")

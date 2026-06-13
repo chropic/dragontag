@@ -62,7 +62,7 @@ def _cap_cover(data: bytes, mime: str) -> tuple[bytes, str]:
             return data, mime
         img.thumbnail((_MAX_COVER_PX, _MAX_COVER_PX), Image.LANCZOS)
         out = BytesIO()
-        if "png" in mime:
+        if "png" in mime.lower():
             fmt, out_mime = "PNG", "image/png"
         else:
             fmt, out_mime = "JPEG", "image/jpeg"
@@ -74,11 +74,11 @@ def _cap_cover(data: bytes, mime: str) -> tuple[bytes, str]:
 
 # Anything from the canonical Vorbis schema that doesn't have a dedicated
 # ID3 frame goes through a TXXX:<NAME> frame. The names are kept identical
-# to the Vorbis keys for cross-format consistency.
+# to the Vorbis keys for cross-format consistency. Sort names are deliberately
+# absent: they have dedicated TSOP (ARTISTSORT) / TSO2 (ALBUMARTISTSORT) frames
+# written below, so listing them here too would emit redundant TXXX copies.
 TXXX_FIELDS = (
     "ARTISTS",
-    "ALBUMARTISTSORT",
-    "ARTISTSORT",
     "RELEASECOUNTRY",
     "RELEASESTATUS",
     "RELEASETYPE",

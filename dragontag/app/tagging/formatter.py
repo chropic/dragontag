@@ -31,17 +31,23 @@ _QUALIFIER_RE = re.compile(
 
 # Contraction map (case-insensitive lookup). The replacement preserves the
 # casing pattern of the original word (all-upper, all-lower, capitalized).
+#
+# Only words whose un-apostrophed form is NOT itself a common English word are
+# included. Ambiguous ones are deliberately omitted so we never corrupt valid
+# titles: "were"→"we're" (past tense of be), "well"→"we'll", "wed"→"we'd"
+# (to wed), "ill"→"I'll" (sick), "id"→"I'd" (the id) would all mangle
+# legitimate lyrics like "We Were Young" or "All Is Well".
 _CONTRACTIONS = {
     "dont": "don't", "cant": "can't", "wont": "won't",
     "isnt": "isn't", "wasnt": "wasn't", "arent": "aren't",
     "werent": "weren't", "hasnt": "hasn't", "havent": "haven't",
     "hadnt": "hadn't", "doesnt": "doesn't", "didnt": "didn't",
     "shouldnt": "shouldn't", "wouldnt": "wouldn't", "couldnt": "couldn't",
-    "im": "I'm", "ive": "I've", "ill": "I'll", "id": "I'd",
+    "im": "I'm", "ive": "I've",
     "youre": "you're", "youll": "you'll", "youve": "you've", "youd": "you'd",
     "hes": "he's", "shes": "she's",
     "theyre": "they're", "theyll": "they'll", "theyve": "they've", "theyd": "they'd",
-    "were": "we're", "weve": "we've", "wed": "we'd", "well": "we'll",
+    "weve": "we've",
     "thats": "that's", "whats": "what's", "wheres": "where's",
     "whos": "who's", "hows": "how's", "lets": "let's",
 }

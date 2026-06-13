@@ -72,11 +72,15 @@ def scan_folder(folder_path: Path, folder_id: int, ctx=None) -> int:
 def _flush_batch(paths: list[Path], folder_id: int) -> None:
     with session() as s:
         for p in paths:
+            # Each file gets its own SAVEPOINT so a single unreadable file rolls
+            # back only its own partial work — not the whole batch. (A plain
+            # ``s.rollback()`` here would discard every already-upserted Track in
+            # the batch, silently dropping them on the final commit.)
             try:
-                _upsert_from_disk(s, p, folder_id)
+                with s.begin_nested():
+                    _upsert_from_disk(s, p, folder_id)
             except Exception:
                 log.exception("scanner: failed to index %s", p)
-                s.rollback()
         s.commit()
 
 

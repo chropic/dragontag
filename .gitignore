@@ -9,6 +9,9 @@ __pycache__/
 build/
 dist/
 
+# Tailwind CLI / asset build scratch (the compiled CSS is committed under static/)
+build_tmp/
+
 # Virtualenvs
 .venv/
 venv/

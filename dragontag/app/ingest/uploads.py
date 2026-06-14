@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable
 
-from fastapi import HTTPException, UploadFile
+from fastapi import UploadFile
 
 from ..config import env
 from ..library.paths import unique_path
@@ -32,40 +32,47 @@ _EXECUTABLE_EXTS = {
 }
 
 
-def _validate(upload: UploadFile) -> None:
-    """Raise HTTPException(422) for any upload that fails security checks."""
+def _validate(upload: UploadFile) -> str | None:
+    """Return a user-facing rejection reason, or ``None`` if the upload is ok."""
     name = Path(upload.filename or "").name
     if not name or name in (".", ".."):
-        raise HTTPException(status_code=422, detail="Upload rejected: filename is empty or invalid.")
+        return "filename is empty or invalid"
 
     suffix = Path(name).suffix.lower()
 
     if suffix in _EXECUTABLE_EXTS:
-        raise HTTPException(status_code=422, detail=f"Upload rejected: file type '{suffix}' is not allowed.")
+        return f"'{name}': file type '{suffix}' is not allowed"
 
     if suffix not in _ALLOWED_EXTS:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Upload rejected: '{suffix}' is not a supported audio format. Allowed: {', '.join(sorted(_ALLOWED_EXTS))}",
+        return (
+            f"'{name}': '{suffix}' is not a supported audio format "
+            f"(allowed: {', '.join(sorted(_ALLOWED_EXTS))})"
         )
 
     ct = (upload.content_type or "").lower()
     if ct and ct != "application/octet-stream":
         if not any(ct.startswith(p) for p in _ALLOWED_MIME_PREFIXES):
-            raise HTTPException(
-                status_code=422,
-                detail=f"Upload rejected: MIME type '{ct}' is not an accepted audio type.",
-            )
+            return f"'{name}': MIME type '{ct}' is not an accepted audio type"
+    return None
 
 
-async def save_uploads(files: Iterable[UploadFile]) -> list[int]:
-    """Validate, persist each upload, and submit a pipeline job per file."""
+async def save_uploads(files: Iterable[UploadFile]) -> tuple[list[int], list[str]]:
+    """Validate, persist, and enqueue each upload.
+
+    Returns ``(job_ids, errors)``. A bad file is skipped with a collected error
+    message rather than aborting the whole batch, so one rejected file doesn't
+    drop the others.
+    """
     job_ids: list[int] = []
+    errors: list[str] = []
     drop = env().drop_path
     drop.mkdir(parents=True, exist_ok=True)
 
     for upload in files:
-        _validate(upload)
+        reason = _validate(upload)
+        if reason:
+            errors.append(reason)
+            continue
 
         # Defensive: ``upload.filename`` is browser-supplied, so strip any
         # path components so the user can't write outside the drop folder.
@@ -82,10 +89,11 @@ async def save_uploads(files: Iterable[UploadFile]) -> list[int]:
 
         if written == 0:
             target.unlink(missing_ok=True)
-            raise HTTPException(status_code=422, detail=f"Upload rejected: '{name}' is empty.")
+            errors.append(f"'{name}' is empty")
+            continue
 
         job = pipeline.enqueue(target)
         pipeline.submit(job.id)
         job_ids.append(job.id)
 
-    return job_ids
+    return job_ids, errors

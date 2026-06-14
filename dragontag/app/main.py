@@ -76,6 +76,19 @@ def _toast_response(redirect_url: str, message: str, level: str = "success") -> 
     resp.headers["HX-Trigger"] = json.dumps({"showToast": {"message": message, "level": level}})
     return resp
 
+
+def _toast(message: str, level: str = "success") -> Response:
+    """Return an empty 204 carrying only a showToast trigger.
+
+    For htmx form posts with ``hx-swap="none"``: shows an on-page toast without
+    navigating, so user/validation errors surface as an alert instead of a raw
+    JSON error page.
+    """
+    return Response(
+        status_code=204,
+        headers={"HX-Trigger": json.dumps({"showToast": {"message": message, "level": level}})},
+    )
+
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
@@ -334,8 +347,14 @@ def jobs_table(request: Request, _: None = Depends(require_auth), page: int = 1)
 
 @app.post("/upload")
 async def upload(request: Request, _: None = Depends(require_auth), files: list[UploadFile] = []):
-    await uploads.save_uploads(files)
-    return RedirectResponse("/", status_code=303)
+    job_ids, errors = await uploads.save_uploads(files)
+    n = len(job_ids)
+    if not n and not errors:
+        return _toast("No files selected.", "error")
+    msg = f"Queued {n} file(s)." if n else ""
+    if errors:
+        msg = (msg + " " if msg else "") + f"Rejected {len(errors)}: {errors[0]}" + (" …" if len(errors) > 1 else "")
+    return _toast(msg, "error" if errors and not n else "success")
 
 
 @app.get("/queue", response_class=HTMLResponse)
@@ -996,17 +1015,22 @@ def library_organize(request: Request, _: None = Depends(require_auth), folder_i
 def library_bulk_retag(
     request: Request,
     _: None = Depends(require_auth),
-    source_path: str = Form(...),
+    source_path: str = Form(""),
     dry_run: str | None = Form(None),
 ):
     from .ingest.bulk import enqueue_folder
+    # source_path is optional at the API layer so a blank submit surfaces a
+    # friendly toast instead of a raw 422 validation page.
+    sp = source_path.strip()
+    if not sp:
+        return _toast("Enter a folder path first.", "error")
     # Per-request dry-run only — the checkbox never mutates the global setting.
     # An unchecked box submits nothing, which means an explicit "not dry run".
     try:
-        enqueue_folder(Path(source_path.strip()), dry_run=bool(dry_run))
+        ids = enqueue_folder(Path(sp), dry_run=bool(dry_run))
     except ValueError as e:
-        raise HTTPException(400, str(e))
-    return _toast_response("/", "Full library re-tag queued.")
+        return _toast(str(e), "error")
+    return _toast(f"Full library re-tag queued — {len(ids)} file(s).")
 
 
 @app.post("/library/retag-selected")

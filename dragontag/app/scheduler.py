@@ -151,15 +151,11 @@ def run_task_by_type(task: ScheduledTask) -> int | None:
     raise ValueError(f"unknown task type: {kind}")
 
 
-def _same_kind_running(kind: str) -> bool:
-    with session() as s:
-        row = s.exec(
-            select(Job).where(Job.kind == kind, Job.status == JobStatus.running)
-        ).first()
-        return row is not None
-
-
 def _tick() -> None:
+    # Reap stalled/hung tasks first so a wedged job can't block its task type
+    # from ever running again (and so the same-kind check below sees the truth).
+    tasks.reap_stale_jobs()
+
     now = now_utc()
     with session() as s:
         rows = s.exec(select(ScheduledTask)).all()
@@ -180,8 +176,15 @@ def _tick() -> None:
                 s.commit()
                 continue
 
-            # Due. Skip if a same-kind task is still running.
-            if _same_kind_running(row.task_type):
+            # Due. Skip if a same-kind task is still running. Check inside this
+            # same session, immediately before dispatch, to keep the
+            # check→dispatch window as small as possible (M4).
+            already_running = s.exec(
+                select(Job).where(
+                    Job.kind == row.task_type, Job.status == JobStatus.running
+                )
+            ).first()
+            if already_running is not None:
                 row.last_status = "skipped: previous run still active"
                 row.last_run_at = now
             else:

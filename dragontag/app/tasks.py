@@ -11,7 +11,10 @@ import logging
 import threading
 import time
 import traceback
+from datetime import timedelta
 from typing import Any, Callable
+
+from sqlmodel import select
 
 from .db import session
 from .models import Job, JobStatus
@@ -22,6 +25,38 @@ log = logging.getLogger(__name__)
 # Minimum seconds between DB commits from progress()/log() updates, so a tight
 # per-file loop doesn't hammer SQLite.
 _COMMIT_INTERVAL = 1.0
+
+# A ``running`` Job whose ``updated_at`` hasn't advanced for this long is
+# considered stalled and reaped to ``error``. Healthy long tasks heartbeat via
+# TaskCtx.progress()/log() (which bump updated_at ~every second), so only a
+# genuinely hung or silently-dead task trips this.
+STALE_RUNNING_AFTER = timedelta(minutes=15)
+
+
+def reap_stale_jobs() -> int:
+    """Mark heartbeat-stale ``running`` jobs as ``error``. Returns the count.
+
+    Restart recovery (``ingest.pipeline.resubmit_pending``) only runs at boot;
+    this catches tasks that hang or die silently *while the process keeps
+    running*, which would otherwise wedge ``scheduler._same_kind_running``
+    forever and leave a perpetual progress bar in the UI.
+    """
+    cutoff = now_utc() - STALE_RUNNING_AFTER
+    with session() as s:
+        rows = s.exec(
+            select(Job).where(Job.status == JobStatus.running, Job.updated_at < cutoff)
+        ).all()
+        for j in rows:
+            j.status = JobStatus.error
+            j.error = (j.error or "") + "\nReaped: no progress heartbeat (stalled task)"
+            j.updated_at = now_utc()
+            s.add(j)
+            with _cancel_lock:
+                _cancel_events.pop(j.id, None)
+        if rows:
+            s.commit()
+            log.warning("reaped %d stalled running job(s)", len(rows))
+        return len(rows)
 
 # Cancel events for currently running tasks, keyed by job id. Set via
 # request_cancel() (the "Stop" button); task callables notice through

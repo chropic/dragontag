@@ -163,6 +163,7 @@ def _track_to_tags(track: Track) -> TrackTags:
         album=track.album,
         album_artist_display=track.album_artist,
         track=track.track_num,
+        track_total=track.track_total,
         disc=track.disc_num,
         disc_total=track.disc_total,
     )

@@ -8,7 +8,6 @@ doing so could land it back in the watched drop folder and trigger a re-ingest.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from pathlib import Path
 
 from sqlmodel import Session, select
@@ -18,6 +17,7 @@ from ..db import session
 from ..identify import existing_tags
 from ..models import FileChange, Job, Track
 from ..tagging import snapshot
+from ..timeutil import now_utc
 from .mover import move
 from .paths import unique_path
 
@@ -49,7 +49,7 @@ def revert_change(change_id: int) -> tuple[bool, str]:
                     cover.unlink()
             _refresh_track(s, file)
             _repair_job(s, change.job_id, file)
-            change.reverted_at = datetime.utcnow()
+            change.reverted_at = now_utc()
             change.revert_error = None
             s.add(change)
             s.commit()

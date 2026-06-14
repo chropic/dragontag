@@ -49,15 +49,36 @@ def _fetch_inner(artist, title, album, duration) -> str | None:
         if result is not None:
             return result
 
-    # Fallback: search endpoint
+    # Fallback: search endpoint. The /search results are ranked by relevance,
+    # not exact-matched, so the top hit can be a *different* song — accepting it
+    # blindly would embed the wrong lyrics (and skew the explicit classifier).
+    # Take the first hit whose artist + title actually match the request.
     search_params = {"track_name": title, "artist_name": artist}
     resp = requests.get(f"{_BASE}/search", params=search_params, headers=_HEADERS, timeout=_TIMEOUT)
     if resp.status_code == 200:
         hits = resp.json()
-        if hits:
-            return _parse(hits[0])
+        if isinstance(hits, list):
+            for hit in hits:
+                if _hit_matches(hit, artist, title):
+                    return _parse(hit)
 
     return None
+
+
+def _norm(s: str | None) -> str:
+    return (s or "").strip().lower()
+
+
+def _hit_matches(hit: dict, artist: str, title: str) -> bool:
+    """True when a /search hit plausibly refers to the requested track.
+
+    Conservative: the hit's track/artist names must equal the request after
+    case/whitespace normalization (LRCLIB echoes both back on every hit).
+    """
+    return (
+        _norm(hit.get("trackName")) == _norm(title)
+        and _norm(hit.get("artistName")) == _norm(artist)
+    )
 
 
 def _parse(data: dict) -> str | None:

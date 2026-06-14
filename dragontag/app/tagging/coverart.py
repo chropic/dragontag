@@ -63,12 +63,23 @@ def _pick_and_download(images: list[dict]) -> CoverArt | None:
                 continue
             data = r.content
             # Probe dimensions/mime via Pillow so we can store them for the
-            # ``cover.jpg`` overwrite policy.
+            # ``cover.jpg`` overwrite policy. The downstream writers (and the
+            # MP4 ``covr`` atom) only understand JPEG and PNG, so anything else
+            # CAA might serve (GIF/WEBP/BMP/TIFF) is re-encoded to JPEG here —
+            # otherwise the bytes wouldn't match the declared MIME.
             try:
                 from PIL import Image
                 with Image.open(io.BytesIO(data)) as im:
                     w, h = im.size
-                    mime = "image/png" if im.format == "PNG" else "image/jpeg"
+                    if im.format == "PNG":
+                        mime = "image/png"
+                    elif im.format in ("JPEG", "MPO"):
+                        mime = "image/jpeg"
+                    else:
+                        out = io.BytesIO()
+                        im.convert("RGB").save(out, format="JPEG", quality=90)
+                        data = out.getvalue()
+                        mime = "image/jpeg"
             except Exception:
                 # Non-image response (unlikely but defend against it).
                 w = h = 0

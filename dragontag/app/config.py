@@ -313,15 +313,22 @@ class _Store:
 
     def _save(self, u: UserSettings) -> None:
         # ensure_ascii=False keeps unicode (artist names, etc.) readable in
-        # the on-disk file.
+        # the on-disk file. Write to a sibling temp file and atomically
+        # ``os.replace`` it into place so a crash mid-write can never leave a
+        # truncated settings.json behind (which ``_load`` would silently treat
+        # as corrupt and replace with defaults, wiping the user's config).
+        data = json.dumps(u.model_dump(), indent=2, ensure_ascii=False)
+        tmp = self._settings_path.with_name(self._settings_path.name + ".tmp")
         try:
-            self._settings_path.write_text(
-                json.dumps(u.model_dump(), indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
+            tmp.write_text(data, encoding="utf-8")
+            os.replace(tmp, self._settings_path)
         except OSError as e:
             import logging
             logging.getLogger(__name__).warning("settings: could not write %s: %s", self._settings_path, e)
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def update(self, patch: dict[str, Any]) -> UserSettings:
         """Merge ``patch`` over the current settings, persist, and return."""

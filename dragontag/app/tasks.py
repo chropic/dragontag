@@ -11,11 +11,11 @@ import logging
 import threading
 import time
 import traceback
-from datetime import datetime
 from typing import Any, Callable
 
 from .db import session
 from .models import Job, JobStatus
+from .timeutil import now_utc
 
 log = logging.getLogger(__name__)
 
@@ -99,7 +99,7 @@ class TaskCtx:
             job.progress_current = current
             job.progress_total = total
             job.progress_item = item
-            job.updated_at = datetime.utcnow()
+            job.updated_at = now_utc()
             s.add(job)
             s.commit()
 
@@ -128,7 +128,7 @@ def run_task(kind: str, name: str, fn: Callable[[TaskCtx], Any]) -> int:
                     j.status = JobStatus.done
                     if result is not None:
                         j.log = (j.log or "") + f"Result: {result}\n"
-                    j.updated_at = datetime.utcnow()
+                    j.updated_at = now_utc()
                     s.add(j)
                     s.commit()
         except TaskCancelled:
@@ -139,7 +139,7 @@ def run_task(kind: str, name: str, fn: Callable[[TaskCtx], Any]) -> int:
                 j = s.get(Job, job_id)
                 if j:
                     j.status = JobStatus.skipped
-                    j.updated_at = datetime.utcnow()
+                    j.updated_at = now_utc()
                     s.add(j)
                     s.commit()
         except Exception as e:
@@ -150,7 +150,7 @@ def run_task(kind: str, name: str, fn: Callable[[TaskCtx], Any]) -> int:
                 if j:
                     j.status = JobStatus.error
                     j.error = f"{e}\n{traceback.format_exc()}"
-                    j.updated_at = datetime.utcnow()
+                    j.updated_at = now_utc()
                     s.add(j)
                     s.commit()
         finally:

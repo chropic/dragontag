@@ -8,7 +8,6 @@ immediately.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from pathlib import Path
 
 from sqlmodel import select
@@ -18,6 +17,7 @@ from ..db import session
 from ..identify.existing_tags import read as read_existing
 from ..ingest.pipeline import SUPPORTED_EXTS
 from ..models import Track
+from ..timeutil import now_utc
 from .filters import is_path_excluded
 
 log = logging.getLogger(__name__)
@@ -86,7 +86,7 @@ def _flush_batch(paths: list[Path], folder_id: int) -> None:
 
 def _upsert_from_disk(s, path: Path, folder_id: int) -> Track:
     raw = read_existing(path)
-    now = datetime.utcnow()
+    now = now_utc()
     fields = {
         "library_folder_id": folder_id,
         "title": raw.get("title"),

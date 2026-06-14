@@ -8,6 +8,7 @@ on file content but we want explicit control over the tag container chosen
 """
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 
 from ...config import settings
@@ -26,16 +27,23 @@ def write_tags(path: Path, tags: TrackTags) -> None:
 
     # Zero out any fields the user has opted to skip. Writers already omit
     # None / empty-list / False values, so this cleanly suppresses them.
-    for field_name in s.skip_fields:
-        if not hasattr(tags, field_name):
-            continue
-        current = getattr(tags, field_name)
-        if isinstance(current, list):
-            setattr(tags, field_name, [])
-        elif isinstance(current, bool):
-            setattr(tags, field_name, False)
-        else:
-            setattr(tags, field_name, None)
+    #
+    # Operate on a *copy* — never mutate the caller's object. The pipeline
+    # builds the library destination from the same ``tags`` after this call
+    # (see ``ingest/pipeline._commit_tag_path``), so zeroing e.g. ``album`` or
+    # ``disc_total`` in place would silently misfile the track.
+    if s.skip_fields:
+        tags = dataclasses.replace(tags)
+        for field_name in s.skip_fields:
+            if not hasattr(tags, field_name):
+                continue
+            current = getattr(tags, field_name)
+            if isinstance(current, list):
+                setattr(tags, field_name, [])
+            elif isinstance(current, bool):
+                setattr(tags, field_name, False)
+            else:
+                setattr(tags, field_name, None)
 
     if ext == "flac":
         from .flac import write as f

@@ -97,6 +97,54 @@ def test_organize_conflict_reported_not_overwritten(folder):
     assert dest.read_bytes() == b"FIRST"   # winner not clobbered by the loser
 
 
+def test_track_to_tags_carries_totals():
+    # Regression: _track_to_tags dropped track_total (and the pipeline never
+    # stored disc_total), so organize misfiled multi-disc albums / rendered
+    # {tracktotal} as 0.
+    t = Track(path="/x.flac", track_num=3, track_total=10, disc_num=1, disc_total=2)
+    tags = _track_to_tags(t)
+    assert tags.track_total == 10
+    assert tags.disc_total == 2
+
+
+def test_organize_multidisc_uses_disc_folder(folder):
+    fid, root = folder
+    src = root / "loose" / "x.flac"
+    tid = _add_track(
+        fid, src, title="Song", artist="Artist", album="Album",
+        album_artist="Artist", track_num=1, track_total=10, disc_num=1, disc_total=2,
+    )
+
+    out = organize_folder(fid)
+
+    assert out["moved"] == 1
+    with session() as s:
+        newpath = s.get(Track, tid).path
+    assert "Disc 1" in newpath   # disc_total=2 carried through → multi-disc folder
+
+
+def test_upsert_track_persists_totals(tmp_path):
+    from dragontag.app.ingest.pipeline import _upsert_track
+    from dragontag.app.tagging.schema import TrackTags
+
+    dest = tmp_path / "a.flac"
+    tags = TrackTags(title="S", track=2, track_total=11, disc=1, disc_total=3)
+    with session() as s:
+        row = _upsert_track(s, dest, tags, tmp_path)
+        tid = row.id
+    try:
+        with session() as s:
+            row = s.get(Track, tid)
+            assert row.track_total == 11
+            assert row.disc_total == 3
+    finally:
+        with session() as s:
+            row = s.get(Track, tid)
+            if row:
+                s.delete(row)
+                s.commit()
+
+
 def test_organize_db_failure_rolls_file_back(folder, monkeypatch):
     fid, root = folder
     src = root / "loose" / "whatever.flac"

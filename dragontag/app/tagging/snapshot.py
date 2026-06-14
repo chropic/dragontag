@@ -101,12 +101,18 @@ def _capture_id3(path: Path, ext: str) -> dict[str, list[str]]:
             out["TXXX:" + frame.desc] = [str(x) for x in frame.text]
         elif isinstance(frame, TextFrame):
             out[frame.FrameID] = [str(x) for x in frame.text]
-        # APIC / USLT / UFID / COMM and other non-text frames are skipped.
+        # APIC / UFID / COMM and other binary frames are skipped.
+    # Embedded lyrics (USLT) are text, not binary, and a user expects a revert
+    # to restore them — capture the first frame under a synthetic key so the
+    # tag-write+revert cycle doesn't silently drop pre-existing lyrics.
+    uslt = audio.tags.getall("USLT")
+    if uslt:
+        out["USLT"] = [str(uslt[0].text)]
     return out
 
 
 def _restore_id3(path: Path, tags: dict[str, list[str]], ext: str) -> None:
-    from mutagen.id3 import Frames, TXXX
+    from mutagen.id3 import Frames, TXXX, USLT
 
     audio = _open_id3(path, ext)
     if audio.tags is None:
@@ -116,6 +122,12 @@ def _restore_id3(path: Path, tags: dict[str, list[str]], ext: str) -> None:
         vals = [str(x) for x in vals]
         if key.startswith("TXXX:"):
             audio.tags.add(TXXX(encoding=3, desc=key[5:], text=vals))
+            continue
+        if key == "USLT":
+            # USLT.text is a single string (with lang/desc), not a text list —
+            # restore it explicitly rather than via the generic Frames path.
+            if vals:
+                audio.tags.add(USLT(encoding=3, lang="eng", desc="", text=vals[0]))
             continue
         cls = Frames.get(key)
         if cls is None:

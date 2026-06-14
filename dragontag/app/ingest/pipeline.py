@@ -20,7 +20,6 @@ import logging
 import queue
 import threading
 import traceback
-from datetime import datetime
 from pathlib import Path
 
 from sqlmodel import Session, select
@@ -38,6 +37,7 @@ from ..tagging import snapshot
 from ..tagging.coverart import fetch_for_release, fetch_for_release_group
 from ..tagging.schema import TrackTags
 from ..tagging.writers import write_tags
+from ..timeutil import now_utc
 
 log = logging.getLogger(__name__)
 
@@ -111,7 +111,7 @@ def _set(job: Job, **kwargs) -> None:
     """Mutate ``job`` in-place and bump ``updated_at``."""
     for k, v in kwargs.items():
         setattr(job, k, v)
-    job.updated_at = datetime.utcnow()
+    job.updated_at = now_utc()
 
 
 def _append_log(job: Job, line: str) -> None:
@@ -306,23 +306,11 @@ def _process_inner(s: Session, job: Job) -> None:
 
     # RELEASETYPE is the only field we treat as mandatory — the user's
     # convention demands one, and getting it wrong (e.g. tagging a single as
-    # an album) corrupts a lot of downstream tooling.
-    # Apply a heuristic fallback before routing to review.
+    # an album) corrupts a lot of downstream tooling. ``_infer_release_type``
+    # always yields a value from the track count, so this never blocks.
     if not tags.release_type:
         tags.release_type = _infer_release_type(tags.track_total)
         _append_log(job, f"RELEASETYPE inferred as '{tags.release_type}' from track count={tags.track_total}")
-        if not tags.release_type:
-            _append_log(job, "RELEASETYPE missing from MB release-group; sending to review for override")
-            job.chosen_tags_json = _tags_to_dict(tags)
-            _set(
-                job,
-                status=JobStatus.needs_review,
-                review_reason=ReviewReason.missing_releasetype,
-                score=best_total,
-            )
-            s.add(job)
-            s.commit()
-            return
 
     if not tags.release_status:
         tags.release_status = "Official"
@@ -532,7 +520,7 @@ def _upsert_track(s: Session, dest: Path, tags: TrackTags, lib_root: Path) -> "T
     ).first()
     folder_id = folder_row.id if folder_row else None
 
-    now = datetime.utcnow()
+    now = now_utc()
     existing = s.exec(select(Track).where(Track.path == str(dest))).first()
     if existing:
         existing.library_folder_id = folder_id
@@ -541,7 +529,9 @@ def _upsert_track(s: Session, dest: Path, tags: TrackTags, lib_root: Path) -> "T
         existing.album = tags.album
         existing.album_artist = tags.album_artist_display
         existing.track_num = tags.track
+        existing.track_total = tags.track_total
         existing.disc_num = tags.disc
+        existing.disc_total = tags.disc_total
         existing.mb_track_id = tags.mb_track_id
         existing.mb_album_id = tags.mb_album_id
         existing.advisory = tags.advisory
@@ -560,7 +550,9 @@ def _upsert_track(s: Session, dest: Path, tags: TrackTags, lib_root: Path) -> "T
         album=tags.album,
         album_artist=tags.album_artist_display,
         track_num=tags.track,
+        track_total=tags.track_total,
         disc_num=tags.disc,
+        disc_total=tags.disc_total,
         mb_track_id=tags.mb_track_id,
         mb_album_id=tags.mb_album_id,
         advisory=tags.advisory,

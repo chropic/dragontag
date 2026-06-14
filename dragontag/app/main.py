@@ -40,6 +40,7 @@ from .identify import musicbrainz as mbq
 from .ingest import pipeline, uploads, watcher
 from .library.mover import move
 from .library.paths import unique_path
+from .timeutil import now_utc
 from .models import (
     ACTIVE_JOB_STATUSES as _ACTIVE_JOB_STATUSES,
     FileChange,
@@ -1597,7 +1598,7 @@ def schedule_run_now(task_id: int, request: Request, _: None = Depends(require_a
     with session() as s:
         row = s.get(ScheduledTask, task_id)
         if row:
-            row.last_run_at = datetime.utcnow()
+            row.last_run_at = now_utc()
             row.last_status = "ok (manual)"
             s.add(row)
             s.commit()

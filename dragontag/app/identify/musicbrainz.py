@@ -17,6 +17,7 @@ from user settings — MB requires a contact URL/email in it.
 from __future__ import annotations
 
 import re
+import socket
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -59,6 +60,12 @@ def _ensure_configured() -> None:
     mb.set_useragent("dragontag", _version, s.musicbrainz_user_agent)
     mb.set_hostname(s.musicbrainz_server)
     mb.set_rate_limit(True)
+    # musicbrainzngs uses urllib, which has no default timeout — a half-open
+    # connection would otherwise hang the single ingest worker forever. Set a
+    # process-wide socket default so every MB (and AcoustID urllib) call is
+    # bounded. musicbrainzngs surfaces the resulting socket.timeout as a
+    # NetworkError (a WebServiceError subclass), so _mb_retry still retries it.
+    socket.setdefaulttimeout(s.network_timeout_seconds)
     _configured = True
 
 
@@ -323,33 +330,17 @@ def assemble_tags(*, release_id: str, recording_id: str) -> TrackTags:
     # We capture the joined phrase for ``ARTIST`` and the flat list for ``ARTISTS``.
     rec_credits = rec.get("artist-credit") or []
     tags.artist_display = _credit_phrase(rec_credits)
-    tags.artists = [
-        c["artist"]["name"] for c in rec_credits if isinstance(c, dict) and "artist" in c
-    ]
-    tags.artist_sort = [
-        c["artist"].get("sort-name", c["artist"]["name"])
-        for c in rec_credits
-        if isinstance(c, dict) and "artist" in c
-    ]
-    tags.mb_artist_ids = [
-        c["artist"]["id"] for c in rec_credits if isinstance(c, dict) and "artist" in c
-    ]
+    tags.artists = _credit_names(rec_credits)
+    tags.artist_sort = _credit_sorts(rec_credits)
+    tags.mb_artist_ids = _credit_ids(rec_credits)
 
     # ----- release-level (album) -----
     tags.album = rel.get("title")
     rel_credits = rel.get("artist-credit") or []
     tags.album_artist_display = _credit_phrase(rel_credits)
-    tags.album_artists = [
-        c["artist"]["name"] for c in rel_credits if isinstance(c, dict) and "artist" in c
-    ]
-    tags.album_artist_sort = [
-        c["artist"].get("sort-name", c["artist"]["name"])
-        for c in rel_credits
-        if isinstance(c, dict) and "artist" in c
-    ]
-    tags.mb_album_artist_ids = [
-        c["artist"]["id"] for c in rel_credits if isinstance(c, dict) and "artist" in c
-    ]
+    tags.album_artists = _credit_names(rel_credits)
+    tags.album_artist_sort = _credit_sorts(rel_credits)
+    tags.mb_album_artist_ids = _credit_ids(rel_credits)
 
     # ----- find the specific track within the release -----
     # A release has N media (discs); each medium has a list of tracks. The
@@ -487,6 +478,40 @@ def assemble_tags(*, release_id: str, recording_id: str) -> TrackTags:
     tags.mb_track_id = recording_id
     tags.mb_album_id = release_id
     return tags
+
+
+def _credit_names(credits: list[Any]) -> list[str]:
+    """Flat list of artist names, tolerant of malformed/partial MB credits."""
+    out: list[str] = []
+    for c in credits:
+        if isinstance(c, dict):
+            name = (c.get("artist") or {}).get("name")
+            if name:
+                out.append(name)
+    return out
+
+
+def _credit_sorts(credits: list[Any]) -> list[str]:
+    """Sort-names, falling back to the display name; skips nameless entries."""
+    out: list[str] = []
+    for c in credits:
+        if isinstance(c, dict):
+            artist = c.get("artist") or {}
+            sort = artist.get("sort-name") or artist.get("name")
+            if sort:
+                out.append(sort)
+    return out
+
+
+def _credit_ids(credits: list[Any]) -> list[str]:
+    """MB artist IDs, skipping entries that lack one."""
+    out: list[str] = []
+    for c in credits:
+        if isinstance(c, dict):
+            aid = (c.get("artist") or {}).get("id")
+            if aid:
+                out.append(aid)
+    return out
 
 
 def _credit_phrase(credits: list[Any]) -> str | None:

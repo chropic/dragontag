@@ -2,6 +2,21 @@
 
 # Changelog
 
+## Unreleased — data-integrity & resilience sweep (2026-06-14)
+**Branch:** `claude/affectionate-sagan-41telq`
+
+### Fixed
+- **Tag writes are now atomic (prevents audio-file corruption)** — every in-place mutagen save (full writers, `tagging/partial.py` single-field updates, and `tagging/snapshot.py` revert) is performed on a same-directory temp copy and atomically `os.replace`d in via the new `tagging/writers/_atomic.atomic_inplace` helper. A crash mid-save can no longer truncate the user's only copy of a track. FLAC/MP4 also drop a redundant `delete()` on-disk write in favor of an in-memory clear. `write_cover_jpg` is atomic too. (`tagging/writers/*`, `tagging/partial.py`, `tagging/snapshot.py`, `library/mover.py`)
+- **Outbound API calls can no longer hang the worker** — new `network_timeout_seconds` setting (default 15s) is applied as the urllib socket default for MusicBrainz and as the AcoustID `lookup` timeout; without it a half-open connection could freeze the single ingest worker (and, via the same-kind check, all scheduled work) indefinitely. AcoustID failures now degrade to no-match for any error, not just `WebServiceError`. (`config.py`, `identify/musicbrainz.py`, `identify/acoustid.py`)
+- **Stalled/hung background tasks now self-recover** — `tasks.reap_stale_jobs()` marks any `running` Job whose progress heartbeat (`updated_at`) hasn't advanced for 15 minutes as `error`; the scheduler runs it each tick so a wedged task can't block its task type forever. (`tasks.py`, `scheduler.py`)
+- **Partial-transfer ingestion** — the drop-folder watcher now requires a file's size to be stable across the settle window before enqueuing, so a slow/stalled SMB/NFS copy isn't read half-written. (`ingest/watcher.py`)
+- **Robustness** — `assemble_tags` tolerates malformed MB artist-credits instead of `KeyError`-bouncing a tag-able file to review; `existing_tags.read` degrades to empty clues on a corrupt header instead of erroring the whole job; `enqueue` serializes its dedup check-then-insert (no duplicate jobs); `organize_folder` escalates an unrecoverable file/DB divergence to a critical log and surfaces it in the summary; `move()` verifies destination size and survives a vanished source during the `samefile` check; scoring NFC-normalizes + casefolds and treats a 0-second duration as valid. (`identify/musicbrainz.py`, `identify/existing_tags.py`, `ingest/pipeline.py`, `library/organizer.py`, `library/mover.py`, `identify/scoring.py`, `identify/filename_parse.py`)
+
+### Tests
+- New suites: `test_atomic_writes.py` (failure-injection leaves originals intact), `test_existing_tags_corrupt.py`, `test_musicbrainz_credits.py`, `test_watcher_settle.py`, `test_tasks_reaper.py`, `test_scoring_unicode.py`, `test_mover_verify.py`. Suite: 169 passing.
+
+---
+
 ## Unreleased — codebase bug-fix sweep (2026-06-13)
 **Branch:** `claude/clever-ramanujan-d4dzwm`
 

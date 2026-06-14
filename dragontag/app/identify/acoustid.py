@@ -11,12 +11,15 @@ quietly returns an empty list and the pipeline routes the job to review.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
 import acoustid
 
-from ..config import env
+from ..config import env, settings
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -47,8 +50,15 @@ def lookup(path: Path) -> list[AcoustIDMatch]:
         return []
 
     try:
-        response = acoustid.lookup(key, fingerprint, duration, meta="recordings")
-    except acoustid.WebServiceError:
+        response = acoustid.lookup(
+            key, fingerprint, duration, meta="recordings",
+            timeout=settings().network_timeout_seconds,
+        )
+    except Exception:
+        # WebServiceError, socket timeouts, and any other network/parse failure
+        # are all non-fatal — fall through to the review queue rather than
+        # erroring (and never let a raw exception escape into the pipeline).
+        log.debug("AcoustID lookup failed", exc_info=True)
         return []
 
     out: list[AcoustIDMatch] = []

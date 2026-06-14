@@ -49,7 +49,7 @@ dragontag/app/
     coverart.py            Cover Art Archive fetcher
     lyrics_fetcher.py      LRCLIB client
     advisory.py            Explicit-content classifier
-    writers/               Format dispatch: flac · mp3 · mp4 · wav
+    writers/               Format dispatch: flac · mp3 · mp4 · wav (+ _atomic.py)
   library/
     paths.py               sanitize_segment + build_destination
     mover.py               Move with conflict detection + cover.jpg writer
@@ -86,6 +86,16 @@ Job rows carry `candidates_json`, `chosen_tags_json`, and `destination_path` so 
 - Long-running library operations (scan, organize, lyrics/cover fetches, scheduled runs) go through `tasks.run_task`, which wraps a daemon thread with a tracked Job row. A few legacy actions (extract-covers, replaygain, integrity, disc-folders, missing-tracks) still use bare daemon threads.
 - `scheduler.start()` runs one daemon tick-thread (30s); the universal progress bar in `base.html` polls `GET /api/progress` every 3s.
 - Webhook posts fire on their own daemon thread so they cannot block the pipeline.
+- **Stale-job reaper**: `tasks.reap_stale_jobs()` marks any `running` Job whose `updated_at` heartbeat hasn't advanced for `tasks.STALE_RUNNING_AFTER` (15min) as `error`; `scheduler._tick` calls it every tick. Healthy long tasks heartbeat via `TaskCtx.progress/.log` (which bump `updated_at`), so only hung/silently-dead tasks trip it. This is the in-process complement to `resubmit_pending` (which only runs at boot).
+
+## Resilience / data-integrity invariants
+
+- **Atomic tag writes**: every in-place mutagen save goes through `tagging/writers/_atomic.atomic_inplace(path)` — a `shutil.copy2` to a same-dir temp, mutate the temp, then `os.replace` back (atomic within one filesystem). Covers the full writers (`writers/*.py`), single-field updates (`tagging/partial.py`), and revert (`tagging/snapshot._restore_*`). A crash mid-save can only damage the temp, never the original. **Any new code that mutates an audio file must use this helper.** FLAC/MP4 clear tags in memory (`tags.clear()`) rather than `delete()` to avoid a redundant on-disk write.
+- **Network timeout**: `settings().network_timeout_seconds` (default 15s) is applied as the urllib socket default in `musicbrainz._ensure_configured` and as the `acoustid.lookup(timeout=...)` arg, so a half-open connection can't hang the single ingest worker (which would also wedge `scheduler`'s same-kind check). `acoustid.lookup` swallows *all* exceptions → `[]`.
+- **Move verification**: `library/mover.move` captures the source size and asserts the destination matches after `shutil.move`; `os.path.samefile` is wrapped against a vanished source. `write_cover_jpg` is also temp+`os.replace`.
+- **Watcher size-stability**: `_Handler._pending` stores `(ts, size)`; `_collect_ready` only releases a path once the settle window elapsed *and* its size stopped changing (guards partial SMB/NFS transfers). Extracted from `settle_loop` for unit-testing.
+- **Enqueue dedup**: `pipeline.enqueue` serializes its check-then-insert under `_enqueue_lock` so concurrent watcher/HTTP/bulk threads can't create duplicate jobs for one path.
+- **Defensive parsing**: `musicbrainz.assemble_tags` uses `_credit_names/_credit_sorts/_credit_ids` (tolerant of malformed MB artist-credits); `existing_tags.read` degrades to `{"duration": None}` on an unreadable header; `scoring._sim` NFC-normalizes + casefolds before comparing.
 
 ## API surface notes
 

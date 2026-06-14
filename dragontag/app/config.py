@@ -80,6 +80,10 @@ class UserSettings(BaseModel):
     # ----- identification -----
     acoustid_enabled: bool = True
     score_threshold: float = 0.85  # below this the file is routed to /review
+    # Network timeout (seconds) for outbound API calls (MusicBrainz, AcoustID).
+    # Without it a half-open connection can hang the single ingest worker
+    # thread indefinitely, wedging all further processing.
+    network_timeout_seconds: float = 15.0
 
     # ----- tag rendering -----
     separators: Separators = Field(default_factory=Separators)

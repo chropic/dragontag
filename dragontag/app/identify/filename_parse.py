@@ -14,6 +14,7 @@ on title alone.
 from __future__ import annotations
 
 import re
+import unicodedata
 from pathlib import Path
 
 # Match a leading "01 - " / "01. " / "01 " etc.
@@ -21,7 +22,9 @@ _TRACK_PREFIX = re.compile(r"^\s*\d{1,3}\s*[-.\s]+\s*")
 
 
 def parse(path: Path) -> dict[str, str | None]:
-    stem = path.stem
+    # NFC-normalize so decomposed unicode in filenames composes the same way MB
+    # data does, keeping later string comparisons consistent.
+    stem = unicodedata.normalize("NFC", path.stem)
     stripped = _TRACK_PREFIX.sub("", stem)
     if " - " in stripped:
         artist, _, title = stripped.partition(" - ")

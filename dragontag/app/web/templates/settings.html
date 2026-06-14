@@ -40,6 +40,15 @@
                class="mt-1 p-1 bg-black border border-[#4a4a4a] w-32">
       </label>
     </div>
+    <div>
+      <label class="block">
+        <span class="text-[#8a8a8a]">Network timeout (seconds)</span>
+        {{ tip("Per-request timeout for outbound MusicBrainz and AcoustID calls. Bounds a half-open connection so a stalled network can't hang the ingest worker indefinitely. 15s is a sensible default; raise it on a slow link.") }}
+        <input type="number" name="network_timeout_seconds" step="0.5" min="1"
+               value="{{ settings.network_timeout_seconds }}"
+               class="mt-1 p-1 bg-black border border-[#4a4a4a] w-32">
+      </label>
+    </div>
     <label class="flex items-center gap-2">
       <input type="checkbox" name="watcher_enabled" {% if settings.watcher_enabled %}checked{% endif %}>
       Watch drop folder for new files

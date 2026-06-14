@@ -138,11 +138,12 @@ Open **http://localhost:7593** and log in. First boot redirects to `/setup` if n
 The **Settings** page covers everything below — changes are written atomically to `/config/settings.json`:
 
 - AcoustID fingerprint on/off, auto-apply confidence threshold
+- Network timeout for outbound MusicBrainz/AcoustID calls (default 15s, so a stalled connection can't wedge the worker)
 - Filename templates (single-disc and multi-disc) and artist-folder split separators
 - Per-tag multi-value separators (`ARTIST`, `GENRE`, `LABEL`, …)
 - Genre limit, casing, and canonical-list junk filter
 - Fields to skip at write time across all formats
-- Watcher on/off, ignore patterns, settle window
+- Watcher on/off, ignore patterns, settle window (a file is ingested only once its size stops changing, so partial SMB/NFS transfers aren't read half-written)
 - Cover-art minimum width and release-group fallback toggle
 - Discord webhook URL and on/off per event type
 - Dry-run mode, scan filters, change-retention cap, log verbosity (0–4)
@@ -183,6 +184,12 @@ The **Settings** page covers everything below — changes are written atomically
 ```
 
 Files in the review queue show the top 5 MB candidates with scores and links. Destination conflicts get **replace / rename / skip** buttons.
+
+### Data-integrity guarantees
+
+- **Atomic tag writes** — every tag write (full re-tag, single-field updates, and revert) is performed on a temp copy in the same directory and then atomically swapped in. A crash mid-write can only ever damage the throwaway temp, never your original audio file. Cover-art sidecars (`cover.jpg`) are written the same way.
+- **Verified moves** — a file move confirms the destination's byte count matches the source, catching a silently-truncated write over a flaky network volume.
+- **Stalled-task recovery** — a background task with no progress heartbeat for 15 minutes is reaped to `error` so a hung run can't block future scheduled work; bounded network timeouts keep the single worker from hanging in the first place.
 
 ---
 
@@ -298,7 +305,14 @@ Pure-logic, no-network tests cover the most failure-prone paths:
 | `test_schema_vorbis.py` | `TrackTags.to_vorbis()` matches the reference field-for-field, including exact casing and native multi-value lists |
 | `test_writers_multivalue.py` | WAV/ID3 round-trip writes multi-value ARTIST/ALBUMARTIST/GENRE as separate values |
 | `test_snapshot.py` | Revert snapshot captures then restores a file's original tags |
+| `test_atomic_writes.py` | A tag write injected to fail mid-save leaves the original byte-identical and leaves no temp behind |
 | `test_scoring.py` | Perfect match scores high; wrong title scores low |
+| `test_scoring_unicode.py` | Scores match across unicode forms (NFC/NFD) and casing; a 0-second duration still participates |
+| `test_musicbrainz_credits.py` | Artist-credit extraction tolerates malformed/partial MB payloads without raising |
+| `test_existing_tags_corrupt.py` | A corrupt/unreadable file degrades to empty clues instead of erroring the job |
+| `test_watcher_settle.py` | A file is released for ingest only once its size is stable across the settle window |
+| `test_tasks_reaper.py` | Heartbeat-stale `running` jobs are reaped to `error`; fresh ones are left alone |
+| `test_mover_verify.py` | `samefile` survives a vanished source; truncated moves are detected; cover writes are atomic |
 | `test_lyrics_advisory.py` | Lyrics embedded correctly per format; explicit classifier fires on known words, respects word boundaries |
 | `test_scan_filters.py` | Regex patterns, directory exclusions, and file exclusions all filter correctly |
 

@@ -11,12 +11,14 @@ from pathlib import Path
 from mutagen.wave import WAVE
 
 from ..schema import TrackTags
+from ._atomic import atomic_inplace
 from ._id3common import populate_id3
 
 
 def write(path: Path, tags: TrackTags, sep) -> None:
-    audio = WAVE(str(path))
-    if audio.tags is None:
-        audio.add_tags()
-    populate_id3(audio.tags, tags, sep)
-    audio.save()
+    with atomic_inplace(path) as tmp:
+        audio = WAVE(str(tmp))
+        if audio.tags is None:
+            audio.add_tags()
+        populate_id3(audio.tags, tags, sep)
+        audio.save()

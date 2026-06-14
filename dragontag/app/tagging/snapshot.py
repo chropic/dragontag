@@ -16,6 +16,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .writers._atomic import atomic_inplace
+
 _ID3_EXTS = ("mp3", "wav")
 _MP4_EXTS = ("m4a", "mp4", "m4b")
 
@@ -71,11 +73,17 @@ def _capture_flac(path: Path) -> dict[str, list[str]]:
 def _restore_flac(path: Path, tags: dict[str, list[str]]) -> None:
     from mutagen.flac import FLAC
 
-    audio = FLAC(str(path))
-    audio.delete()  # clear vorbis comments only (leaves PICTURE blocks intact)
-    for key, vals in tags.items():
-        audio[key] = list(vals)
-    audio.save()
+    with atomic_inplace(path) as tmp:
+        audio = FLAC(str(tmp))
+        # Clear vorbis comments only (leaves PICTURE blocks intact). Use the
+        # in-memory clear to avoid the extra on-disk write ``delete()`` does.
+        if audio.tags is None:
+            audio.add_tags()
+        else:
+            audio.tags.clear()
+        for key, vals in tags.items():
+            audio[key] = list(vals)
+        audio.save()
 
 
 # ----- ID3 (MP3 / WAV) -----
@@ -114,29 +122,30 @@ def _capture_id3(path: Path, ext: str) -> dict[str, list[str]]:
 def _restore_id3(path: Path, tags: dict[str, list[str]], ext: str) -> None:
     from mutagen.id3 import Frames, TXXX, USLT
 
-    audio = _open_id3(path, ext)
-    if audio.tags is None:
-        audio.add_tags()
-    audio.tags.clear()
-    for key, vals in tags.items():
-        vals = [str(x) for x in vals]
-        if key.startswith("TXXX:"):
-            audio.tags.add(TXXX(encoding=3, desc=key[5:], text=vals))
-            continue
-        if key == "USLT":
-            # USLT.text is a single string (with lang/desc), not a text list —
-            # restore it explicitly rather than via the generic Frames path.
-            if vals:
-                audio.tags.add(USLT(encoding=3, lang="eng", desc="", text=vals[0]))
-            continue
-        cls = Frames.get(key)
-        if cls is None:
-            continue
-        try:
-            audio.tags.add(cls(encoding=3, text=vals))
-        except Exception:
-            continue
-    audio.save()
+    with atomic_inplace(path) as tmp:
+        audio = _open_id3(tmp, ext)
+        if audio.tags is None:
+            audio.add_tags()
+        audio.tags.clear()
+        for key, vals in tags.items():
+            vals = [str(x) for x in vals]
+            if key.startswith("TXXX:"):
+                audio.tags.add(TXXX(encoding=3, desc=key[5:], text=vals))
+                continue
+            if key == "USLT":
+                # USLT.text is a single string (with lang/desc), not a text list —
+                # restore it explicitly rather than via the generic Frames path.
+                if vals:
+                    audio.tags.add(USLT(encoding=3, lang="eng", desc="", text=vals[0]))
+                continue
+            cls = Frames.get(key)
+            if cls is None:
+                continue
+            try:
+                audio.tags.add(cls(encoding=3, text=vals))
+            except Exception:
+                continue
+        audio.save()
 
 
 # ----- MP4 / M4A -----
@@ -167,27 +176,28 @@ def _capture_mp4(path: Path) -> dict[str, list[str]]:
 def _restore_mp4(path: Path, tags: dict[str, list[str]]) -> None:
     from mutagen.mp4 import MP4, MP4FreeForm
 
-    audio = MP4(str(path))
-    if audio.tags is None:
-        audio.add_tags()
-    t = audio.tags
-    covr = t.get("covr")  # preserve the embedded cover across the rewrite
-    t.clear()
-    if covr is not None:
-        t["covr"] = covr
-    for key, vals in tags.items():
-        if key == "cpil":
-            t["cpil"] = bool(vals) and vals[0] == "1"
-        elif key in ("trkn", "disk"):
-            pairs = []
-            for s in vals:
-                a, _, b = str(s).partition("/")
-                pairs.append((int(a or 0), int(b or 0)))
-            t[key] = pairs
-        elif key == "rtng":
-            t[key] = [int(x) for x in vals]
-        elif key.startswith("----"):
-            t[key] = [MP4FreeForm(str(s).encode("utf-8")) for s in vals]
-        else:
-            t[key] = [str(s) for s in vals]
-    audio.save()
+    with atomic_inplace(path) as tmp:
+        audio = MP4(str(tmp))
+        if audio.tags is None:
+            audio.add_tags()
+        t = audio.tags
+        covr = t.get("covr")  # preserve the embedded cover across the rewrite
+        t.clear()
+        if covr is not None:
+            t["covr"] = covr
+        for key, vals in tags.items():
+            if key == "cpil":
+                t["cpil"] = bool(vals) and vals[0] == "1"
+            elif key in ("trkn", "disk"):
+                pairs = []
+                for s in vals:
+                    a, _, b = str(s).partition("/")
+                    pairs.append((int(a or 0), int(b or 0)))
+                t[key] = pairs
+            elif key == "rtng":
+                t[key] = [int(x) for x in vals]
+            elif key.startswith("----"):
+                t[key] = [MP4FreeForm(str(s).encode("utf-8")) for s in vals]
+            else:
+                t[key] = [str(s) for s in vals]
+        audio.save()

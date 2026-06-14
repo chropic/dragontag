@@ -18,16 +18,27 @@ nail title + artist + (album OR duration) to auto-apply.
 """
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Any
 
 
+def _norm(x: str) -> str:
+    """Normalize for comparison: NFC-compose then casefold.
+
+    NFC folds decomposed unicode (e.g. ``Cafe`` + combining acute) onto the
+    composed form so a tag and an MB title that differ only in unicode form
+    still match; casefold is the unicode-aware lowercase.
+    """
+    return unicodedata.normalize("NFC", x).casefold()
+
+
 def _sim(a: str | None, b: str | None) -> float:
-    """Case-insensitive string-similarity ratio in [0, 1]."""
+    """Case-insensitive, unicode-normalized string-similarity ratio in [0, 1]."""
     if not a or not b:
         return 0.0
-    return SequenceMatcher(None, a.lower(), b.lower()).ratio()
+    return SequenceMatcher(None, _norm(a), _norm(b)).ratio()
 
 
 @dataclass
@@ -73,10 +84,15 @@ def score_candidate(
     duration = 0.0
     src_dur = clues.get("duration")
     cand_dur_ms = candidate_recording.get("length")
-    if src_dur and cand_dur_ms:
-        cand_sec = float(cand_dur_ms) / 1000.0
-        delta = abs(cand_sec - float(src_dur))
-        duration = max(0.0, 1.0 - delta / 5.0)
+    # Explicit None checks: a 0-second value is a valid (if odd) duration and
+    # must still participate, not be treated as "missing" by a truthiness test.
+    if src_dur is not None and cand_dur_ms is not None:
+        try:
+            cand_sec = float(cand_dur_ms) / 1000.0
+            delta = abs(cand_sec - float(src_dur))
+            duration = max(0.0, 1.0 - delta / 5.0)
+        except (TypeError, ValueError):
+            duration = 0.0
 
     total = (
         0.35 * title_sim

@@ -14,6 +14,8 @@ from typing import Any
 from sqlalchemy import JSON, String
 from sqlmodel import Column, Field, SQLModel
 
+from .timeutil import now_utc
+
 
 class LibraryFolder(SQLModel, table=True):
     """A configured root directory that receives tagged files."""
@@ -23,7 +25,7 @@ class LibraryFolder(SQLModel, table=True):
     label: str = ""                    # user-friendly display name
     enabled: bool = True
     priority: int = 0                  # lower value = preferred when routing
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_utc)
 
 
 class Track(SQLModel, table=True):
@@ -50,8 +52,8 @@ class Track(SQLModel, table=True):
     advisory: int | None = Field(default=None)
     has_lyrics: bool = Field(default=False)
 
-    last_seen: datetime = Field(default_factory=datetime.utcnow)
-    indexed_at: datetime = Field(default_factory=datetime.utcnow)
+    last_seen: datetime = Field(default_factory=now_utc)
+    indexed_at: datetime = Field(default_factory=now_utc)
 
 
 class JobStatus(str, Enum):
@@ -127,8 +129,8 @@ class Job(SQLModel, table=True):
     dry_run_override: bool | None = None
 
     status: JobStatus = Field(default=JobStatus.queued, index=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
-    updated_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    created_at: datetime = Field(default_factory=now_utc, index=True)
+    updated_at: datetime = Field(default_factory=now_utc, index=True)
 
     review_reason: ReviewReason | None = None
     score: float | None = None  # final confidence score of the chosen candidate
@@ -168,7 +170,7 @@ class IncompleteAlbum(SQLModel, table=True):
     local_count: int = 0
     expected_count: int = 0
     missing_titles_json: list[str] = Field(default_factory=list, sa_column=Column(JSON))
-    checked_at: datetime = Field(default_factory=datetime.utcnow)
+    checked_at: datetime = Field(default_factory=now_utc)
 
 
 class ScheduledTask(SQLModel, table=True):
@@ -184,7 +186,7 @@ class ScheduledTask(SQLModel, table=True):
     task_type: str
     params_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     enabled: bool = True
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_utc)
     last_run_at: datetime | None = None
     last_status: str | None = None     # "ok" | "error: …" | "skipped: …"
     next_run_at: datetime | None = None
@@ -202,7 +204,7 @@ class FileChange(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     job_id: int | None = Field(default=None, foreign_key="job.id", index=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    created_at: datetime = Field(default_factory=now_utc, index=True)
 
     # Where the file lives now (the post-move library path) and where it came
     # from before the move — kept for display / diagnostics.

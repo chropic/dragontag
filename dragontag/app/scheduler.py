@@ -23,6 +23,7 @@ from sqlmodel import select
 from . import tasks
 from .db import session
 from .models import Job, JobStatus, LibraryFolder, ScheduledTask
+from .timeutil import now_utc
 
 log = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ def describe_cron(expr: str) -> str | None:
 
 def next_run(expr: str, base: datetime | None = None) -> datetime | None:
     try:
-        return croniter(expr, base or datetime.utcnow()).get_next(datetime)
+        return croniter(expr, base or now_utc()).get_next(datetime)
     except Exception:
         return None
 
@@ -159,7 +160,7 @@ def _same_kind_running(kind: str) -> bool:
 
 
 def _tick() -> None:
-    now = datetime.utcnow()
+    now = now_utc()
     with session() as s:
         rows = s.exec(select(ScheduledTask)).all()
 

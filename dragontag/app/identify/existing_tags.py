@@ -16,6 +16,29 @@ from typing import Any
 import mutagen
 
 
+def _coerce(v: Any) -> str | None:
+    """Normalize one raw mutagen tag value (any format) to a single string.
+
+    Handles all three mutagen tag shapes:
+    * id3 Frame with ``.text``
+    * vorbis-style / mp4-style ``list``
+    * a bare ``str`` fallback
+
+    MP4 ``trkn``/``disk`` come back as a ``(number, total)`` tuple; it's
+    rendered as ``"N/T"`` so the scanner's ``_parse_num``/``_parse_total``
+    (which split on ``/``) read both halves instead of choking on the tuple's
+    repr (``"(5, 12)"``).
+    """
+    if hasattr(v, "text"):  # ID3 Frame
+        return str(v.text[0]) if v.text else None
+    if isinstance(v, list) and v:  # Vorbis / MP4
+        item = v[0]
+        if isinstance(item, tuple):
+            return "/".join(str(x) for x in item)
+        return str(item)
+    return str(v)
+
+
 def read(path: Path) -> dict[str, Any]:
     f = mutagen.File(str(path), easy=False)
     if f is None:
@@ -25,22 +48,12 @@ def read(path: Path) -> dict[str, Any]:
     out: dict[str, Any] = {"duration": getattr(f.info, "length", None)}
 
     def first(*keys: str) -> str | None:
-        """Return the first non-empty value found under any of ``keys``.
-
-        Handles all three mutagen tag shapes:
-        * vorbis-style list of strings
-        * id3 Frame with ``.text``
-        * mp4-style list (or, fallback, ``str``)
-        """
+        """Return the first non-empty value found under any of ``keys``."""
         for k in keys:
             v = f.tags.get(k) if f.tags else None
             if not v:
                 continue
-            if hasattr(v, "text"):  # ID3 Frame
-                return str(v.text[0]) if v.text else None
-            if isinstance(v, list) and v:  # Vorbis / MP4
-                return str(v[0])
-            return str(v)
+            return _coerce(v)
         return None
 
     # Each key is queried under several aliases so the same call works

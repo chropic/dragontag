@@ -61,17 +61,6 @@ _POSSESSIVE_NOUNS = {
 }
 
 
-def _match_case(replacement: str, source: str) -> str:
-    """Mirror the casing pattern of ``source`` onto ``replacement``."""
-    if source.isupper():
-        return replacement.upper()
-    if source.islower():
-        return replacement.lower()
-    if source[:1].isupper():
-        return replacement[:1].upper() + replacement[1:]
-    return replacement
-
-
 def to_title_case(s: str) -> str:
     """Apply music-aware Title Case to ``s``.
 

@@ -20,8 +20,9 @@ import logging
 import sqlite3
 import tarfile
 import tempfile
-from datetime import datetime
 from pathlib import Path
+
+from .timeutil import now_utc
 
 log = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ def create_backup() -> Path:
     from .config import env
 
     config = env().config_path
-    stamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    stamp = now_utc().strftime("%Y%m%d-%H%M%S")
     out = backups_dir() / f"dragontag-backup-{stamp}.tar.gz"
 
     with tempfile.TemporaryDirectory() as td:
@@ -85,7 +86,7 @@ def create_backup() -> Path:
         manifest = {
             "app": "dragontag",
             "format_version": FORMAT_VERSION,
-            "created_at": datetime.utcnow().isoformat() + "Z",
+            "created_at": now_utc().isoformat() + "Z",
             "files": files,
         }
         (staging / "manifest.json").write_text(

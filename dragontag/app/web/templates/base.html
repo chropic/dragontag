@@ -5,26 +5,10 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>{% block title %}dragontag{% endblock %}</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
-  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        borderRadius: {
-          none: '0', sm: '0', DEFAULT: '0', md: '0', lg: '0',
-          xl: '0', '2xl': '0', '3xl': '0', full: '9999px'
-        },
-        extend: {
-          fontFamily: {
-            mono: ['IBM Plex Mono', 'JetBrains Mono', 'monospace'],
-            sans: ['IBM Plex Sans', 'system-ui', 'sans-serif'],
-          }
-        }
-      }
-    }
-  </script>
+  <!-- All front-end assets are self-hosted (no CDN) so the UI works on an
+       air-gapped / network-restricted box. Rebuild app.css via scripts/build_css.sh. -->
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/vendor/htmx.min.js"></script>
   <style>
     [x-cloak] { display: none !important; }
     body::before {
@@ -43,7 +27,7 @@
       background-size: 100% 4px;
     }
   </style>
-  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script defer src="/static/vendor/alpine.min.js"></script>
 </head>
 <body class="bg-black text-white font-sans min-h-screen"
       x-data="toastManager()"
@@ -143,8 +127,12 @@
         jobId: null,
         async poll() {
           if (!document.hidden) {
+            // Abort a stuck request after 8s so it can't keep the tab in a
+            // perpetual loading state or stall the poll loop.
+            const ctl = new AbortController();
+            const t = setTimeout(() => ctl.abort(), 8000);
             try {
-              const r = await fetch('/api/progress', { headers: { 'Accept': 'application/json' } });
+              const r = await fetch('/api/progress', { headers: { 'Accept': 'application/json' }, signal: ctl.signal });
               if (r.ok && (r.headers.get('content-type') || '').includes('json')) {
                 const d = await r.json();
                 this.active = !!d.active;
@@ -158,7 +146,8 @@
                 if (d.queued) parts.push(`${d.queued} queued`);
                 this.display = parts.filter(Boolean).join(' · ');
               }
-            } catch (e) { /* network hiccup — keep last state */ }
+            } catch (e) { /* network hiccup / abort — keep last state */ }
+            finally { clearTimeout(t); }
           }
           setTimeout(() => this.poll(), 3000);
         },

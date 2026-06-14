@@ -37,4 +37,4 @@ include = ["dragontag*"]
 
 [tool.setuptools.package-data]
 "dragontag.app.identify" = ["data/*.txt"]
-"dragontag.app.web" = ["templates/*.html", "static/*"]
+"dragontag.app.web" = ["templates/*.html", "static/*", "static/**/*"]

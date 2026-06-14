@@ -6,12 +6,12 @@
   <!-- ASCII art banner: block-shadow lettering -->
   <div class="flex justify-center">
   <pre class="font-mono text-white text-[9px] sm:text-xs leading-tight select-none overflow-x-auto font-bold drop-shadow-[0_0_5px_rgba(255,255,255,0.4)]">
-██████╗ ██████╗  █████╗  ██████╗  ██████╗ ███╗   ██╗████████╗ █████╗  ██████╗
-██╔══██╗██╔══██╗██╔══██╗██╔════╝ ██╔═══██╗████╗  ██║╚══██╔══╝██╔══██╗██╔════╝
+██████╗ ██████╗  █████╗  ██████╗  ██████╗ ███╗   ██╗████████╗ █████╗  ██████╗ 
+██╔══██╗██╔══██╗██╔══██╗██╔════╝ ██╔═══██╗████╗  ██║╚══██╔══╝██╔══██╗██╔════╝ 
 ██║  ██║██████╔╝███████║██║  ███╗██║   ██║██╔██╗ ██║   ██║   ███████║██║  ███╗
 ██║  ██║██╔══██╗██╔══██║██║   ██║██║   ██║██║╚██╗██║   ██║   ██╔══██║██║   ██║
 ██████╔╝██║  ██║██║  ██║╚██████╔╝╚██████╔╝██║ ╚████║   ██║   ██║  ██║╚██████╔╝
-╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝</pre>
+╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ </pre>
   </div>
 
   <!-- Stats bar -->
@@ -37,12 +37,13 @@
       <!-- File upload -->
       <div>
         <p class="text-xs text-[#8a8a8a] mb-2">Upload individual files</p>
-        <form id="upload-form" action="/upload" method="post" enctype="multipart/form-data" class="space-y-2">
+        <form id="upload-form" action="/upload" method="post" enctype="multipart/form-data"
+              hx-post="/upload" hx-encoding="multipart/form-data" hx-swap="none" class="space-y-2">
           <div id="upload-zone"
                class="border border-dashed border-[#4a4a4a] p-4 transition-colors cursor-pointer"
                onclick="document.getElementById('file-input').click()">
             <p class="text-xs text-[#8a8a8a] text-center">Drop files here or click to browse</p>
-            <input id="file-input" type="file" name="files" multiple class="hidden" onchange="this.closest('form').submit()" />
+            <input id="file-input" type="file" name="files" multiple class="hidden" onchange="this.closest('form').requestSubmit()" />
           </div>
           <button class="px-4 py-2 bg-white text-black font-mono font-semibold hover:bg-[#cfcfcf]">Upload &amp; queue</button>
         </form>
@@ -51,7 +52,8 @@
       <!-- Folder tagger -->
       <div>
         <p class="text-xs text-[#8a8a8a] mb-2">Tag a folder on the server</p>
-        <form action="/library/bulk-retag" method="post" class="space-y-2">
+        <form action="/library/bulk-retag" method="post"
+              hx-post="/library/bulk-retag" hx-swap="none" class="space-y-2">
           <div class="flex gap-1">
             <input id="source-path-input" type="text" name="source_path" placeholder="/path/to/folder"
                    class="block flex-1 bg-black border border-[#4a4a4a] p-2 text-sm font-mono text-white" />
@@ -145,7 +147,7 @@
       zone.classList.remove('border-white');
       if (e.dataTransfer.files.length) {
         fileInput.files = e.dataTransfer.files;
-        document.getElementById('upload-form').submit();
+        document.getElementById('upload-form').requestSubmit();
       }
     });
 

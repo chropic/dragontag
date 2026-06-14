@@ -40,7 +40,14 @@ def _coerce(v: Any) -> str | None:
 
 
 def read(path: Path) -> dict[str, Any]:
-    f = mutagen.File(str(path), easy=False)
+    try:
+        f = mutagen.File(str(path), easy=False)
+    except Exception:
+        # Truncated / corrupt-but-known file: mutagen raises (HeaderNotFoundError,
+        # MutagenError, …). Degrade to "no clues" so the pipeline falls back to
+        # the filename + MB search and routes to review, instead of erroring the
+        # whole job on an unreadable header.
+        return {"duration": None}
     if f is None:
         # Unknown file type / not an audio file mutagen knows about.
         return {"duration": None}

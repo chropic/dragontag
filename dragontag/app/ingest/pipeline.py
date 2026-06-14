@@ -59,6 +59,11 @@ _ACTIVE_STATUSES = [
     JobStatus.moving,
 ]
 
+# Serializes the dedup check-then-insert in ``enqueue`` so the watcher thread
+# and an HTTP/bulk thread can't both miss the existing-job check and create two
+# jobs for the same path.
+_enqueue_lock = threading.Lock()
+
 
 def enqueue(path: Path, *, dry_run: bool | None = None) -> Job:
     """Persist a new ``Job`` and return it. Doesn't submit to the worker —
@@ -72,7 +77,7 @@ def enqueue(path: Path, *, dry_run: bool | None = None) -> Job:
     it is returned as-is, preventing double-processing when the watcher fires
     on a file that was just saved by the upload handler.
     """
-    with session() as s:
+    with _enqueue_lock, session() as s:
         existing = s.exec(
             select(Job).where(
                 Job.source_path == str(path),

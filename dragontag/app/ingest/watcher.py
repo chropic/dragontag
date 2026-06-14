@@ -30,7 +30,10 @@ class _Handler(FileSystemEventHandler):
     """Coalesces create/modify/move events per-path with a settle timestamp."""
 
     def __init__(self) -> None:
-        self._pending: dict[Path, float] = {}
+        # path -> (last_event_ts, last_seen_size). The size lets us require the
+        # file to have *stopped growing* before we ingest it — the settle
+        # window alone can't tell "finished" from "stalled mid-transfer".
+        self._pending: dict[Path, tuple[float, int]] = {}
         self._lock = threading.Lock()
         self._has_pending = threading.Event()
 
@@ -64,9 +67,42 @@ class _Handler(FileSystemEventHandler):
     def _touch(self, p: Path) -> None:
         if self._is_ignored(p):
             return
+        try:
+            size = p.stat().st_size
+        except OSError:
+            return  # vanished/unreadable between event and stat — ignore
         with self._lock:
-            self._pending[p] = time.time()
+            self._pending[p] = (time.time(), size)
         self._has_pending.set()
+
+    def _collect_ready(self, now: float, settle: float) -> list[Path]:
+        """Return paths whose settle window elapsed *and* whose size is stable.
+
+        Files still growing have their timer reset; vanished/unreadable files
+        are dropped. Extracted from ``settle_loop`` so it can be unit-tested.
+        """
+        ready: list[Path] = []
+        with self._lock:
+            for p, (t, seen_size) in list(self._pending.items()):
+                if now - t < settle:
+                    continue
+                # Settle window elapsed; confirm the file has stopped growing
+                # before ingesting (guards against a slow/stalled SMB/NFS
+                # transfer that merely *looks* idle).
+                try:
+                    cur_size = p.stat().st_size
+                except OSError:
+                    del self._pending[p]  # gone/unreadable; drop it
+                    continue
+                if cur_size == seen_size:
+                    ready.append(p)
+                    del self._pending[p]
+                else:
+                    # Still changing — reset the timer with the new size.
+                    self._pending[p] = (now, cur_size)
+            if self._pending:
+                self._has_pending.set()
+        return ready
 
     def settle_loop(self) -> None:
         """Background loop: wait for file events, then drain after settle window."""
@@ -76,16 +112,7 @@ class _Handler(FileSystemEventHandler):
             if not signalled:
                 continue
             time.sleep(settings().watcher_settle_seconds)
-            now = time.time()
-            settle = settings().watcher_settle_seconds
-            ready: list[Path] = []
-            with self._lock:
-                for p, t in list(self._pending.items()):
-                    if now - t >= settle:
-                        ready.append(p)
-                        del self._pending[p]
-                if self._pending:
-                    self._has_pending.set()
+            ready = self._collect_ready(time.time(), settings().watcher_settle_seconds)
             for p in ready:
                 if not p.exists():
                     continue

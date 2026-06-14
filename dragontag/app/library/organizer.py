@@ -38,6 +38,7 @@ def organize_folder(folder_id: int, ctx=None) -> dict:
     moved = 0
     skipped = 0
     errors: list[str] = []
+    diverged: list[str] = []  # files left out of sync with the DB (loud failure)
     source_dirs: set[Path] = set()
 
     with session() as s:
@@ -87,7 +88,15 @@ def organize_folder(folder_id: int, ctx=None) -> dict:
                     move(dest, src, overwrite=False)
                     errors.append(f"db-failed (rolled back): {src}")
                 except Exception:
-                    log.exception("organize: rollback move failed for %s", dest)
+                    # Both the DB write and the rollback move failed: the file
+                    # is physically at ``dest`` while the DB still says ``src``.
+                    # No safe automatic recovery exists — make it loud so the
+                    # user can fix it manually.
+                    log.critical(
+                        "organize: DIVERGED — file at %s but DB has %s; "
+                        "manual intervention required", dest, src,
+                    )
+                    diverged.append(f"{src} -> {dest}")
                     errors.append(f"DIVERGED: file at {dest} but DB has {src}")
                 continue
             moved += 1
@@ -102,6 +111,7 @@ def organize_folder(folder_id: int, ctx=None) -> dict:
         "moved": moved,
         "skipped": skipped,
         "errors": errors,
+        "diverged": diverged,
         "removed_dirs": removed_dirs,
     }
     log.info("organize folder %d complete: %s", folder_id, summary)

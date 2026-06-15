@@ -2,6 +2,19 @@
 
 # Changelog
 
+## 0.9.5 — repo housekeeping & UI polish (2026-06-15)
+
+### Changed
+- **Front-end build toolchain grouped under `frontend/`** — `app.input.css`, `tailwind.config.js`, and `scripts/build_css.sh` moved to `frontend/`; `scripts/` directory removed. Run `bash frontend/build_css.sh` to rebuild `app.css`. Reference in `base.html` updated.
+- **Toast notifications** deduped (single `showToast` delivery path; belt-and-suspenders 2-second key guard), duration extended to 8 s, fade-in/out added via Alpine `x-transition.opacity.duration.400ms`.
+- **Dashboard "Average length"** now reflects pipeline-tagged tracks — `_upsert_track` reads and persists `Track.duration` from the freshly-written file on both create and update paths.
+- **Settings "Save settings" button** moved to `fixed top-[80px] right-4` so it floats at the page's right margin rather than the right edge of the narrow centred column.
+- **Dashboard** gains a page-scoped `overflow-y: hidden` style to remove the vertical scrollbar.
+- **Docs anchor links** no longer overshoot behind the sticky nav — `scroll-padding-top: 80px` + `scroll-margin-top: 80px` on `section[id]` added via a scoped `<style>` block.
+- **Version bumped to 0.9.5** across `pyproject.toml`, `dragontag/app/__init__.py` (new `__version__`), FastAPI app title, MusicBrainz User-Agent fallback, and tagging schema fallback. Swagger `/api-docs` now reports `0.9.5`.
+
+---
+
 ## Unreleased — data-integrity & resilience sweep (2026-06-14)
 **Branch:** `claude/affectionate-sagan-41telq`
 

@@ -22,5 +22,5 @@ if [[ ! -x "$TW_BIN" ]]; then
   chmod +x "$TW_BIN"
 fi
 
-"$TW_BIN" -c tailwind.config.js -i app.input.css -o "$OUT" --minify
+"$TW_BIN" -c frontend/tailwind.config.js -i frontend/app.input.css -o "$OUT" --minify
 echo "Wrote $OUT"

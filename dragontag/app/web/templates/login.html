@@ -6,6 +6,7 @@
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
   <!-- Self-hosted stylesheet (no CDN) so the sign-in page loads on an
        air-gapped / network-restricted box. -->
+  <link rel="stylesheet" href="/static/fonts/fonts.css">
   <link rel="stylesheet" href="/static/app.css">
   <style>
     body::before {
@@ -16,6 +17,10 @@
       z-index: 9999;
       background: linear-gradient(180deg,rgba(255,255,255,.04) 0,rgba(255,255,255,.04) 1px,transparent 1px,transparent 4px);
       background-size: 100% 4px;
+    }
+    input:focus, textarea:focus, select:focus {
+      outline: none;
+      box-shadow: 0 0 0 1px #c7f0c7, inset 0 0 0 1px rgba(199,240,199,0.1);
     }
   </style>
 </head>

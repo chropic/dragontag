@@ -6,7 +6,8 @@
   <title>{% block title %}dragontag{% endblock %}</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
   <!-- All front-end assets are self-hosted (no CDN) so the UI works on an
-       air-gapped / network-restricted box. Rebuild app.css via scripts/build_css.sh. -->
+       air-gapped / network-restricted box. Rebuild app.css via frontend/build_css.sh. -->
+  <link rel="stylesheet" href="/static/fonts/fonts.css">
   <link rel="stylesheet" href="/static/app.css">
   <script src="/static/vendor/htmx.min.js"></script>
   <style>
@@ -26,14 +27,21 @@
       );
       background-size: 100% 4px;
     }
+    /* Phosphor-monitor green glow on terminal-green text */
+    .text-\[#c7f0c7\] { text-shadow: 0 0 6px rgba(199,240,199,0.55); }
+    /* Subtle white glow on the active nav item */
+    nav a.border-b-2 { text-shadow: 0 0 8px rgba(255,255,255,0.4); }
+    /* Terminal-green focus ring replaces browser default blue */
+    input:focus, textarea:focus, select:focus {
+      outline: none;
+      box-shadow: 0 0 0 1px #c7f0c7, inset 0 0 0 1px rgba(199,240,199,0.1);
+    }
   </style>
   <script defer src="/static/vendor/alpine.min.js"></script>
 </head>
 <body class="bg-black text-white font-sans min-h-screen"
       x-data="toastManager()"
-      x-init="init()"
-      @show-toast.window="addToast($event.detail)"
-      hx-on::after-request="handleHxToast(event)">
+      x-init="init()">
 
   <nav class="bg-[#0c0c0c] px-6 py-5 flex items-center gap-5 border-b border-[#4a4a4a] sticky top-0 z-50">
     <a href="/" class="font-mono font-bold text-lg tracking-tight">dragontag</a>
@@ -86,6 +94,7 @@
     <template x-for="t in toasts" :key="t.id">
       <div class="px-4 py-2 text-sm font-mono border flex items-center gap-3 transition-all"
            style="pointer-events:auto;"
+           x-transition.opacity.duration.400ms
            :class="{
              'bg-[#0c0c0c] border-[#c7f0c7] text-[#c7f0c7]': t.level === 'success',
              'bg-[#0c0c0c] border-[#ffb4b4] text-[#ffb4b4]': t.level === 'error',
@@ -102,15 +111,22 @@
       return {
         toasts: [],
         _nextId: 0,
+        _recentKeys: [],
         init() {
-          // Listen for HX-Trigger header from HTMX responses.
+          // Single delivery path: HTMX fires the native showToast body event.
           document.body.addEventListener('showToast', (e) => this.addToast(e.detail));
         },
         addToast(detail) {
-          const id = this._nextId++;
           const level = detail.level || 'info';
+          const key = level + '\x00' + detail.message;
+          const now = Date.now();
+          // Belt-and-suspenders dedupe: ignore identical {message, level} seen within 2s.
+          this._recentKeys = this._recentKeys.filter(r => now - r.t < 2000);
+          if (this._recentKeys.some(r => r.key === key)) return;
+          this._recentKeys.push({ key, t: now });
+          const id = this._nextId++;
           this.toasts.push({ id, message: detail.message, level });
-          setTimeout(() => this.dismiss(id), 4000);
+          setTimeout(() => this.dismiss(id), 8000);
         },
         dismiss(id) {
           this.toasts = this.toasts.filter(t => t.id !== id);
@@ -159,16 +175,6 @@
       }
     }
 
-    function handleHxToast(event) {
-      const trigger = event.detail.xhr?.getResponseHeader('HX-Trigger');
-      if (!trigger) return;
-      try {
-        const data = JSON.parse(trigger);
-        if (data.showToast) {
-          window.dispatchEvent(new CustomEvent('show-toast', { detail: data.showToast }));
-        }
-      } catch(e) {}
-    }
   </script>
 </body>
 </html>

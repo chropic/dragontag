@@ -526,6 +526,7 @@ def _upsert_track(s: Session, dest: Path, tags: TrackTags, lib_root: Path) -> "T
     folder_id = folder_row.id if folder_row else None
 
     now = now_utc()
+    duration = existing_tags.read(dest).get("duration")
     existing = s.exec(select(Track).where(Track.path == str(dest))).first()
     if existing:
         existing.library_folder_id = folder_id
@@ -541,6 +542,7 @@ def _upsert_track(s: Session, dest: Path, tags: TrackTags, lib_root: Path) -> "T
         existing.mb_album_id = tags.mb_album_id
         existing.advisory = tags.advisory
         existing.has_lyrics = bool(tags.lyrics)
+        existing.duration = duration
         existing.last_seen = now
         s.add(existing)
         s.commit()
@@ -562,6 +564,7 @@ def _upsert_track(s: Session, dest: Path, tags: TrackTags, lib_root: Path) -> "T
         mb_album_id=tags.mb_album_id,
         advisory=tags.advisory,
         has_lyrics=bool(tags.lyrics),
+        duration=duration,
         indexed_at=now,
         last_seen=now,
     )

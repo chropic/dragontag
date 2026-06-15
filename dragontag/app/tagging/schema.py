@@ -28,7 +28,7 @@ from importlib.metadata import version as _pkg_version
 try:
     _DRAGONTAG_VERSION = _pkg_version("dragontag")
 except Exception:
-    _DRAGONTAG_VERSION = "dev"
+    _DRAGONTAG_VERSION = "0.9.5"
 
 
 @dataclass

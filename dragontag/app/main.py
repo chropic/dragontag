@@ -34,6 +34,7 @@ from sqlmodel import select
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import auth, logsetup, scheduler, tasks
+from . import __version__
 from .config import env, settings, store
 from .db import dashboard_stats, session
 from .identify import musicbrainz as mbq
@@ -96,7 +97,7 @@ log = logging.getLogger(__name__)
 # docs_url/redoc_url/openapi_url disabled so FastAPI's built-in Swagger UI does
 # not shadow our custom user-manual route at GET /docs (see docs() below).
 # Auth-guarded equivalents are served at /api-docs and /openapi.json instead.
-app = FastAPI(title="dragontag", docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(title="dragontag", version=__version__, docs_url=None, redoc_url=None, openapi_url=None)
 
 # Cookie-signing secret comes from the session-secret Docker secret. The
 # middleware itself implements signed but unencrypted cookies — fine for

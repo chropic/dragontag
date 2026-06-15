@@ -7,6 +7,7 @@
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
   <!-- All front-end assets are self-hosted (no CDN) so the UI works on an
        air-gapped / network-restricted box. Rebuild app.css via frontend/build_css.sh. -->
+  <link rel="stylesheet" href="/static/fonts/fonts.css">
   <link rel="stylesheet" href="/static/app.css">
   <script src="/static/vendor/htmx.min.js"></script>
   <style>
@@ -25,6 +26,15 @@
         transparent 4px
       );
       background-size: 100% 4px;
+    }
+    /* Phosphor-monitor green glow on terminal-green text */
+    .text-\[#c7f0c7\] { text-shadow: 0 0 6px rgba(199,240,199,0.55); }
+    /* Subtle white glow on the active nav item */
+    nav a.border-b-2 { text-shadow: 0 0 8px rgba(255,255,255,0.4); }
+    /* Terminal-green focus ring replaces browser default blue */
+    input:focus, textarea:focus, select:focus {
+      outline: none;
+      box-shadow: 0 0 0 1px #c7f0c7, inset 0 0 0 1px rgba(199,240,199,0.1);
     }
   </style>
   <script defer src="/static/vendor/alpine.min.js"></script>

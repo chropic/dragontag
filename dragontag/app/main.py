@@ -72,6 +72,21 @@ def _format_local(dt: datetime | None) -> str:
     return local.strftime("%Y-%m-%d %H:%M")
 
 
+async def _read_upload_capped(upload: UploadFile, max_bytes: int) -> bytes:
+    """Read an UploadFile fully, raising once it exceeds *max_bytes*.
+
+    Chunked so we never buffer more than ``max_bytes`` + one chunk in memory.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := await upload.read(1 << 20):
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(413, "uploaded file is too large")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 def _toast_response(redirect_url: str, message: str, level: str = "success") -> Response:
     """Return a redirect that also carries an HX-Trigger showToast header."""
     resp = RedirectResponse(redirect_url, status_code=303)
@@ -633,14 +648,26 @@ async def review_apply(
 
         # Cover art override: custom upload takes priority over URL selection.
         if cover_art_file and cover_art_file.filename:
-            tags.cover_bytes = await cover_art_file.read()
+            # Cap the in-memory read so an oversized upload can't OOM the worker.
+            tags.cover_bytes = await _read_upload_capped(
+                cover_art_file, 32 * 1024 * 1024
+            )
             tags.cover_mime = cover_art_file.content_type or "image/jpeg"
         elif cover_art_url:
-            import requests as _req
+            from .net import fetch_bytes
             try:
-                r = _req.get(cover_art_url, timeout=10, allow_redirects=True)
+                # User-supplied URL → SSRF guard (public host only) + redirects
+                # disabled so a 30x can't bounce us onto an internal address,
+                # and a size cap so a hostile server can't OOM the worker.
+                r, body = fetch_bytes(
+                    cover_art_url,
+                    timeout=10,
+                    max_bytes=32 * 1024 * 1024,
+                    validate=True,
+                    allow_redirects=False,
+                )
                 r.raise_for_status()
-                tags.cover_bytes = r.content
+                tags.cover_bytes = body
                 tags.cover_mime = r.headers.get("content-type", "image/jpeg")
             except Exception:
                 pass  # fall back to normal CAA fetch inside _commit_tag_path
@@ -1642,9 +1669,21 @@ async def backup_restore(
         )
 
     import tempfile as _tmp
+    # Stream to disk in chunks (never load the whole upload into memory) and
+    # cap the total so a giant upload can't exhaust memory or disk.
+    max_backup = 2 * 1024 * 1024 * 1024  # 2 GiB
+    written = 0
     with _tmp.NamedTemporaryFile(suffix=".tar.gz", delete=False) as f:
-        f.write(await bundle.read())
         tmp_path = Path(f.name)
+        while chunk := await bundle.read(1 << 20):
+            written += len(chunk)
+            if written > max_backup:
+                f.close()
+                tmp_path.unlink(missing_ok=True)
+                return _toast_response(
+                    "/settings", "Restore refused: backup exceeds 2 GiB.", "error"
+                )
+            f.write(chunk)
     try:
         message = restore_bundle(tmp_path)
     except ValueError as e:

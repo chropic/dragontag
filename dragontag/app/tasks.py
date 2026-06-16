@@ -17,7 +17,7 @@ from typing import Any, Callable
 from sqlmodel import select
 
 from .db import session
-from .models import Job, JobStatus
+from .models import Job, JobStatus, append_job_log
 from .timeutil import now_utc
 
 log = logging.getLogger(__name__)
@@ -130,7 +130,7 @@ class TaskCtx:
             if not job:
                 return
             if lines:
-                job.log = (job.log or "") + "\n".join(lines) + "\n"
+                job.log = append_job_log(job.log, "\n".join(lines) + "\n")
             job.progress_current = current
             job.progress_total = total
             job.progress_item = item

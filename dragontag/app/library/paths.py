@@ -118,7 +118,20 @@ def build_destination(
         parts.append(sanitize_segment(disc_folder))
 
     filename = render_filename(tags, source_ext)
-    return Path(*parts) / filename
+    dest = Path(*parts) / filename
+    # Defence-in-depth: ``sanitize_segment`` already neutralizes path separators
+    # and traversal sequences (mapping them to "_"), but verify the fully
+    # resolved destination still lives under the library root before any caller
+    # writes to it — so a future template/sanitizer change can never let a
+    # crafted tag value land a file outside the library.
+    base_resolved = base.resolve()
+    try:
+        dest.resolve().relative_to(base_resolved)
+    except ValueError as e:
+        raise ValueError(
+            f"destination {dest} escapes library root {base_resolved}"
+        ) from e
+    return dest
 
 
 def unique_path(p: Path) -> Path:

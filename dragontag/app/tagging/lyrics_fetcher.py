@@ -13,6 +13,7 @@ log = logging.getLogger(__name__)
 _BASE = "https://lrclib.net/api"
 _HEADERS = {"User-Agent": "dragontag/0.1 (https://github.com/chropic/dragontag)"}
 _TIMEOUT = 10
+_MAX_BYTES = 8 * 1024 * 1024  # 8 MiB cap on a single LRCLIB response
 
 
 def fetch(
@@ -36,16 +37,24 @@ def fetch(
 
 
 def _fetch_inner(artist, title, album, duration) -> str | None:
-    import requests
+    import json as _json
+
+    from ..net import fetch_bytes
+
     params: dict = {"track_name": title, "artist_name": artist}
     if album:
         params["album_name"] = album
     if duration is not None:
         params["duration"] = int(duration)
 
-    resp = requests.get(f"{_BASE}/get", params=params, headers=_HEADERS, timeout=_TIMEOUT)
+    # Trusted host (hard-coded LRCLIB base) → skip SSRF validation, but cap the
+    # body so a misbehaving upstream can't stream gigabytes of JSON into memory.
+    resp, body = fetch_bytes(
+        f"{_BASE}/get", params=params, headers=_HEADERS,
+        timeout=_TIMEOUT, max_bytes=_MAX_BYTES, validate=False,
+    )
     if resp.status_code == 200:
-        result = _parse(resp.json())
+        result = _parse(_json.loads(body))
         if result is not None:
             return result
 
@@ -54,9 +63,12 @@ def _fetch_inner(artist, title, album, duration) -> str | None:
     # blindly would embed the wrong lyrics (and skew the explicit classifier).
     # Take the first hit whose artist + title actually match the request.
     search_params = {"track_name": title, "artist_name": artist}
-    resp = requests.get(f"{_BASE}/search", params=search_params, headers=_HEADERS, timeout=_TIMEOUT)
+    resp, body = fetch_bytes(
+        f"{_BASE}/search", params=search_params, headers=_HEADERS,
+        timeout=_TIMEOUT, max_bytes=_MAX_BYTES, validate=False,
+    )
     if resp.status_code == 200:
-        hits = resp.json()
+        hits = _json.loads(body)
         if isinstance(hits, list):
             for hit in hits:
                 if _hit_matches(hit, artist, title):

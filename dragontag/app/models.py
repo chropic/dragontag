@@ -16,6 +16,20 @@ from sqlmodel import Column, Field, SQLModel
 
 from .timeutil import now_utc
 
+# Hard cap on a job's ``log`` column. The log grows by string concatenation as a
+# job progresses; without a ceiling a long-running or pathological job (e.g. a
+# bulk re-tag emitting a line per track over a huge library) can bloat the DB row
+# and the memory needed to load/rewrite it. We keep the most recent bytes.
+MAX_JOB_LOG_BYTES = 256 * 1024
+
+
+def append_job_log(existing: str | None, addition: str) -> str:
+    """Append ``addition`` to a job log, retaining only the last MAX_JOB_LOG_BYTES."""
+    text = (existing or "") + addition
+    if len(text) > MAX_JOB_LOG_BYTES:
+        text = "…[earlier log truncated]…\n" + text[-MAX_JOB_LOG_BYTES:]
+    return text
+
 
 class LibraryFolder(SQLModel, table=True):
     """A configured root directory that receives tagged files."""

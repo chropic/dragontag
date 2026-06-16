@@ -17,6 +17,7 @@ from sqlmodel import select
 
 from ..db import session
 from ..models import LibraryFolder, Track
+from .mover import move as _safe_move
 
 log = logging.getLogger(__name__)
 
@@ -393,9 +394,13 @@ def fix_disc_folders(folder_id: int, ctx=None) -> dict:
                 for f in list(disc_dir.iterdir()):
                     try:
                         target = album / f.name
-                        if target.exists():
+                        # Conflict-safe move: refuses to overwrite a file that
+                        # appears at the target during the race window, and only
+                        # then do we update the DB path — so the DB never points
+                        # somewhere the file didn't actually land.
+                        result = _safe_move(f, target, overwrite=False)
+                        if not result.moved:
                             continue
-                        shutil.move(str(f), str(target))
                         _update_track_path(s, str(f), str(target))
                         flattened += 1
                     except Exception:
@@ -745,7 +750,15 @@ def normalize_filenames(folder_id: int, ctx=None) -> dict:
                             ctx.log(f"skip (target exists): {p.name} -> {new_name}")
                         continue
                 else:
-                    p.rename(target)
+                    # Conflict-safe move: a plain rename() overwrites the target
+                    # on POSIX, so a file racing into ``target`` after our
+                    # exists() check above would be silently destroyed. Refuse
+                    # to overwrite and skip instead.
+                    result = _safe_move(p, target, overwrite=False)
+                    if not result.moved:
+                        if ctx:
+                            ctx.log(f"skip (target appeared): {p.name} -> {new_name}")
+                        continue
                 _update_track_path(s, str(p), str(target))
                 renamed += 1
                 if ctx:

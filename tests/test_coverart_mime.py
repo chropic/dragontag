@@ -11,9 +11,23 @@ from dragontag.app.tagging import coverart
 
 
 class _Resp:
+    """Minimal stand-in for the streaming ``requests.Response`` used by net.fetch_bytes."""
+
     def __init__(self, content, status=200):
-        self.content = content
+        self._content = content
         self.status_code = status
+        self.headers: dict = {}
+
+    def iter_content(self, chunk_size=65536):
+        for i in range(0, len(self._content), chunk_size):
+            yield self._content[i : i + chunk_size]
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise AssertionError(f"status {self.status_code}")
+
+    def close(self):
+        pass
 
 
 def _img(fmt: str, px: int = 100) -> bytes:
@@ -23,7 +37,11 @@ def _img(fmt: str, px: int = 100) -> bytes:
 
 
 def _patch_get(monkeypatch, content):
-    monkeypatch.setattr(coverart.requests, "get", lambda url, timeout=20: _Resp(content))
+    # Cover-art downloads now go through net.fetch_bytes, which calls
+    # requests.get inside the net module — patch it there.
+    from dragontag.app import net
+
+    monkeypatch.setattr(net.requests, "get", lambda url, **kw: _Resp(content))
 
 
 def test_gif_cover_reencoded_to_jpeg(monkeypatch):

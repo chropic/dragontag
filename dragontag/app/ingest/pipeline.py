@@ -32,7 +32,7 @@ from ..identify import musicbrainz as mbq
 from ..identify.scoring import score_candidate
 from ..library.mover import move, write_cover_jpg
 from ..library.paths import build_destination
-from ..models import FileChange, Job, JobStatus, ReviewReason
+from ..models import FileChange, Job, JobStatus, ReviewReason, append_job_log
 from ..tagging import snapshot
 from ..tagging.coverart import fetch_for_release, fetch_for_release_group
 from ..tagging.schema import TrackTags
@@ -121,7 +121,7 @@ def _set(job: Job, **kwargs) -> None:
 
 def _append_log(job: Job, line: str) -> None:
     """Append a human-readable progress line to the job's log column."""
-    job.log = (job.log or "") + line.rstrip() + "\n"
+    job.log = append_job_log(job.log, line.rstrip() + "\n")
 
 
 def process(job_id: int) -> None:
@@ -406,12 +406,18 @@ def _commit_tag_path(s: Session, job: Job, src: Path, tags: TrackTags, *, score:
         return
 
     # ----- move into library -----
-    _set(job, status=JobStatus.moving)
+    lib_root = _pick_library_folder()
+    dest = build_destination(tags, src.suffix, library_root=lib_root)
+    # Persist the destination *before* the physical move. If the worker is hard
+    # killed (OOM/SIGKILL) mid-move, the job row already records where the file
+    # is headed, so crash recovery in ``_process_inner`` (which falls back to
+    # ``destination_path`` when the source is gone) can find the moved file and
+    # re-tag it in place instead of erroring "Source file not found" and leaving
+    # an orphaned, unindexed file in the library.
+    _set(job, status=JobStatus.moving, destination_path=str(dest))
     s.add(job)
     s.commit()
 
-    lib_root = _pick_library_folder()
-    dest = build_destination(tags, src.suffix, library_root=lib_root)
     result = move(src, dest, overwrite=False)
     if not result.moved and result.conflict:
         # Don't auto-overwrite — kick to review so the user decides.

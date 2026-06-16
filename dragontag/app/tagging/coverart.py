@@ -9,11 +9,19 @@ fall back to thumbnails if the original 404s or is too slow.
 from __future__ import annotations
 
 import io
+import json
 from dataclasses import dataclass
 
 import requests
 
+from ..net import fetch_bytes
+
 _CAA_BASE = "https://coverartarchive.org"
+
+# Hard cap on a single cover-art download so a malicious/compromised upstream
+# can't stream gigabytes into the worker's memory.
+_IMAGE_MAX_BYTES = 32 * 1024 * 1024  # 32 MiB
+_JSON_MAX_BYTES = 8 * 1024 * 1024  # 8 MiB
 
 
 @dataclass
@@ -27,12 +35,20 @@ class CoverArt:
 
 
 def _get_json(url: str, timeout: float = 10.0):
-    r = requests.get(url, timeout=timeout, headers={"Accept": "application/json"})
+    # Trusted host (hard-coded CAA base) → skip SSRF validation, but still cap
+    # the response so a misbehaving upstream can't balloon memory.
+    r, body = fetch_bytes(
+        url,
+        timeout=timeout,
+        max_bytes=_JSON_MAX_BYTES,
+        validate=False,
+        headers={"Accept": "application/json"},
+    )
     if r.status_code == 404:
         # No coverage in CAA — treat as soft-miss, not an error.
         return None
     r.raise_for_status()
-    return r.json()
+    return json.loads(body)
 
 
 def _pick_and_download(images: list[dict]) -> CoverArt | None:
@@ -58,10 +74,13 @@ def _pick_and_download(images: list[dict]) -> CoverArt | None:
 
     for url in candidates:
         try:
-            r = requests.get(url, timeout=20)
+            # CAA image URLs redirect to archive.org mirrors, so redirects stay
+            # enabled; the size cap still bounds memory use.
+            r, data = fetch_bytes(
+                url, timeout=20, max_bytes=_IMAGE_MAX_BYTES, validate=False
+            )
             if r.status_code != 200:
                 continue
-            data = r.content
             # Probe dimensions/mime via Pillow so we can store them for the
             # ``cover.jpg`` overwrite policy. The downstream writers (and the
             # MP4 ``covr`` atom) only understand JPEG and PNG, so anything else
@@ -85,7 +104,8 @@ def _pick_and_download(images: list[dict]) -> CoverArt | None:
                 w = h = 0
                 mime = "image/jpeg"
             return CoverArt(data=data, mime=mime, width=w, height=h)
-        except requests.RequestException:
+        except (requests.RequestException, ValueError):
+            # Network error or oversized response → try the next candidate URL.
             continue
     return None
 

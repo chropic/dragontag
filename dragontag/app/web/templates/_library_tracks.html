@@ -43,7 +43,10 @@
       </td>
       <td class="py-1 pr-2 text-[#8a8a8a] overflow-hidden">{{ t.track_num or "—" }}</td>
       <td class="py-1 pr-1 overflow-hidden">{% if t.advisory == 1 %}<span class="text-xs px-1 bg-[#ffb4b4] text-black font-mono">E</span>{% endif %}</td>
-      <td class="py-1 pr-2 truncate" title="{{ t.title or '' }}">{{ t.title or "—" }}</td>
+      <td class="py-1 pr-2 truncate">
+        <a href="#" class="hover:underline hover:text-white" title="{{ t.title or '' }} — click to edit tags"
+           hx-get="/library/tracks/{{ t.id }}/edit" hx-target="#track-modal-root" hx-swap="innerHTML">{{ t.title or "—" }}</a>
+      </td>
       <td class="py-1 pr-2 text-[#cfcfcf] truncate" title="{{ t.artist or '' }}">{{ t.artist or "—" }}</td>
       <td class="py-1 pr-2 text-[#cfcfcf] truncate" title="{{ t.album or '' }}">{{ t.album or "—" }}</td>
       <td class="py-1 pr-2 text-[#8a8a8a] overflow-hidden">{{ t.disc_num or "—" }}</td>

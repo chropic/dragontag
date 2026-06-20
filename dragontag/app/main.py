@@ -1219,7 +1219,7 @@ def library_retag_selected(
 
         for tid in ids_to_process:
             track = s.get(Track, tid)
-            if not track:
+            if not track or track.protected:
                 continue
             p = Path(track.path)
             if not p.exists():
@@ -1251,6 +1251,258 @@ def library_track_delete(track_id: int, request: Request, _: None = Depends(requ
         s.commit()
     back = request.headers.get("referer", "/library")
     return _toast_response(back, f"Removed {name} from the library list (file not touched).")
+
+
+@app.get("/library/tracks/{track_id}/edit", response_class=HTMLResponse)
+def library_track_edit_modal(track_id: int, request: Request, _: None = Depends(require_auth)):
+    """HTMX partial: the per-track edit menu (manual tags, MB/AcoustID pull,
+    protect-from-overwrite, LRCLIB lyrics) opened by clicking a track title."""
+    with session() as s:
+        track = s.get(Track, track_id)
+        if not track:
+            raise HTTPException(404)
+    return templates.TemplateResponse(request, "_track_edit_modal.html", {
+        "request": request, "t": track,
+    })
+
+
+@app.post("/library/tracks/{track_id}/edit")
+def library_track_edit_save(
+    track_id: int,
+    request: Request,
+    _: None = Depends(require_auth),
+    title: str = Form(""),
+    artist: str = Form(""),
+    album: str = Form(""),
+    album_artist: str = Form(""),
+    track_num: str = Form(""),
+    track_total: str = Form(""),
+    disc_num: str = Form(""),
+    disc_total: str = Form(""),
+):
+    """Save a manual tag correction — updates only these fields on disk,
+    leaving the rest of the file's tags (genres, dates, MB ids, lyrics)
+    untouched, then refreshes the denormalized Track row to match."""
+    from .tagging.partial import write_basic_tags
+
+    def _int(v: str) -> int | None:
+        return int(v) if v.strip().isdigit() else None
+
+    with session() as s:
+        track = s.get(Track, track_id)
+        if not track:
+            raise HTTPException(404)
+        p = Path(track.path)
+        if not p.exists():
+            return _toast_response("/library", f"{p.name}: file not found on disk.", "error")
+        fields = dict(
+            title=title.strip() or None,
+            artist=artist.strip() or None,
+            album=album.strip() or None,
+            album_artist=album_artist.strip() or None,
+            track=_int(track_num),
+            track_total=_int(track_total),
+            disc=_int(disc_num),
+            disc_total=_int(disc_total),
+        )
+        try:
+            write_basic_tags(p, **fields)
+        except Exception as e:
+            return _toast_response("/library", f"{p.name}: tag write failed: {e}", "error")
+        track.title = fields["title"]
+        track.artist = fields["artist"]
+        track.album = fields["album"]
+        track.album_artist = fields["album_artist"]
+        track.track_num = fields["track"]
+        track.track_total = fields["track_total"]
+        track.disc_num = fields["disc"]
+        track.disc_total = fields["disc_total"]
+        s.add(track)
+        s.commit()
+        folder_id = track.library_folder_id
+    return _toast_response(
+        f"/library?folder_id={folder_id or ''}", f"Tags updated for {p.name}."
+    )
+
+
+@app.post("/library/tracks/{track_id}/protect")
+def library_track_protect_toggle(track_id: int, request: Request, _: None = Depends(require_auth)):
+    """Toggle overwrite protection for one track.
+
+    Sets ``Track.protected`` (so library batch actions in actions.py skip it)
+    and mirrors the path into ``scan_exclude_files`` (so the scanner, watcher
+    and bulk re-tag enqueue — which already honor that list — skip it too).
+    """
+    with session() as s:
+        track = s.get(Track, track_id)
+        if not track:
+            raise HTTPException(404)
+        track.protected = not track.protected
+        s.add(track)
+        s.commit()
+        now_protected = track.protected
+        path_str = track.path
+        folder_id = track.library_folder_id
+
+    excluded = list(settings().scan_exclude_files)
+    if now_protected:
+        if path_str not in excluded:
+            excluded.append(path_str)
+            store().update({"scan_exclude_files": excluded[-500:]})
+    else:
+        if path_str in excluded:
+            excluded.remove(path_str)
+            store().update({"scan_exclude_files": excluded})
+
+    msg = "Protected from overwrite." if now_protected else "Protection removed."
+    return _toast_response(f"/library?folder_id={folder_id or ''}", msg)
+
+
+@app.post("/library/tracks/{track_id}/identify", response_class=HTMLResponse)
+def library_track_identify(track_id: int, request: Request, _: None = Depends(require_auth)):
+    """AcoustID fingerprint lookup (falling back to a plain MB text search on
+    the track's current tags) — renders the same candidate-picker list used
+    by the manual search box, into the track-edit modal."""
+    from .identify import acoustid
+
+    with session() as s:
+        track = s.get(Track, track_id)
+        if not track:
+            raise HTTPException(404)
+    p = Path(track.path)
+    cands = []
+    if p.exists():
+        matches = acoustid.lookup(p)
+        if matches and matches[0].recording_id:
+            cands = mbq.candidates_from_mbid(matches[0].recording_id)
+        if not cands:
+            cands = mbq.search_candidates(
+                title=track.title, artist=track.artist, album=track.album, limit=10
+            )
+    return templates.TemplateResponse(request, "_track_mb_results.html", {
+        "request": request, "track_id": track_id, "searched": True,
+        "cands": [
+            {
+                "recording_id": c.recording_id, "release_id": c.release_id, "score": c.score,
+                "title": c.raw_recording.get("title", ""),
+                "artist": c.raw_recording.get("artist-credit-phrase", ""),
+                "album": c.raw_release.get("title", ""),
+            } for c in cands
+        ],
+    })
+
+
+@app.get("/library/tracks/{track_id}/mb-search", response_class=HTMLResponse)
+def library_track_mb_search(
+    track_id: int,
+    request: Request,
+    _: None = Depends(require_auth),
+    title: str = "",
+    artist: str = "",
+    album: str = "",
+    mbid: str = "",
+):
+    """HTMX partial: manual MusicBrainz search from the track-edit modal."""
+    if mbid.strip():
+        cands = mbq.candidates_from_mbid(mbid.strip(), title_hint=title or None)
+        searched = True
+    else:
+        cands = mbq.search_candidates(title=title, artist=artist or None, album=album or None, limit=10) if title.strip() else []
+        searched = bool(title.strip())
+    return templates.TemplateResponse(request, "_track_mb_results.html", {
+        "request": request, "track_id": track_id, "searched": searched,
+        "cands": [
+            {
+                "recording_id": c.recording_id, "release_id": c.release_id, "score": c.score,
+                "title": c.raw_recording.get("title", ""),
+                "artist": c.raw_recording.get("artist-credit-phrase", ""),
+                "album": c.raw_release.get("title", ""),
+            } for c in cands
+        ],
+    })
+
+
+@app.post("/library/tracks/{track_id}/apply-match")
+def library_track_apply_match(
+    track_id: int,
+    request: Request,
+    _: None = Depends(require_auth),
+    pick: str = Form(default=""),
+    manual_recording_id: str = Form(default=""),
+    manual_release_id: str = Form(default=""),
+):
+    """Write the chosen MusicBrainz recording/release onto this file in place
+    (tags + cover art) and refresh its Track row. The file is not moved —
+    this is a metadata correction for a file already in the library."""
+    rec = rel = ""
+    if "|" in pick:
+        p_rec, _, p_rel = pick.partition("|")
+        rec, rel = p_rec.strip(), p_rel.strip()
+    rec = rec or manual_recording_id.strip()
+    rel = rel or manual_release_id.strip()
+    if not rec or not rel:
+        return _toast_response("/library", "Pick a match first.", "error")
+
+    with session() as s:
+        track = s.get(Track, track_id)
+        if not track:
+            raise HTTPException(404)
+        p = Path(track.path)
+        if not p.exists():
+            return _toast_response("/library", f"{p.name}: file not found on disk.", "error")
+        folder_id = track.library_folder_id
+
+    from .tagging.coverart import fetch_for_release
+    from .tagging.writers import write_tags
+    from .ingest.pipeline import _upsert_track
+
+    tags = mbq.assemble_tags(release_id=rel, recording_id=rec)
+    cover = fetch_for_release(tags.mb_album_id) if tags.mb_album_id else None
+    if cover:
+        tags.cover_bytes = cover.data
+        tags.cover_mime = cover.mime
+    try:
+        write_tags(p, tags)
+    except Exception as e:
+        return _toast_response("/library", f"{p.name}: tag write failed: {e}", "error")
+
+    with session() as s:
+        folder = s.get(LibraryFolder, folder_id) if folder_id else None
+        lib_root = Path(folder.path) if folder else env().library_path
+        _upsert_track(s, p, tags, lib_root)
+    return _toast_response(f"/library?folder_id={folder_id or ''}", f"Updated {p.name} from MusicBrainz.")
+
+
+@app.post("/library/tracks/{track_id}/fetch-lyrics")
+def library_track_fetch_lyrics(track_id: int, request: Request, _: None = Depends(require_auth)):
+    """Fetch synced/plain lyrics from LRCLIB for this one track."""
+    from .tagging import lyrics_fetcher
+    from .tagging.advisory import is_explicit
+    from .tagging.partial import write_lyrics
+
+    with session() as s:
+        track = s.get(Track, track_id)
+        if not track:
+            raise HTTPException(404)
+        p = Path(track.path)
+        folder_id = track.library_folder_id
+        title, artist, album = track.title, track.artist, track.album
+
+    if not p.exists():
+        return _toast_response("/library", f"{p.name}: file not found on disk.", "error")
+    fetched = lyrics_fetcher.fetch(artist=artist, title=title, album=album)
+    if not fetched:
+        return _toast_response(f"/library?folder_id={folder_id or ''}", "No lyrics found on LRCLIB.", "error")
+    advisory = 1 if is_explicit(fetched) else 0
+    write_lyrics(p, fetched, advisory)
+    with session() as s:
+        track = s.get(Track, track_id)
+        if track:
+            track.has_lyrics = True
+            track.advisory = advisory
+            s.add(track)
+            s.commit()
+    return _toast_response(f"/library?folder_id={folder_id or ''}", f"Lyrics fetched for {p.name}.")
 
 
 @app.post("/library/fetch-lyrics")

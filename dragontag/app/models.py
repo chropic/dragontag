@@ -66,6 +66,11 @@ class Track(SQLModel, table=True):
     advisory: int | None = Field(default=None)
     has_lyrics: bool = Field(default=False)
 
+    # When set, library-wide batch actions (fetch lyrics/covers, advisories,
+    # ReplayGain, the nuclear option, bulk re-tag) skip this track entirely.
+    # Toggled from the per-track edit menu after a manual correction.
+    protected: bool = Field(default=False)
+
     last_seen: datetime = Field(default_factory=now_utc)
     indexed_at: datetime = Field(default_factory=now_utc)
 

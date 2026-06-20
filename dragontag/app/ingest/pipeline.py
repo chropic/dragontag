@@ -30,7 +30,7 @@ from ..identify import acoustid as acid
 from ..identify import existing_tags, filename_parse
 from ..identify import musicbrainz as mbq
 from ..identify.scoring import score_candidate
-from ..library.mover import move, write_cover_jpg
+from ..library.mover import move, move_lyric_sidecar, write_cover_jpg
 from ..library.paths import build_destination
 from ..models import FileChange, Job, JobStatus, ReviewReason, append_job_log
 from ..tagging import snapshot
@@ -431,6 +431,8 @@ def _commit_tag_path(s: Session, job: Job, src: Path, tags: TrackTags, *, score:
         s.add(job)
         s.commit()
         return
+
+    move_lyric_sidecar(src, dest)
 
     # ----- side-effect: write cover.jpg next to the file -----
     cover_jpg = dest.parent / "cover.jpg"

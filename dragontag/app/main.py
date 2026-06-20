@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -87,10 +88,18 @@ async def _read_upload_capped(upload: UploadFile, max_bytes: int) -> bytes:
     return b"".join(chunks)
 
 
-def _toast_response(redirect_url: str, message: str, level: str = "success") -> Response:
-    """Return a redirect that also carries an HX-Trigger showToast header."""
+def _toast_response(
+    redirect_url: str, message: str, level: str = "success", job_id: int | None = None
+) -> Response:
+    """Return a redirect that also carries an HX-Trigger showToast header.
+
+    ``job_id``, when given, makes the toast clickable to that job's detail page.
+    """
     resp = RedirectResponse(redirect_url, status_code=303)
-    resp.headers["HX-Trigger"] = json.dumps({"showToast": {"message": message, "level": level}})
+    payload: dict[str, Any] = {"message": message, "level": level}
+    if job_id is not None:
+        payload["job_id"] = job_id
+    resp.headers["HX-Trigger"] = json.dumps({"showToast": payload})
     return resp
 
 
@@ -374,10 +383,27 @@ async def upload(request: Request, _: None = Depends(require_auth), files: list[
     return _toast(msg, "error" if errors and not n else "success")
 
 
+_QUEUE_PREFS_COOKIE = "queue_prefs"
+
+
 @app.get("/queue", response_class=HTMLResponse)
-def queue_page(request: Request, _: None = Depends(require_auth), page: int = 1):
+def queue_page(
+    request: Request,
+    _: None = Depends(require_auth),
+    page: int = 1,
+    page_size: int = 50,
+):
     """Unified queue page: review items on top, the full job list below."""
     page = max(1, page)
+    # Remember the jobs-list page size across visits; only fall back to the
+    # cookie when the URL didn't pin it explicitly.
+    if "page_size" not in request.query_params:
+        try:
+            page_size = int(_prefs_cookie(request, _QUEUE_PREFS_COOKIE).get("page_size", page_size))
+        except (TypeError, ValueError):
+            pass
+    if page_size not in _LIBRARY_PAGE_SIZES:
+        page_size = 50
     with session() as s:
         items = s.exec(
             select(Job)
@@ -387,25 +413,35 @@ def queue_page(request: Request, _: None = Depends(require_auth), page: int = 1)
         total = s.exec(select(func.count(Job.id))).one()
         jobs = s.exec(
             select(Job).order_by(Job.updated_at.desc())
-            .offset((page - 1) * _PER_PAGE).limit(_PER_PAGE)
+            .offset((page - 1) * page_size).limit(page_size)
         ).all()
         pending = s.exec(select(func.count(Job.id)).where(
             Job.status.in_(list(_ACTIVE_JOB_STATUSES))
         )).one()
         done_today = s.exec(select(func.count(Job.id)).where(Job.status == JobStatus.done)).one()
         errors = s.exec(select(func.count(Job.id)).where(Job.status == JobStatus.error)).one()
-    total_pages = max(1, (total + _PER_PAGE - 1) // _PER_PAGE)
-    return templates.TemplateResponse(request, "queue.html", {
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    response = templates.TemplateResponse(request, "queue.html", {
         "request": request,
         "items": items,
         "jobs": jobs,
         "page": page,
+        "page_size": page_size,
+        "page_sizes": _LIBRARY_PAGE_SIZES,
         "total_pages": total_pages,
         "pending": pending,
         "done_today": done_today,
         "errors": errors,
         "active_page": "queue",
     })
+    response.set_cookie(
+        _QUEUE_PREFS_COOKIE,
+        json.dumps({"page_size": page_size}),
+        max_age=60 * 60 * 24 * 365,
+        httponly=False,
+        samesite="lax",
+    )
+    return response
 
 
 @app.get("/jobs", response_class=HTMLResponse)
@@ -562,34 +598,77 @@ def review(request: Request):
     return RedirectResponse("/queue", status_code=308)
 
 
+def _apply_review_match(job_id: int, rec: str, rel: str, cover_url: str):
+    """Build a background step that applies one chosen review match.
+
+    Mirrors the single-apply path (``review_apply``): assemble tags for the
+    chosen recording/release, optionally swap in a user-selected cover, then
+    run the shared commit pipeline. Skips silently if the job already left the
+    review state (e.g. applied by a concurrent action)."""
+    def step(ctx) -> None:
+        with session() as s:
+            job = s.get(Job, job_id)
+            if not job or job.status != JobStatus.needs_review:
+                return
+            tags = mbq.assemble_tags(release_id=rel, recording_id=rec)
+            if cover_url:
+                from .net import fetch_bytes
+                try:
+                    r, body = fetch_bytes(
+                        cover_url, timeout=10, max_bytes=32 * 1024 * 1024,
+                        validate=True, allow_redirects=False,
+                    )
+                    r.raise_for_status()
+                    tags.cover_bytes = body
+                    tags.cover_mime = r.headers.get("content-type", "image/jpeg")
+                except Exception:
+                    pass  # fall back to the normal CAA fetch in _commit_tag_path
+            from .ingest.pipeline import _commit_tag_path
+            _commit_tag_path(s, job, Path(job.source_path), tags, score=job.score or 1.0)
+        ctx.log(f"applied job {job_id}")
+    return step
+
+
 @app.post("/review/bulk-apply")
-async def review_bulk_apply(
-    request: Request,
-    _: None = Depends(require_auth),
-    job_ids: list[int] = Form(...),
-):
-    """Apply the top candidate for each selected review job."""
-    applied = 0
-    failed = 0
+async def review_bulk_apply(request: Request, _: None = Depends(require_auth)):
+    """Apply the user's chosen candidate for each selected review job, as one
+    background job so the page returns immediately and the slow (MB-rate-
+    limited) work doesn't block the request.
+
+    Per job the chosen recording/release comes from a ``pick_{id}`` field
+    ("recording|release", from the candidate radio or a manual MB search),
+    falling back to the job's stored top candidate when the user left it
+    untouched. An optional ``cover_{id}`` carries the per-job cover selection.
+    """
+    form = await request.form()
+    job_ids = [int(v) for v in form.getlist("job_ids") if str(v).strip().isdigit()]
+
+    steps: list[tuple[str, Any]] = []
     with session() as s:
         for job_id in job_ids:
             job = s.get(Job, job_id)
             if not job or job.status != JobStatus.needs_review:
                 continue
-            candidates = (job.candidates_json or {}).get("items", [])
-            if not candidates:
-                continue
-            best = candidates[0]
-            try:
-                tags = mbq.assemble_tags(release_id=best["release_id"], recording_id=best["recording_id"])
-                from .ingest.pipeline import _commit_tag_path
-                _commit_tag_path(s, job, Path(job.source_path), tags, score=job.score or 1.0)
-                applied += 1
-            except Exception:
-                failed += 1
-                log.exception("bulk-apply: job %s failed", job_id)
-    msg = f"Applied {applied} job(s)." + (f" {failed} failed." if failed else "")
-    return _toast_response("/queue", msg, "error" if failed and not applied else "success")
+            rec = rel = ""
+            pick = str(form.get(f"pick_{job_id}", "")).strip()
+            if "|" in pick:
+                p_rec, _, p_rel = pick.partition("|")
+                rec, rel = p_rec.strip(), p_rel.strip()
+            if not rec or not rel:
+                candidates = (job.candidates_json or {}).get("items", [])
+                if not candidates:
+                    continue
+                rec, rel = candidates[0]["recording_id"], candidates[0]["release_id"]
+            cover_url = str(form.get(f"cover_{job_id}", "")).strip()
+            steps.append((f"Apply job {job_id}", _apply_review_match(job_id, rec, rel, cover_url)))
+
+    if not steps:
+        return _toast_response("/queue", "Nothing to apply — select review items first.", "error")
+    n = len(steps)
+    new_job_id = tasks.run_chain("review_bulk", f"Apply {n} review match(es)", steps)
+    return _toast_response(
+        "/queue", f"Applying {n} match(es) in the background…", job_id=new_job_id
+    )
 
 
 @app.post("/review/{job_id}/apply")
@@ -887,6 +966,27 @@ _LIBRARY_SORT_COLS = {
 }
 
 
+_LIB_PREFS_COOKIE = "lib_prefs"
+
+
+def _prefs_cookie(request: Request, name: str) -> dict:
+    """Read a small JSON view-preferences cookie, tolerating absence/garbage."""
+    raw = request.cookies.get(name)
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def _library_prefs_from_cookie(request: Request) -> dict:
+    """Sort/pagination remembered across visits to /library (folder and
+    search are intentionally not persisted)."""
+    return _prefs_cookie(request, _LIB_PREFS_COOKIE)
+
+
 @app.get("/library", response_class=HTMLResponse)
 def library(
     request: Request,
@@ -899,6 +999,26 @@ def library(
     dir: str = "asc",
 ):
     from .library.actions import LIBRARY_ACTIONS
+    # Only fall back to the saved cookie for params the URL didn't specify —
+    # FastAPI fills in the function defaults either way, so we have to check
+    # the raw query string to tell "absent" from "explicitly default".
+    prefs = _library_prefs_from_cookie(request)
+    qp = request.query_params
+    if "sort" not in qp and "sort" in prefs:
+        sort = prefs["sort"]
+    if "dir" not in qp and "dir" in prefs:
+        dir = prefs["dir"]
+    if "page_size" not in qp and "page_size" in prefs:
+        try:
+            page_size = int(prefs["page_size"])
+        except (TypeError, ValueError):
+            pass
+    if "page" not in qp and "page" in prefs:
+        try:
+            page = int(prefs["page"])
+        except (TypeError, ValueError):
+            pass
+
     fid: int | None = int(folder_id) if folder_id and folder_id.strip().isdigit() else None
     if page_size not in _LIBRARY_PAGE_SIZES:
         page_size = 50
@@ -912,7 +1032,7 @@ def library(
         active_id = fid or (folders[0].id if folders else None)
         tracks, total = _query_tracks(s, active_id, q, page, page_size, sort, dir)
     total_pages = max(1, (total + page_size - 1) // page_size)
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         request,
         "library.html",
         {
@@ -933,6 +1053,14 @@ def library(
             "settings": settings(),
         },
     )
+    response.set_cookie(
+        _LIB_PREFS_COOKIE,
+        json.dumps({"sort": sort, "dir": dir, "page_size": page_size, "page": page}),
+        max_age=60 * 60 * 24 * 365,
+        httponly=False,
+        samesite="lax",
+    )
+    return response
 
 
 @app.get("/library/tracks", response_class=HTMLResponse)
@@ -1025,8 +1153,8 @@ def library_scan(request: Request, _: None = Depends(require_auth), folder_id: i
         folder_path, fid, label = Path(f.path), f.id, (f.label or f.path)
 
     from .library.scanner import scan_folder
-    tasks.run_task("scan", f"Scan {label}", lambda ctx: scan_folder(folder_path, fid, ctx=ctx))
-    return _toast_response("/library", "Folder scan started — track it on the Jobs page.")
+    job_id = tasks.run_task("scan", f"Scan {label}", lambda ctx: scan_folder(folder_path, fid, ctx=ctx))
+    return _toast_response("/library", "Folder scan started — track it on the Jobs page.", job_id=job_id)
 
 
 @app.post("/library/organize")
@@ -1091,7 +1219,7 @@ def library_retag_selected(
 
         for tid in ids_to_process:
             track = s.get(Track, tid)
-            if not track:
+            if not track or track.protected:
                 continue
             p = Path(track.path)
             if not p.exists():
@@ -1123,6 +1251,258 @@ def library_track_delete(track_id: int, request: Request, _: None = Depends(requ
         s.commit()
     back = request.headers.get("referer", "/library")
     return _toast_response(back, f"Removed {name} from the library list (file not touched).")
+
+
+@app.get("/library/tracks/{track_id}/edit", response_class=HTMLResponse)
+def library_track_edit_modal(track_id: int, request: Request, _: None = Depends(require_auth)):
+    """HTMX partial: the per-track edit menu (manual tags, MB/AcoustID pull,
+    protect-from-overwrite, LRCLIB lyrics) opened by clicking a track title."""
+    with session() as s:
+        track = s.get(Track, track_id)
+        if not track:
+            raise HTTPException(404)
+    return templates.TemplateResponse(request, "_track_edit_modal.html", {
+        "request": request, "t": track,
+    })
+
+
+@app.post("/library/tracks/{track_id}/edit")
+def library_track_edit_save(
+    track_id: int,
+    request: Request,
+    _: None = Depends(require_auth),
+    title: str = Form(""),
+    artist: str = Form(""),
+    album: str = Form(""),
+    album_artist: str = Form(""),
+    track_num: str = Form(""),
+    track_total: str = Form(""),
+    disc_num: str = Form(""),
+    disc_total: str = Form(""),
+):
+    """Save a manual tag correction — updates only these fields on disk,
+    leaving the rest of the file's tags (genres, dates, MB ids, lyrics)
+    untouched, then refreshes the denormalized Track row to match."""
+    from .tagging.partial import write_basic_tags
+
+    def _int(v: str) -> int | None:
+        return int(v) if v.strip().isdigit() else None
+
+    with session() as s:
+        track = s.get(Track, track_id)
+        if not track:
+            raise HTTPException(404)
+        p = Path(track.path)
+        if not p.exists():
+            return _toast_response("/library", f"{p.name}: file not found on disk.", "error")
+        fields = dict(
+            title=title.strip() or None,
+            artist=artist.strip() or None,
+            album=album.strip() or None,
+            album_artist=album_artist.strip() or None,
+            track=_int(track_num),
+            track_total=_int(track_total),
+            disc=_int(disc_num),
+            disc_total=_int(disc_total),
+        )
+        try:
+            write_basic_tags(p, **fields)
+        except Exception as e:
+            return _toast_response("/library", f"{p.name}: tag write failed: {e}", "error")
+        track.title = fields["title"]
+        track.artist = fields["artist"]
+        track.album = fields["album"]
+        track.album_artist = fields["album_artist"]
+        track.track_num = fields["track"]
+        track.track_total = fields["track_total"]
+        track.disc_num = fields["disc"]
+        track.disc_total = fields["disc_total"]
+        s.add(track)
+        s.commit()
+        folder_id = track.library_folder_id
+    return _toast_response(
+        f"/library?folder_id={folder_id or ''}", f"Tags updated for {p.name}."
+    )
+
+
+@app.post("/library/tracks/{track_id}/protect")
+def library_track_protect_toggle(track_id: int, request: Request, _: None = Depends(require_auth)):
+    """Toggle overwrite protection for one track.
+
+    Sets ``Track.protected`` (so library batch actions in actions.py skip it)
+    and mirrors the path into ``scan_exclude_files`` (so the scanner, watcher
+    and bulk re-tag enqueue — which already honor that list — skip it too).
+    """
+    with session() as s:
+        track = s.get(Track, track_id)
+        if not track:
+            raise HTTPException(404)
+        track.protected = not track.protected
+        s.add(track)
+        s.commit()
+        now_protected = track.protected
+        path_str = track.path
+        folder_id = track.library_folder_id
+
+    excluded = list(settings().scan_exclude_files)
+    if now_protected:
+        if path_str not in excluded:
+            excluded.append(path_str)
+            store().update({"scan_exclude_files": excluded[-500:]})
+    else:
+        if path_str in excluded:
+            excluded.remove(path_str)
+            store().update({"scan_exclude_files": excluded})
+
+    msg = "Protected from overwrite." if now_protected else "Protection removed."
+    return _toast_response(f"/library?folder_id={folder_id or ''}", msg)
+
+
+@app.post("/library/tracks/{track_id}/identify", response_class=HTMLResponse)
+def library_track_identify(track_id: int, request: Request, _: None = Depends(require_auth)):
+    """AcoustID fingerprint lookup (falling back to a plain MB text search on
+    the track's current tags) — renders the same candidate-picker list used
+    by the manual search box, into the track-edit modal."""
+    from .identify import acoustid
+
+    with session() as s:
+        track = s.get(Track, track_id)
+        if not track:
+            raise HTTPException(404)
+    p = Path(track.path)
+    cands = []
+    if p.exists():
+        matches = acoustid.lookup(p)
+        if matches and matches[0].recording_id:
+            cands = mbq.candidates_from_mbid(matches[0].recording_id)
+        if not cands:
+            cands = mbq.search_candidates(
+                title=track.title, artist=track.artist, album=track.album, limit=10
+            )
+    return templates.TemplateResponse(request, "_track_mb_results.html", {
+        "request": request, "track_id": track_id, "searched": True,
+        "cands": [
+            {
+                "recording_id": c.recording_id, "release_id": c.release_id, "score": c.score,
+                "title": c.raw_recording.get("title", ""),
+                "artist": c.raw_recording.get("artist-credit-phrase", ""),
+                "album": c.raw_release.get("title", ""),
+            } for c in cands
+        ],
+    })
+
+
+@app.get("/library/tracks/{track_id}/mb-search", response_class=HTMLResponse)
+def library_track_mb_search(
+    track_id: int,
+    request: Request,
+    _: None = Depends(require_auth),
+    title: str = "",
+    artist: str = "",
+    album: str = "",
+    mbid: str = "",
+):
+    """HTMX partial: manual MusicBrainz search from the track-edit modal."""
+    if mbid.strip():
+        cands = mbq.candidates_from_mbid(mbid.strip(), title_hint=title or None)
+        searched = True
+    else:
+        cands = mbq.search_candidates(title=title, artist=artist or None, album=album or None, limit=10) if title.strip() else []
+        searched = bool(title.strip())
+    return templates.TemplateResponse(request, "_track_mb_results.html", {
+        "request": request, "track_id": track_id, "searched": searched,
+        "cands": [
+            {
+                "recording_id": c.recording_id, "release_id": c.release_id, "score": c.score,
+                "title": c.raw_recording.get("title", ""),
+                "artist": c.raw_recording.get("artist-credit-phrase", ""),
+                "album": c.raw_release.get("title", ""),
+            } for c in cands
+        ],
+    })
+
+
+@app.post("/library/tracks/{track_id}/apply-match")
+def library_track_apply_match(
+    track_id: int,
+    request: Request,
+    _: None = Depends(require_auth),
+    pick: str = Form(default=""),
+    manual_recording_id: str = Form(default=""),
+    manual_release_id: str = Form(default=""),
+):
+    """Write the chosen MusicBrainz recording/release onto this file in place
+    (tags + cover art) and refresh its Track row. The file is not moved —
+    this is a metadata correction for a file already in the library."""
+    rec = rel = ""
+    if "|" in pick:
+        p_rec, _, p_rel = pick.partition("|")
+        rec, rel = p_rec.strip(), p_rel.strip()
+    rec = rec or manual_recording_id.strip()
+    rel = rel or manual_release_id.strip()
+    if not rec or not rel:
+        return _toast_response("/library", "Pick a match first.", "error")
+
+    with session() as s:
+        track = s.get(Track, track_id)
+        if not track:
+            raise HTTPException(404)
+        p = Path(track.path)
+        if not p.exists():
+            return _toast_response("/library", f"{p.name}: file not found on disk.", "error")
+        folder_id = track.library_folder_id
+
+    from .tagging.coverart import fetch_for_release
+    from .tagging.writers import write_tags
+    from .ingest.pipeline import _upsert_track
+
+    tags = mbq.assemble_tags(release_id=rel, recording_id=rec)
+    cover = fetch_for_release(tags.mb_album_id) if tags.mb_album_id else None
+    if cover:
+        tags.cover_bytes = cover.data
+        tags.cover_mime = cover.mime
+    try:
+        write_tags(p, tags)
+    except Exception as e:
+        return _toast_response("/library", f"{p.name}: tag write failed: {e}", "error")
+
+    with session() as s:
+        folder = s.get(LibraryFolder, folder_id) if folder_id else None
+        lib_root = Path(folder.path) if folder else env().library_path
+        _upsert_track(s, p, tags, lib_root)
+    return _toast_response(f"/library?folder_id={folder_id or ''}", f"Updated {p.name} from MusicBrainz.")
+
+
+@app.post("/library/tracks/{track_id}/fetch-lyrics")
+def library_track_fetch_lyrics(track_id: int, request: Request, _: None = Depends(require_auth)):
+    """Fetch synced/plain lyrics from LRCLIB for this one track."""
+    from .tagging import lyrics_fetcher
+    from .tagging.advisory import is_explicit
+    from .tagging.partial import write_lyrics
+
+    with session() as s:
+        track = s.get(Track, track_id)
+        if not track:
+            raise HTTPException(404)
+        p = Path(track.path)
+        folder_id = track.library_folder_id
+        title, artist, album = track.title, track.artist, track.album
+
+    if not p.exists():
+        return _toast_response("/library", f"{p.name}: file not found on disk.", "error")
+    fetched = lyrics_fetcher.fetch(artist=artist, title=title, album=album)
+    if not fetched:
+        return _toast_response(f"/library?folder_id={folder_id or ''}", "No lyrics found on LRCLIB.", "error")
+    advisory = 1 if is_explicit(fetched) else 0
+    write_lyrics(p, fetched, advisory)
+    with session() as s:
+        track = s.get(Track, track_id)
+        if track:
+            track.has_lyrics = True
+            track.advisory = advisory
+            s.add(track)
+            s.commit()
+    return _toast_response(f"/library?folder_id={folder_id or ''}", f"Lyrics fetched for {p.name}.")
 
 
 @app.post("/library/fetch-lyrics")
@@ -1257,6 +1637,21 @@ def _batch_guard() -> str | None:
     return None
 
 
+def _scan_all_steps() -> list[tuple[str, Any]]:
+    """Steps that scan every library folder, unconditionally prepended to
+    every queued library action so it never runs against stale track data."""
+    from .library.scanner import scan_folder
+    with session() as s:
+        folders = s.exec(
+            select(LibraryFolder).order_by(LibraryFolder.priority, LibraryFolder.id)
+        ).all()
+    return [
+        (f"Scan {f.label or f.path}",
+         (lambda fp=Path(f.path), fid=f.id: (lambda ctx: scan_folder(fp, fid, ctx=ctx)))())
+        for f in folders
+    ]
+
+
 @app.post("/library/run-selected")
 def library_run_selected(
     request: Request,
@@ -1272,9 +1667,11 @@ def library_run_selected(
         return _toast_response("/library", "Select at least one action first.", "error")
     if msg := _batch_guard():
         return _toast_response("/library", msg, "error")
-    steps = _chain_steps_for(keys, folder_id)
-    tasks.run_chain("library_chain", f"{len(steps)} library action(s) (folder {folder_id})", steps)
-    return _toast_response("/library", f"Queued {len(steps)} action(s) — track them on the Queue page.")
+    steps = _scan_all_steps() + _chain_steps_for(keys, folder_id)
+    job_id = tasks.run_chain("library_chain", f"{len(steps)} library action(s) (folder {folder_id})", steps)
+    return _toast_response(
+        "/library", f"Queued {len(steps)} action(s) — track them on the Queue page.", job_id=job_id
+    )
 
 
 @app.post("/library/batch/organize")
@@ -1284,11 +1681,15 @@ def library_batch_organize(request: Request, _: None = Depends(require_auth), fo
     from .library.organizer import organize_folder
     if msg := _batch_guard():
         return _toast_response("/library", msg, "error")
-    steps: list[tuple[str, Any]] = [
+    steps: list[tuple[str, Any]] = _scan_all_steps() + [
         ("Organize files", lambda ctx: organize_folder(folder_id, ctx=ctx)),
     ] + _chain_steps_for(BATCH_ORGANIZE, folder_id)
-    tasks.run_chain("batch_organize", f"Organize library (folder {folder_id})", steps)
-    return _toast_response("/library", "Organize batch started — covers, disc folders, junk, duplicates and missing tracks.")
+    job_id = tasks.run_chain("batch_organize", f"Organize library (folder {folder_id})", steps)
+    return _toast_response(
+        "/library",
+        "Organize batch started — covers, disc folders, junk, duplicates and missing tracks.",
+        job_id=job_id,
+    )
 
 
 @app.post("/library/batch/retag")
@@ -1316,9 +1717,13 @@ def library_batch_retag(
         ctx.log(f"Enqueued {len(job_ids)} file(s) for identify → tag → move")
         return {"enqueued": True}
 
-    steps = _chain_steps_for(BATCH_RETAG, folder_id) + [("Re-tag pipeline", _enqueue)]
-    tasks.run_chain("batch_retag", f"Full library re-tag (folder {folder_id})", steps)
-    return _toast_response("/library", "Re-tag batch started — validation, advisories, ReplayGain, then the full pipeline.")
+    steps = _scan_all_steps() + _chain_steps_for(BATCH_RETAG, folder_id) + [("Re-tag pipeline", _enqueue)]
+    job_id = tasks.run_chain("batch_retag", f"Full library re-tag (folder {folder_id})", steps)
+    return _toast_response(
+        "/library",
+        "Re-tag batch started — validation, advisories, ReplayGain, then the full pipeline.",
+        job_id=job_id,
+    )
 
 
 @app.post("/library/batch/nuclear")
@@ -1328,9 +1733,14 @@ def library_batch_nuclear(
     folder_id: int = Form(...),
     dry_run: str | None = Form(None),
 ):
-    """Nuclear option: every batch step in one chain."""
-    from .library.actions import BATCH_ORGANIZE, BATCH_RETAG
-    from .library.organizer import organize_folder
+    """Nuclear option: every action in dependency order, in one chain.
+
+    The identify -> tag -> move pipeline runs first (and the chain blocks
+    until every enqueued file finishes) so every later step — disc/filename
+    cleanup, ReplayGain, duplicate/missing-track reports — sees up-to-date
+    tags rather than racing the pipeline's background worker.
+    """
+    from .library.actions import BATCH_NUCLEAR
     if msg := _batch_guard():
         return _toast_response("/library", msg, "error")
     with session() as s:
@@ -1340,20 +1750,38 @@ def library_batch_nuclear(
         folder_path = Path(f.path)
     use_dry_run = bool(dry_run)
 
-    def _enqueue(ctx) -> dict:
+    def _enqueue_and_wait(ctx) -> dict:
         from .ingest.bulk import enqueue_folder
         job_ids = enqueue_folder(folder_path, dry_run=use_dry_run)
         ctx.log(f"Enqueued {len(job_ids)} file(s) for identify → tag → move")
-        return {"enqueued": True}
+        pending = set(job_ids)
+        total = len(pending)
+        ctx.progress(0, total)
+        while pending:
+            ctx.check_cancelled()
+            time.sleep(1.0)
+            with session() as s2:
+                finished = {
+                    j.id for j in s2.exec(
+                        select(Job).where(
+                            Job.id.in_(pending),
+                            Job.status.not_in(list(_ACTIVE_JOB_STATUSES)),
+                        )
+                    ).all()
+                }
+            pending -= finished
+            ctx.progress(total - len(pending), total)
+        return {"enqueued": total}
 
     steps = (
-        [("Organize files", lambda ctx: organize_folder(folder_id, ctx=ctx))]
-        + _chain_steps_for(BATCH_ORGANIZE, folder_id)
-        + _chain_steps_for(BATCH_RETAG, folder_id)
-        + [("Re-tag pipeline", _enqueue)]
+        _scan_all_steps()
+        + [("Re-tag pipeline", _enqueue_and_wait)]
+        + _chain_steps_for(BATCH_NUCLEAR, folder_id)
     )
-    tasks.run_chain("batch_nuclear", f"Nuclear option (folder {folder_id})", steps)
-    return _toast_response("/library", "Nuclear option started — everything, in order. Godspeed.")
+    job_id = tasks.run_chain("batch_nuclear", f"Nuclear option (folder {folder_id})", steps)
+    return _toast_response(
+        "/library", "Nuclear option started — everything, in order. Godspeed.", job_id=job_id
+    )
 
 
 @app.get("/library/incomplete", response_class=HTMLResponse)

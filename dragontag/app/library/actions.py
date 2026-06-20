@@ -18,6 +18,7 @@ from sqlmodel import select
 from ..db import session
 from ..models import LibraryFolder, Track
 from .mover import move as _safe_move
+from .mover import move_lyric_sidecar as _move_lyric_sidecar
 
 log = logging.getLogger(__name__)
 
@@ -38,7 +39,10 @@ def fetch_lyrics_for_folder(folder_id: int, ctx=None) -> dict:
 
     with session() as s:
         tracks = s.exec(select(Track).where(Track.library_folder_id == folder_id)).all()
-    items = [(t.id, t.title, t.artist, t.album, Path(t.path)) for t in tracks if Path(t.path).exists()]
+    items = [
+        (t.id, t.title, t.artist, t.album, Path(t.path))
+        for t in tracks if not t.protected and Path(t.path).exists()
+    ]
     if ctx:
         ctx.progress(0, len(items))
 
@@ -90,7 +94,10 @@ def fetch_covers_for_folder(folder_id: int, ctx=None) -> dict:
             Track.library_folder_id == folder_id,
             Track.mb_album_id.is_not(None),
         )).all()
-    items = [(Path(t.path), t.mb_album_id) for t in tracks if Path(t.path).exists()]
+    items = [
+        (Path(t.path), t.mb_album_id)
+        for t in tracks if not t.protected and Path(t.path).exists()
+    ]
     if ctx:
         ctx.progress(0, len(items))
 
@@ -138,7 +145,7 @@ def extract_embedded_covers(folder_id: int, ctx=None) -> dict:
         if ctx:
             ctx.check_cancelled()
             ctx.progress(i, len(tracks), item=p.name)
-        if not p.exists():
+        if t.protected or not p.exists():
             continue
         parent = p.parent
         if parent in seen_dirs:
@@ -266,7 +273,7 @@ def recompute_replaygain(folder_id: int, ctx=None) -> dict:
     album_dirs: dict[Path, list[Path]] = {}
     for t in tracks:
         p = Path(t.path)
-        if p.exists():
+        if not t.protected and p.exists():
             album_dirs.setdefault(p.parent, []).append(p)
     if not album_dirs:
         return {"ok": True, "albums": 0, "failed": 0}
@@ -556,7 +563,9 @@ def tag_advisories_for_folder(folder_id: int, ctx=None) -> dict:
 
     with session() as s:
         tracks = s.exec(select(Track).where(Track.library_folder_id == folder_id)).all()
-    items = [(t.id, Path(t.path)) for t in tracks if Path(t.path).exists()]
+    items = [
+        (t.id, Path(t.path)) for t in tracks if not t.protected and Path(t.path).exists()
+    ]
     if ctx:
         ctx.progress(0, len(items))
 
@@ -760,6 +769,8 @@ def normalize_filenames(folder_id: int, ctx=None) -> dict:
                             ctx.log(f"skip (target appeared): {p.name} -> {new_name}")
                         continue
                 _update_track_path(s, str(p), str(target))
+                if _move_lyric_sidecar(p, target) and ctx:
+                    ctx.log(f"renamed lyric sidecar for {new_name}")
                 renamed += 1
                 if ctx:
                     ctx.log(f"renamed {p.name} -> {new_name}")
@@ -882,6 +893,18 @@ BATCH_ORGANIZE = [
     "prune", "find_duplicates", "find_missing_tracks",
 ]
 BATCH_RETAG = ["validate_tags", "tag_advisories", "replaygain"]
+
+# Nuclear option: the full identify -> tag -> move pipeline runs first (added
+# manually by the route layer, since it lives in ingest.bulk), then this list
+# in order. Mirrors the logical dependency chain: tags/covers/lyrics/advisory
+# data must exist before disc/filename cleanup, which must happen before
+# ReplayGain (per-file loudness) and the report-only/cleanup passes.
+BATCH_NUCLEAR = [
+    "validate_tags", "fetch_covers", "fetch_lyrics", "tag_advisories",
+    "fix_disc_folders", "normalize_filenames", "extract_covers",
+    "replaygain", "find_duplicates", "find_missing_tracks", "prune",
+    "verify_integrity",
+]
 
 
 def build_chain_steps(action_keys: list[str], folder_id: int) -> list[tuple[str, Any]]:

@@ -77,10 +77,12 @@
            :class="percent === null ? 'animate-pulse w-full opacity-60' : ''"
            :style="percent !== null ? 'width:' + percent + '%' : ''"></div>
     </div>
-    <div class="absolute right-2 top-2 px-2 py-0.5 bg-[#0c0c0c] border border-[#4a4a4a] text-[10px] font-mono max-w-[70vw] truncate flex items-center gap-2">
+    <div class="absolute right-2 top-2 px-2 py-0.5 bg-[#0c0c0c] border border-[#4a4a4a] text-[10px] font-mono max-w-[70vw] truncate flex items-center gap-2"
+         :class="jobId !== null ? 'cursor-pointer' : ''"
+         @click="goToJob()">
       <span class="text-white font-semibold" x-show="percent !== null" x-text="percent + '%'"></span>
       <span class="text-[#c7f0c7]" x-text="display"></span>
-      <button x-show="stoppable" @click="stop()"
+      <button x-show="stoppable" @click.stop="stop()"
               class="text-[#ffb4b4] hover:text-white uppercase tracking-widest">stop</button>
     </div>
   </div>
@@ -98,10 +100,12 @@
            :class="{
              'bg-[#0c0c0c] border-[#c7f0c7] text-[#c7f0c7]': t.level === 'success',
              'bg-[#0c0c0c] border-[#ffb4b4] text-[#ffb4b4]': t.level === 'error',
-             'bg-[#0c0c0c] border-[#4a4a4a] text-[#cfcfcf]':  t.level === 'info'
-           }">
+             'bg-[#0c0c0c] border-[#4a4a4a] text-[#cfcfcf]':  t.level === 'info',
+             'cursor-pointer': t.jobId !== null
+           }"
+           @click="t.jobId !== null && (window.location.href = `/jobs/${t.jobId}`)">
         <span x-text="t.message"></span>
-        <button @click="dismiss(t.id)" class="ml-auto opacity-60 hover:opacity-100">&times;</button>
+        <button @click.stop="dismiss(t.id)" class="ml-auto opacity-60 hover:opacity-100">&times;</button>
       </div>
     </template>
   </div>
@@ -125,7 +129,8 @@
           if (this._recentKeys.some(r => r.key === key)) return;
           this._recentKeys.push({ key, t: now });
           const id = this._nextId++;
-          this.toasts.push({ id, message: detail.message, level });
+          const jobId = (detail.job_id === undefined) ? null : detail.job_id;
+          this.toasts.push({ id, message: detail.message, level, jobId });
           setTimeout(() => this.dismiss(id), 8000);
         },
         dismiss(id) {
@@ -171,6 +176,10 @@
           if (this.jobId === null) return;
           if (!confirm('Stop this task? Work done so far is kept.')) return;
           try { await fetch(`/jobs/${this.jobId}/cancel`, { method: 'POST' }); } catch (e) {}
+        },
+        goToJob() {
+          if (this.jobId === null) return;
+          window.location.href = `/jobs/${this.jobId}`;
         }
       }
     }

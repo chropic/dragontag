@@ -55,6 +55,99 @@ def write_lyrics(path: Path, lyrics: str, advisory: int | None = None) -> None:
             f.save()
 
 
+def write_basic_tags(
+    path: Path,
+    *,
+    title: str | None,
+    artist: str | None,
+    album: str | None,
+    album_artist: str | None,
+    track: int | None,
+    track_total: int | None,
+    disc: int | None,
+    disc_total: int | None,
+) -> None:
+    """Update only title/artist/album/album_artist/track/disc numbering.
+
+    Unlike the full ``TrackTags`` writers (which rebuild every tag), this
+    touches just these fields and leaves genres, dates, MusicBrainz ids,
+    lyrics, etc. untouched — used by the library track-edit menu for quick
+    manual corrections where the form doesn't expose the rest of the schema.
+    Blank/``None`` fields are left as-is on the file (not cleared).
+    """
+    s = _suffix(path)
+    track_str = (
+        f"{track:02d}/{track_total:02d}" if track and track_total
+        else (f"{track:02d}" if track else None)
+    )
+    disc_str = (
+        f"{disc:02d}/{disc_total:02d}" if disc and disc_total
+        else (f"{disc:02d}" if disc else None)
+    )
+    with atomic_inplace(path) as tmp:
+        if s == ".flac":
+            from mutagen.flac import FLAC
+            f = FLAC(str(tmp))
+            if title:
+                f["TITLE"] = [title]
+            if artist:
+                f["ARTIST"] = [artist]
+            if album:
+                f["ALBUM"] = [album]
+            if album_artist:
+                f["album_artist"] = [album_artist]
+            if track_str:
+                f["track"] = [track_str]
+            if track_total:
+                f["TRACKTOTAL"] = [str(track_total)]
+                f["TOTALTRACKS"] = [str(track_total)]
+            if disc_str:
+                f["disc"] = [disc_str]
+            if disc_total:
+                f["DISCTOTAL"] = [str(disc_total)]
+                f["TOTALDISCS"] = [str(disc_total)]
+            f.save()
+        elif s in (".mp3", ".wav"):
+            import mutagen.id3 as _id3
+            from mutagen.mp3 import MP3
+            from mutagen.wave import WAVE
+            cls = MP3 if s == ".mp3" else WAVE
+            f = cls(str(tmp))
+            if f.tags is None:
+                f.add_tags()
+            if title:
+                f.tags.setall("TIT2", [_id3.TIT2(encoding=3, text=[title])])
+            if artist:
+                f.tags.setall("TPE1", [_id3.TPE1(encoding=3, text=[artist])])
+            if album:
+                f.tags.setall("TALB", [_id3.TALB(encoding=3, text=[album])])
+            if album_artist:
+                f.tags.setall("TPE2", [_id3.TPE2(encoding=3, text=[album_artist])])
+            if track_str:
+                f.tags.setall("TRCK", [_id3.TRCK(encoding=3, text=[track_str])])
+            if disc_str:
+                f.tags.setall("TPOS", [_id3.TPOS(encoding=3, text=[disc_str])])
+            f.save()
+        elif s in (".m4a", ".mp4"):
+            from mutagen.mp4 import MP4
+            f = MP4(str(tmp))
+            if f.tags is None:
+                f.add_tags()
+            if title:
+                f.tags["\xa9nam"] = [title]
+            if artist:
+                f.tags["\xa9ART"] = [artist]
+            if album:
+                f.tags["\xa9alb"] = [album]
+            if album_artist:
+                f.tags["aART"] = [album_artist]
+            if track:
+                f.tags["trkn"] = [(track, track_total or 0)]
+            if disc:
+                f.tags["disk"] = [(disc, disc_total or 0)]
+            f.save()
+
+
 def write_advisory(path: Path, advisory: int) -> None:
     """Write only the explicit-content advisory flag."""
     s = _suffix(path)

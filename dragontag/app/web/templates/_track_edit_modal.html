@@ -1,0 +1,92 @@
+<div class="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4"
+     onclick="if (event.target === this) document.getElementById('track-modal-root').innerHTML = '';">
+  <div class="bg-[#0c0c0c] border border-[#4a4a4a] max-w-xl w-full max-h-[90vh] overflow-y-auto p-4 space-y-4 text-sm">
+    <div class="flex items-center justify-between">
+      <h3 class="font-mono font-semibold">
+        Edit track
+        {% if t.protected %}<span class="ml-2 text-xs px-1 bg-[#f2e5b5] text-black font-mono" title="Skipped by library batch actions">protected</span>{% endif %}
+      </h3>
+      <button type="button" onclick="document.getElementById('track-modal-root').innerHTML = '';"
+              class="text-[#8a8a8a] hover:text-white text-lg leading-none">&times;</button>
+    </div>
+    <p class="text-xs text-[#8a8a8a] truncate" title="{{ t.path }}">{{ t.path }}</p>
+
+    {# ---- manual tag edit ---- #}
+    <form method="post" action="/library/tracks/{{ t.id }}/edit" class="space-y-2 border border-[#4a4a4a] p-3">
+      <p class="text-xs text-[#8a8a8a] font-mono uppercase tracking-wide">Manual tags</p>
+      <div class="grid grid-cols-2 gap-2">
+        <label class="flex flex-col gap-0.5">Title
+          <input name="title" value="{{ t.title or '' }}" class="bg-black border border-[#4a4a4a] px-2 py-1">
+        </label>
+        <label class="flex flex-col gap-0.5">Artist
+          <input name="artist" value="{{ t.artist or '' }}" class="bg-black border border-[#4a4a4a] px-2 py-1">
+        </label>
+        <label class="flex flex-col gap-0.5">Album
+          <input name="album" value="{{ t.album or '' }}" class="bg-black border border-[#4a4a4a] px-2 py-1">
+        </label>
+        <label class="flex flex-col gap-0.5">Album artist
+          <input name="album_artist" value="{{ t.album_artist or '' }}" class="bg-black border border-[#4a4a4a] px-2 py-1">
+        </label>
+        <label class="flex flex-col gap-0.5">Track #
+          <input name="track_num" value="{{ t.track_num or '' }}" class="bg-black border border-[#4a4a4a] px-2 py-1">
+        </label>
+        <label class="flex flex-col gap-0.5">Track total
+          <input name="track_total" value="{{ t.track_total or '' }}" class="bg-black border border-[#4a4a4a] px-2 py-1">
+        </label>
+        <label class="flex flex-col gap-0.5">Disc #
+          <input name="disc_num" value="{{ t.disc_num or '' }}" class="bg-black border border-[#4a4a4a] px-2 py-1">
+        </label>
+        <label class="flex flex-col gap-0.5">Disc total
+          <input name="disc_total" value="{{ t.disc_total or '' }}" class="bg-black border border-[#4a4a4a] px-2 py-1">
+        </label>
+      </div>
+      <p class="text-xs text-[#8a8a8a]">Only these fields are touched — genres, dates, MusicBrainz ids and lyrics on the file are left alone.</p>
+      <button class="px-3 py-1 bg-white text-black hover:bg-[#cfcfcf] text-sm">Save tags</button>
+    </form>
+
+    {# ---- protect from overwrite ---- #}
+    <form method="post" action="/library/tracks/{{ t.id }}/protect" class="border border-[#4a4a4a] p-3 flex items-center justify-between">
+      <p class="text-xs text-[#8a8a8a]">
+        {% if t.protected %}This track is protected — library batch actions (fetch lyrics/covers, advisories, ReplayGain, the nuclear option, bulk re-tag) will skip it.
+        {% else %}Protect this track so library batch actions never overwrite your manual edit.{% endif %}
+      </p>
+      <button class="px-3 py-1 border border-[#4a4a4a] hover:border-white text-sm shrink-0 ml-3">
+        {% if t.protected %}Unprotect{% else %}Protect from overwrite{% endif %}
+      </button>
+    </form>
+
+    {# ---- pull from MusicBrainz / AcoustID ---- #}
+    <div class="border border-[#4a4a4a] p-3 space-y-2">
+      <div class="flex items-center justify-between">
+        <p class="text-xs text-[#8a8a8a] font-mono uppercase tracking-wide">Pull from MusicBrainz / AcoustID</p>
+        <button type="button"
+                hx-post="/library/tracks/{{ t.id }}/identify"
+                hx-target="#track-mb-results-{{ t.id }}"
+                hx-swap="innerHTML"
+                class="px-2 py-1 border border-[#4a4a4a] hover:border-white text-xs">
+          Identify (AcoustID)
+        </button>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-xs">
+        <input id="mb-title-{{ t.id }}" name="title" placeholder="Title" value="{{ t.title or '' }}"
+               class="bg-black border border-[#4a4a4a] px-2 py-1"
+               hx-get="/library/tracks/{{ t.id }}/mb-search" hx-target="#track-mb-results-{{ t.id }}"
+               hx-trigger="input changed delay:400ms" hx-include="#mb-artist-{{ t.id }},#mb-album-{{ t.id }}">
+        <input id="mb-artist-{{ t.id }}" name="artist" placeholder="Artist" value="{{ t.artist or '' }}"
+               class="bg-black border border-[#4a4a4a] px-2 py-1">
+        <input id="mb-album-{{ t.id }}" name="album" placeholder="Album" value="{{ t.album or '' }}"
+               class="bg-black border border-[#4a4a4a] px-2 py-1">
+      </div>
+      <div id="track-mb-results-{{ t.id }}"></div>
+      <form id="track-apply-form-{{ t.id }}" method="post" action="/library/tracks/{{ t.id }}/apply-match">
+        <button class="px-3 py-1 bg-[#c7f0c7] text-black hover:bg-[#c7f0c7]/80 text-sm">Apply selected match</button>
+      </form>
+    </div>
+
+    {# ---- lyrics ---- #}
+    <form method="post" action="/library/tracks/{{ t.id }}/fetch-lyrics" class="border border-[#4a4a4a] p-3 flex items-center justify-between">
+      <p class="text-xs text-[#8a8a8a]">Fetch synced/plain lyrics from LRCLIB for this track only.</p>
+      <button class="px-3 py-1 border border-[#4a4a4a] hover:border-white text-sm shrink-0 ml-3">Fetch lyrics (LRCLIB)</button>
+    </form>
+  </div>
+</div>

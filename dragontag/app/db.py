@@ -82,6 +82,7 @@ def _migrate(engine):
             "ALTER TABLE job ADD COLUMN progress_total INTEGER",
             "ALTER TABLE job ADD COLUMN dry_run_override INTEGER",
             "ALTER TABLE job ADD COLUMN progress_item VARCHAR",
+            "ALTER TABLE track ADD COLUMN protected INTEGER DEFAULT 0",
         ):
             try:
                 conn.execute(text(ddl))

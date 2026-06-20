@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -87,10 +88,18 @@ async def _read_upload_capped(upload: UploadFile, max_bytes: int) -> bytes:
     return b"".join(chunks)
 
 
-def _toast_response(redirect_url: str, message: str, level: str = "success") -> Response:
-    """Return a redirect that also carries an HX-Trigger showToast header."""
+def _toast_response(
+    redirect_url: str, message: str, level: str = "success", job_id: int | None = None
+) -> Response:
+    """Return a redirect that also carries an HX-Trigger showToast header.
+
+    ``job_id``, when given, makes the toast clickable to that job's detail page.
+    """
     resp = RedirectResponse(redirect_url, status_code=303)
-    resp.headers["HX-Trigger"] = json.dumps({"showToast": {"message": message, "level": level}})
+    payload: dict[str, Any] = {"message": message, "level": level}
+    if job_id is not None:
+        payload["job_id"] = job_id
+    resp.headers["HX-Trigger"] = json.dumps({"showToast": payload})
     return resp
 
 
@@ -887,6 +896,22 @@ _LIBRARY_SORT_COLS = {
 }
 
 
+_LIB_PREFS_COOKIE = "lib_prefs"
+
+
+def _library_prefs_from_cookie(request: Request) -> dict:
+    """Sort/pagination remembered across visits to /library (folder and
+    search are intentionally not persisted)."""
+    raw = request.cookies.get(_LIB_PREFS_COOKIE)
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
 @app.get("/library", response_class=HTMLResponse)
 def library(
     request: Request,
@@ -899,6 +924,26 @@ def library(
     dir: str = "asc",
 ):
     from .library.actions import LIBRARY_ACTIONS
+    # Only fall back to the saved cookie for params the URL didn't specify —
+    # FastAPI fills in the function defaults either way, so we have to check
+    # the raw query string to tell "absent" from "explicitly default".
+    prefs = _library_prefs_from_cookie(request)
+    qp = request.query_params
+    if "sort" not in qp and "sort" in prefs:
+        sort = prefs["sort"]
+    if "dir" not in qp and "dir" in prefs:
+        dir = prefs["dir"]
+    if "page_size" not in qp and "page_size" in prefs:
+        try:
+            page_size = int(prefs["page_size"])
+        except (TypeError, ValueError):
+            pass
+    if "page" not in qp and "page" in prefs:
+        try:
+            page = int(prefs["page"])
+        except (TypeError, ValueError):
+            pass
+
     fid: int | None = int(folder_id) if folder_id and folder_id.strip().isdigit() else None
     if page_size not in _LIBRARY_PAGE_SIZES:
         page_size = 50
@@ -912,7 +957,7 @@ def library(
         active_id = fid or (folders[0].id if folders else None)
         tracks, total = _query_tracks(s, active_id, q, page, page_size, sort, dir)
     total_pages = max(1, (total + page_size - 1) // page_size)
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         request,
         "library.html",
         {
@@ -933,6 +978,14 @@ def library(
             "settings": settings(),
         },
     )
+    response.set_cookie(
+        _LIB_PREFS_COOKIE,
+        json.dumps({"sort": sort, "dir": dir, "page_size": page_size, "page": page}),
+        max_age=60 * 60 * 24 * 365,
+        httponly=False,
+        samesite="lax",
+    )
+    return response
 
 
 @app.get("/library/tracks", response_class=HTMLResponse)
@@ -1025,8 +1078,8 @@ def library_scan(request: Request, _: None = Depends(require_auth), folder_id: i
         folder_path, fid, label = Path(f.path), f.id, (f.label or f.path)
 
     from .library.scanner import scan_folder
-    tasks.run_task("scan", f"Scan {label}", lambda ctx: scan_folder(folder_path, fid, ctx=ctx))
-    return _toast_response("/library", "Folder scan started — track it on the Jobs page.")
+    job_id = tasks.run_task("scan", f"Scan {label}", lambda ctx: scan_folder(folder_path, fid, ctx=ctx))
+    return _toast_response("/library", "Folder scan started — track it on the Jobs page.", job_id=job_id)
 
 
 @app.post("/library/organize")
@@ -1257,6 +1310,21 @@ def _batch_guard() -> str | None:
     return None
 
 
+def _scan_all_steps() -> list[tuple[str, Any]]:
+    """Steps that scan every library folder, unconditionally prepended to
+    every queued library action so it never runs against stale track data."""
+    from .library.scanner import scan_folder
+    with session() as s:
+        folders = s.exec(
+            select(LibraryFolder).order_by(LibraryFolder.priority, LibraryFolder.id)
+        ).all()
+    return [
+        (f"Scan {f.label or f.path}",
+         (lambda fp=Path(f.path), fid=f.id: (lambda ctx: scan_folder(fp, fid, ctx=ctx)))())
+        for f in folders
+    ]
+
+
 @app.post("/library/run-selected")
 def library_run_selected(
     request: Request,
@@ -1272,9 +1340,11 @@ def library_run_selected(
         return _toast_response("/library", "Select at least one action first.", "error")
     if msg := _batch_guard():
         return _toast_response("/library", msg, "error")
-    steps = _chain_steps_for(keys, folder_id)
-    tasks.run_chain("library_chain", f"{len(steps)} library action(s) (folder {folder_id})", steps)
-    return _toast_response("/library", f"Queued {len(steps)} action(s) — track them on the Queue page.")
+    steps = _scan_all_steps() + _chain_steps_for(keys, folder_id)
+    job_id = tasks.run_chain("library_chain", f"{len(steps)} library action(s) (folder {folder_id})", steps)
+    return _toast_response(
+        "/library", f"Queued {len(steps)} action(s) — track them on the Queue page.", job_id=job_id
+    )
 
 
 @app.post("/library/batch/organize")
@@ -1284,11 +1354,15 @@ def library_batch_organize(request: Request, _: None = Depends(require_auth), fo
     from .library.organizer import organize_folder
     if msg := _batch_guard():
         return _toast_response("/library", msg, "error")
-    steps: list[tuple[str, Any]] = [
+    steps: list[tuple[str, Any]] = _scan_all_steps() + [
         ("Organize files", lambda ctx: organize_folder(folder_id, ctx=ctx)),
     ] + _chain_steps_for(BATCH_ORGANIZE, folder_id)
-    tasks.run_chain("batch_organize", f"Organize library (folder {folder_id})", steps)
-    return _toast_response("/library", "Organize batch started — covers, disc folders, junk, duplicates and missing tracks.")
+    job_id = tasks.run_chain("batch_organize", f"Organize library (folder {folder_id})", steps)
+    return _toast_response(
+        "/library",
+        "Organize batch started — covers, disc folders, junk, duplicates and missing tracks.",
+        job_id=job_id,
+    )
 
 
 @app.post("/library/batch/retag")
@@ -1316,9 +1390,13 @@ def library_batch_retag(
         ctx.log(f"Enqueued {len(job_ids)} file(s) for identify → tag → move")
         return {"enqueued": True}
 
-    steps = _chain_steps_for(BATCH_RETAG, folder_id) + [("Re-tag pipeline", _enqueue)]
-    tasks.run_chain("batch_retag", f"Full library re-tag (folder {folder_id})", steps)
-    return _toast_response("/library", "Re-tag batch started — validation, advisories, ReplayGain, then the full pipeline.")
+    steps = _scan_all_steps() + _chain_steps_for(BATCH_RETAG, folder_id) + [("Re-tag pipeline", _enqueue)]
+    job_id = tasks.run_chain("batch_retag", f"Full library re-tag (folder {folder_id})", steps)
+    return _toast_response(
+        "/library",
+        "Re-tag batch started — validation, advisories, ReplayGain, then the full pipeline.",
+        job_id=job_id,
+    )
 
 
 @app.post("/library/batch/nuclear")
@@ -1328,9 +1406,14 @@ def library_batch_nuclear(
     folder_id: int = Form(...),
     dry_run: str | None = Form(None),
 ):
-    """Nuclear option: every batch step in one chain."""
-    from .library.actions import BATCH_ORGANIZE, BATCH_RETAG
-    from .library.organizer import organize_folder
+    """Nuclear option: every action in dependency order, in one chain.
+
+    The identify -> tag -> move pipeline runs first (and the chain blocks
+    until every enqueued file finishes) so every later step — disc/filename
+    cleanup, ReplayGain, duplicate/missing-track reports — sees up-to-date
+    tags rather than racing the pipeline's background worker.
+    """
+    from .library.actions import BATCH_NUCLEAR
     if msg := _batch_guard():
         return _toast_response("/library", msg, "error")
     with session() as s:
@@ -1340,20 +1423,38 @@ def library_batch_nuclear(
         folder_path = Path(f.path)
     use_dry_run = bool(dry_run)
 
-    def _enqueue(ctx) -> dict:
+    def _enqueue_and_wait(ctx) -> dict:
         from .ingest.bulk import enqueue_folder
         job_ids = enqueue_folder(folder_path, dry_run=use_dry_run)
         ctx.log(f"Enqueued {len(job_ids)} file(s) for identify → tag → move")
-        return {"enqueued": True}
+        pending = set(job_ids)
+        total = len(pending)
+        ctx.progress(0, total)
+        while pending:
+            ctx.check_cancelled()
+            time.sleep(1.0)
+            with session() as s2:
+                finished = {
+                    j.id for j in s2.exec(
+                        select(Job).where(
+                            Job.id.in_(pending),
+                            Job.status.not_in(list(_ACTIVE_JOB_STATUSES)),
+                        )
+                    ).all()
+                }
+            pending -= finished
+            ctx.progress(total - len(pending), total)
+        return {"enqueued": total}
 
     steps = (
-        [("Organize files", lambda ctx: organize_folder(folder_id, ctx=ctx))]
-        + _chain_steps_for(BATCH_ORGANIZE, folder_id)
-        + _chain_steps_for(BATCH_RETAG, folder_id)
-        + [("Re-tag pipeline", _enqueue)]
+        _scan_all_steps()
+        + [("Re-tag pipeline", _enqueue_and_wait)]
+        + _chain_steps_for(BATCH_NUCLEAR, folder_id)
     )
-    tasks.run_chain("batch_nuclear", f"Nuclear option (folder {folder_id})", steps)
-    return _toast_response("/library", "Nuclear option started — everything, in order. Godspeed.")
+    job_id = tasks.run_chain("batch_nuclear", f"Nuclear option (folder {folder_id})", steps)
+    return _toast_response(
+        "/library", "Nuclear option started — everything, in order. Godspeed.", job_id=job_id
+    )
 
 
 @app.get("/library/incomplete", response_class=HTMLResponse)

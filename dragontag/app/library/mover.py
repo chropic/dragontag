@@ -69,6 +69,25 @@ def move(source: Path, destination: Path, *, overwrite: bool = False) -> MoveRes
     return MoveResult(moved=True, destination=destination)
 
 
+def move_lyric_sidecar(old_audio: Path, new_audio: Path) -> bool:
+    """Move a matching ``.lrc`` sidecar alongside a renamed/moved audio file.
+
+    Best-effort: never raises and never overwrites an existing target — a
+    sidecar miss must not block the audio file's own rename/move.
+    """
+    src = old_audio.with_suffix(".lrc")
+    if not src.exists():
+        return False
+    dest = new_audio.with_suffix(".lrc")
+    if src == dest or dest.exists():
+        return False
+    try:
+        move(src, dest, overwrite=False)
+        return True
+    except OSError:
+        return False
+
+
 def write_cover_jpg(
     folder: Path,
     data: bytes,

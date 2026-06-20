@@ -18,6 +18,7 @@ from sqlmodel import select
 from ..db import session
 from ..models import LibraryFolder, Track
 from .mover import move as _safe_move
+from .mover import move_lyric_sidecar as _move_lyric_sidecar
 
 log = logging.getLogger(__name__)
 
@@ -760,6 +761,8 @@ def normalize_filenames(folder_id: int, ctx=None) -> dict:
                             ctx.log(f"skip (target appeared): {p.name} -> {new_name}")
                         continue
                 _update_track_path(s, str(p), str(target))
+                if _move_lyric_sidecar(p, target) and ctx:
+                    ctx.log(f"renamed lyric sidecar for {new_name}")
                 renamed += 1
                 if ctx:
                     ctx.log(f"renamed {p.name} -> {new_name}")
@@ -882,6 +885,18 @@ BATCH_ORGANIZE = [
     "prune", "find_duplicates", "find_missing_tracks",
 ]
 BATCH_RETAG = ["validate_tags", "tag_advisories", "replaygain"]
+
+# Nuclear option: the full identify -> tag -> move pipeline runs first (added
+# manually by the route layer, since it lives in ingest.bulk), then this list
+# in order. Mirrors the logical dependency chain: tags/covers/lyrics/advisory
+# data must exist before disc/filename cleanup, which must happen before
+# ReplayGain (per-file loudness) and the report-only/cleanup passes.
+BATCH_NUCLEAR = [
+    "validate_tags", "fetch_covers", "fetch_lyrics", "tag_advisories",
+    "fix_disc_folders", "normalize_filenames", "extract_covers",
+    "replaygain", "find_duplicates", "find_missing_tracks", "prune",
+    "verify_integrity",
+]
 
 
 def build_chain_steps(action_keys: list[str], folder_id: int) -> list[tuple[str, Any]]:

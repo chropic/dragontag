@@ -21,7 +21,7 @@ from pathlib import Path
 from sqlmodel import select
 
 from ..db import session
-from ..library.mover import move
+from ..library.mover import move, move_lyric_sidecar
 from ..library.paths import build_destination
 from ..models import LibraryFolder, Track
 from ..tagging.schema import TrackTags
@@ -99,6 +99,7 @@ def organize_folder(folder_id: int, ctx=None) -> dict:
                     diverged.append(f"{src} -> {dest}")
                     errors.append(f"DIVERGED: file at {dest} but DB has {src}")
                 continue
+            move_lyric_sidecar(src, dest)
             moved += 1
             log.info("organize: %s -> %s", src.name, dest)
         except Exception as e:

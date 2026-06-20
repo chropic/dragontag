@@ -123,17 +123,28 @@
     </tbody>
   </table>
 
-  {% if total_pages > 1 %}
-  <div class="flex items-center gap-4 mt-3 text-sm text-[#8a8a8a]">
-    {% if page > 1 %}
-    <a href="/queue?page={{ page - 1 }}" class="hover:text-white">&larr; Prev</a>
-    {% endif %}
-    <span>Page {{ page }} / {{ total_pages }}</span>
-    {% if page < total_pages %}
-    <a href="/queue?page={{ page + 1 }}" class="hover:text-white">Next &rarr;</a>
+  <div class="flex items-center justify-between gap-4 mt-3 text-sm text-[#8a8a8a]">
+    <label class="flex items-center gap-1">
+      Per page:
+      <select onchange="window.location='/queue?page=1&page_size=' + this.value"
+              class="bg-black border border-[#4a4a4a] px-1 py-0.5">
+        {% for ps in page_sizes %}
+        <option value="{{ ps }}" {% if ps == page_size %}selected{% endif %}>{{ ps }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% if total_pages > 1 %}
+    <div class="flex items-center gap-4">
+      {% if page > 1 %}
+      <a href="/queue?page={{ page - 1 }}&page_size={{ page_size }}" class="hover:text-white">&larr; Prev</a>
+      {% endif %}
+      <span>Page {{ page }} / {{ total_pages }}</span>
+      {% if page < total_pages %}
+      <a href="/queue?page={{ page + 1 }}&page_size={{ page_size }}" class="hover:text-white">Next &rarr;</a>
+      {% endif %}
+    </div>
     {% endif %}
   </div>
-  {% endif %}
 </div>
 
 {# ====================== Review section ====================== #}
@@ -148,10 +159,48 @@
     <input type="checkbox" id="review-select-all" onchange="document.querySelectorAll('input[name=job_ids][form=review-bulk-form]').forEach(c=>c.checked=this.checked)">
     Select all
   </label>
-  <button type="submit" class="px-3 py-1 border border-[#c7f0c7] text-[#c7f0c7] hover:text-white hover:border-white"
-          onclick="return confirm('Apply the top candidate for every selected job?')">Apply top candidate</button>
+  <button type="submit" class="px-3 py-1 border border-[#c7f0c7] text-[#c7f0c7] hover:text-white hover:border-white">Apply selected</button>
   <span class="text-[#8a8a8a] text-xs">{{ items|length }} item{% if items|length != 1 %}s{% endif %}</span>
 </form>
+<script>
+  // Gather each checked job's chosen candidate (and cover) from its own
+  // per-job review form into hidden inputs on the bulk form, so one submit
+  // applies every selection at once. Jobs with no resolvable recording/release
+  // (e.g. conflict / dry-run items) are simply skipped.
+  (function () {
+    const bulk = document.getElementById('review-bulk-form');
+    if (!bulk) return;
+    bulk.addEventListener('submit', function () {
+      bulk.querySelectorAll('input[data-bulk-pick]').forEach(el => el.remove());
+      const checked = bulk.querySelectorAll('input[name=job_ids]:checked');
+      checked.forEach(function (cb) {
+        const id = cb.value;
+        const jobForm = document.getElementById('apply-form-' + id);
+        if (!jobForm) return;
+        let rec = '', rel = '';
+        const pick = jobForm.querySelector('input[name=pick]:checked');
+        if (pick && pick.value.indexOf('|') !== -1) {
+          [rec, rel] = pick.value.split('|');
+        } else {
+          const mr = jobForm.querySelector('input[name=manual_recording_id]');
+          const ml = jobForm.querySelector('input[name=manual_release_id]');
+          rec = mr ? mr.value.trim() : '';
+          rel = ml ? ml.value.trim() : '';
+        }
+        if (!rec || !rel) return;  // nothing resolvable — leave it out of the batch
+        const addHidden = (name, value) => {
+          const h = document.createElement('input');
+          h.type = 'hidden'; h.name = name; h.value = value;
+          h.setAttribute('data-bulk-pick', '1');
+          bulk.appendChild(h);
+        };
+        addHidden('pick_' + id, rec + '|' + rel);
+        const coverEl = jobForm.querySelector('input[name=cover_art_url]');
+        if (coverEl && coverEl.value) addHidden('cover_' + id, coverEl.value);
+      });
+    });
+  })();
+</script>
 {% endif %}
 
 {% for j in items %}

@@ -383,10 +383,27 @@ async def upload(request: Request, _: None = Depends(require_auth), files: list[
     return _toast(msg, "error" if errors and not n else "success")
 
 
+_QUEUE_PREFS_COOKIE = "queue_prefs"
+
+
 @app.get("/queue", response_class=HTMLResponse)
-def queue_page(request: Request, _: None = Depends(require_auth), page: int = 1):
+def queue_page(
+    request: Request,
+    _: None = Depends(require_auth),
+    page: int = 1,
+    page_size: int = 50,
+):
     """Unified queue page: review items on top, the full job list below."""
     page = max(1, page)
+    # Remember the jobs-list page size across visits; only fall back to the
+    # cookie when the URL didn't pin it explicitly.
+    if "page_size" not in request.query_params:
+        try:
+            page_size = int(_prefs_cookie(request, _QUEUE_PREFS_COOKIE).get("page_size", page_size))
+        except (TypeError, ValueError):
+            pass
+    if page_size not in _LIBRARY_PAGE_SIZES:
+        page_size = 50
     with session() as s:
         items = s.exec(
             select(Job)
@@ -396,25 +413,35 @@ def queue_page(request: Request, _: None = Depends(require_auth), page: int = 1)
         total = s.exec(select(func.count(Job.id))).one()
         jobs = s.exec(
             select(Job).order_by(Job.updated_at.desc())
-            .offset((page - 1) * _PER_PAGE).limit(_PER_PAGE)
+            .offset((page - 1) * page_size).limit(page_size)
         ).all()
         pending = s.exec(select(func.count(Job.id)).where(
             Job.status.in_(list(_ACTIVE_JOB_STATUSES))
         )).one()
         done_today = s.exec(select(func.count(Job.id)).where(Job.status == JobStatus.done)).one()
         errors = s.exec(select(func.count(Job.id)).where(Job.status == JobStatus.error)).one()
-    total_pages = max(1, (total + _PER_PAGE - 1) // _PER_PAGE)
-    return templates.TemplateResponse(request, "queue.html", {
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    response = templates.TemplateResponse(request, "queue.html", {
         "request": request,
         "items": items,
         "jobs": jobs,
         "page": page,
+        "page_size": page_size,
+        "page_sizes": _LIBRARY_PAGE_SIZES,
         "total_pages": total_pages,
         "pending": pending,
         "done_today": done_today,
         "errors": errors,
         "active_page": "queue",
     })
+    response.set_cookie(
+        _QUEUE_PREFS_COOKIE,
+        json.dumps({"page_size": page_size}),
+        max_age=60 * 60 * 24 * 365,
+        httponly=False,
+        samesite="lax",
+    )
+    return response
 
 
 @app.get("/jobs", response_class=HTMLResponse)
@@ -571,34 +598,77 @@ def review(request: Request):
     return RedirectResponse("/queue", status_code=308)
 
 
+def _apply_review_match(job_id: int, rec: str, rel: str, cover_url: str):
+    """Build a background step that applies one chosen review match.
+
+    Mirrors the single-apply path (``review_apply``): assemble tags for the
+    chosen recording/release, optionally swap in a user-selected cover, then
+    run the shared commit pipeline. Skips silently if the job already left the
+    review state (e.g. applied by a concurrent action)."""
+    def step(ctx) -> None:
+        with session() as s:
+            job = s.get(Job, job_id)
+            if not job or job.status != JobStatus.needs_review:
+                return
+            tags = mbq.assemble_tags(release_id=rel, recording_id=rec)
+            if cover_url:
+                from .net import fetch_bytes
+                try:
+                    r, body = fetch_bytes(
+                        cover_url, timeout=10, max_bytes=32 * 1024 * 1024,
+                        validate=True, allow_redirects=False,
+                    )
+                    r.raise_for_status()
+                    tags.cover_bytes = body
+                    tags.cover_mime = r.headers.get("content-type", "image/jpeg")
+                except Exception:
+                    pass  # fall back to the normal CAA fetch in _commit_tag_path
+            from .ingest.pipeline import _commit_tag_path
+            _commit_tag_path(s, job, Path(job.source_path), tags, score=job.score or 1.0)
+        ctx.log(f"applied job {job_id}")
+    return step
+
+
 @app.post("/review/bulk-apply")
-async def review_bulk_apply(
-    request: Request,
-    _: None = Depends(require_auth),
-    job_ids: list[int] = Form(...),
-):
-    """Apply the top candidate for each selected review job."""
-    applied = 0
-    failed = 0
+async def review_bulk_apply(request: Request, _: None = Depends(require_auth)):
+    """Apply the user's chosen candidate for each selected review job, as one
+    background job so the page returns immediately and the slow (MB-rate-
+    limited) work doesn't block the request.
+
+    Per job the chosen recording/release comes from a ``pick_{id}`` field
+    ("recording|release", from the candidate radio or a manual MB search),
+    falling back to the job's stored top candidate when the user left it
+    untouched. An optional ``cover_{id}`` carries the per-job cover selection.
+    """
+    form = await request.form()
+    job_ids = [int(v) for v in form.getlist("job_ids") if str(v).strip().isdigit()]
+
+    steps: list[tuple[str, Any]] = []
     with session() as s:
         for job_id in job_ids:
             job = s.get(Job, job_id)
             if not job or job.status != JobStatus.needs_review:
                 continue
-            candidates = (job.candidates_json or {}).get("items", [])
-            if not candidates:
-                continue
-            best = candidates[0]
-            try:
-                tags = mbq.assemble_tags(release_id=best["release_id"], recording_id=best["recording_id"])
-                from .ingest.pipeline import _commit_tag_path
-                _commit_tag_path(s, job, Path(job.source_path), tags, score=job.score or 1.0)
-                applied += 1
-            except Exception:
-                failed += 1
-                log.exception("bulk-apply: job %s failed", job_id)
-    msg = f"Applied {applied} job(s)." + (f" {failed} failed." if failed else "")
-    return _toast_response("/queue", msg, "error" if failed and not applied else "success")
+            rec = rel = ""
+            pick = str(form.get(f"pick_{job_id}", "")).strip()
+            if "|" in pick:
+                p_rec, _, p_rel = pick.partition("|")
+                rec, rel = p_rec.strip(), p_rel.strip()
+            if not rec or not rel:
+                candidates = (job.candidates_json or {}).get("items", [])
+                if not candidates:
+                    continue
+                rec, rel = candidates[0]["recording_id"], candidates[0]["release_id"]
+            cover_url = str(form.get(f"cover_{job_id}", "")).strip()
+            steps.append((f"Apply job {job_id}", _apply_review_match(job_id, rec, rel, cover_url)))
+
+    if not steps:
+        return _toast_response("/queue", "Nothing to apply — select review items first.", "error")
+    n = len(steps)
+    new_job_id = tasks.run_chain("review_bulk", f"Apply {n} review match(es)", steps)
+    return _toast_response(
+        "/queue", f"Applying {n} match(es) in the background…", job_id=new_job_id
+    )
 
 
 @app.post("/review/{job_id}/apply")
@@ -899,10 +969,9 @@ _LIBRARY_SORT_COLS = {
 _LIB_PREFS_COOKIE = "lib_prefs"
 
 
-def _library_prefs_from_cookie(request: Request) -> dict:
-    """Sort/pagination remembered across visits to /library (folder and
-    search are intentionally not persisted)."""
-    raw = request.cookies.get(_LIB_PREFS_COOKIE)
+def _prefs_cookie(request: Request, name: str) -> dict:
+    """Read a small JSON view-preferences cookie, tolerating absence/garbage."""
+    raw = request.cookies.get(name)
     if not raw:
         return {}
     try:
@@ -910,6 +979,12 @@ def _library_prefs_from_cookie(request: Request) -> dict:
         return data if isinstance(data, dict) else {}
     except (json.JSONDecodeError, TypeError):
         return {}
+
+
+def _library_prefs_from_cookie(request: Request) -> dict:
+    """Sort/pagination remembered across visits to /library (folder and
+    search are intentionally not persisted)."""
+    return _prefs_cookie(request, _LIB_PREFS_COOKIE)
 
 
 @app.get("/library", response_class=HTMLResponse)

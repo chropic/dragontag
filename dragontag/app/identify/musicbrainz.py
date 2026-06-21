@@ -26,6 +26,7 @@ import musicbrainzngs as mb
 
 from ..config import settings
 from ..tagging.schema import TrackTags
+from .artist_split import split_multi_artist
 
 _configured = False
 
@@ -481,13 +482,19 @@ def assemble_tags(*, release_id: str, recording_id: str) -> TrackTags:
 
 
 def _credit_names(credits: list[Any]) -> list[str]:
-    """Flat list of artist names, tolerant of malformed/partial MB credits."""
+    """Flat list of artist names, tolerant of malformed/partial MB credits.
+
+    Each credit's name is also run through ``split_multi_artist`` because MB
+    occasionally bundles a collaboration into one un-joined credit object
+    (e.g. a single credit whose name is literally "2hollis feat. nate sib")
+    instead of giving us separate joinphrase-linked credits.
+    """
     out: list[str] = []
     for c in credits:
         if isinstance(c, dict):
             name = (c.get("artist") or {}).get("name")
             if name:
-                out.append(name)
+                out.extend(split_multi_artist(name))
     return out
 
 

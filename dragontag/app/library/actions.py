@@ -552,6 +552,178 @@ def find_missing_tracks(folder_id: int, ctx=None) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Album/folder consistency checker
+# ---------------------------------------------------------------------------
+
+_EDITION_SUFFIX_RE = re.compile(
+    r"\s*[\(\[]\s*(deluxe|remaster(?:ed)?|expanded|anniversary|bonus track|special|"
+    r"explicit|clean|single|ep|mono|stereo)[^)\]]*[\)\]]\s*$",
+    re.IGNORECASE,
+)
+
+
+def _normalize_album_key(album: str | None, album_artist: str | None) -> tuple[str, str] | None:
+    """Fold an (album, album_artist) pair into a deterministic grouping key.
+
+    Used only as a fallback for tracks with no MusicBrainz release-group id —
+    deterministic exact-match-after-normalization avoids any false-positive
+    merges (which would be destructive), at the cost of missing matches a
+    human would consider obviously "the same album" (e.g. typos).
+    """
+    if not album or not album_artist:
+        return None
+    a = _EDITION_SUFFIX_RE.sub("", album).strip().lower()
+    a = re.sub(r"[^\w\s]", "", a)
+    a = re.sub(r"\s+", " ", a).strip()
+    artist = re.sub(r"[^\w\s]", "", album_artist.strip().lower())
+    artist = re.sub(r"\s+", " ", artist).strip()
+    if not a or not artist:
+        return None
+    return (a, artist)
+
+
+def _build_album_groups(tracks: list[Track]) -> list[list[Track]]:
+    """Group tracks by MB release-group id, falling back to a normalized
+    (album, album_artist) match for tracks with no MB id at all."""
+    by_mbid: dict[str, list[Track]] = {}
+    by_normalized: dict[tuple[str, str], list[Track]] = {}
+    for t in tracks:
+        if t.mb_release_group_id:
+            by_mbid.setdefault(t.mb_release_group_id, []).append(t)
+        else:
+            key = _normalize_album_key(t.album, t.album_artist)
+            if key:
+                by_normalized.setdefault(key, []).append(t)
+    return list(by_mbid.values()) + list(by_normalized.values())
+
+
+def _majority(tracks: list[Track], field_name: str) -> str:
+    """Majority value of ``field_name`` across ``tracks``, tie-broken by the
+    most-recently-indexed track's value (a fresher MB identification is a
+    slightly better signal than arbitrary alphabetical order), and finally
+    by alphabetical order if that's tied too."""
+    from collections import Counter
+
+    counts = Counter(getattr(t, field_name) or "" for t in tracks)
+    best_count = max(counts.values())
+    tied = sorted(v for v, c in counts.items() if c == best_count)
+    if len(tied) == 1:
+        return tied[0]
+    candidates = [t for t in tracks if (getattr(t, field_name) or "") in tied]
+    candidates.sort(key=lambda t: (t.indexed_at, getattr(t, field_name) or ""), reverse=True)
+    return getattr(candidates[0], field_name) or ""
+
+
+def check_album_consistency(folder_id: int, ctx=None) -> dict:
+    """Detect tracks sharing a MusicBrainz release-group (or, lacking an MB
+    id, a normalized album+artist match) that disagree on album/album_artist
+    tags, normalize them to the majority value, and physically move outlier
+    files into the resulting single canonical folder.
+
+    Skips protected tracks entirely (neither tag-patched nor moved) and
+    patches only album/album_artist via a partial write — a corrective
+    metadata patch, not a re-identify, so every other tag is left untouched.
+    A destination conflict from a same-path file is best-effort: the tag
+    patch still applies but the physical move is skipped and logged.
+    """
+    from ..tagging.partial import write_basic_tags
+    from .organizer import _prune_empty_dirs
+    from .paths import build_destination
+    from ..tagging.schema import TrackTags
+
+    with session() as s:
+        folder = s.get(LibraryFolder, folder_id)
+        if not folder:
+            return {"ok": False, "reason": "Folder not found"}
+        tracks = s.exec(select(Track).where(Track.library_folder_id == folder_id)).all()
+        lib_root = Path(folder.path)
+
+    groups = _build_album_groups(tracks)
+    groups_checked = 0
+    tracks_fixed = 0
+    source_dirs: set[Path] = set()
+
+    if ctx:
+        ctx.progress(0, len(groups))
+    with session() as s:
+        for gi, group in enumerate(groups, start=1):
+            if ctx:
+                ctx.check_cancelled()
+                ctx.progress(gi, len(groups))
+            eligible = [t for t in group if not t.protected and Path(t.path).exists()]
+            if len(eligible) < 2:
+                continue
+            groups_checked += 1
+            winning_album = _majority(eligible, "album")
+            winning_artist = _majority(eligible, "album_artist")
+            if all(t.album == winning_album and t.album_artist == winning_artist for t in eligible):
+                continue  # already consistent, nothing to do
+
+            for t in eligible:
+                if t.album == winning_album and t.album_artist == winning_artist:
+                    continue
+                p = Path(t.path)
+                try:
+                    write_basic_tags(
+                        p, title=None, artist=None,
+                        album=winning_album, album_artist=winning_artist,
+                        track=None, track_total=None, disc=None, disc_total=None,
+                    )
+                except Exception:
+                    log.exception("album-consistency: tag patch failed for %s", p)
+                    continue
+
+                shim = TrackTags(
+                    title=t.title, artist_display=t.artist,
+                    album=winning_album, album_artist_display=winning_artist,
+                    track=t.track_num, track_total=t.track_total,
+                    disc=t.disc_num, disc_total=t.disc_total,
+                )
+                try:
+                    dest = build_destination(shim, p.suffix, library_root=lib_root)
+                except ValueError:
+                    log.exception("album-consistency: destination computation failed for %s", p)
+                    continue
+
+                db_t = s.get(Track, t.id)
+                if dest == p:
+                    if db_t:
+                        db_t.album, db_t.album_artist = winning_album, winning_artist
+                        s.add(db_t)
+                    tracks_fixed += 1
+                    continue
+
+                result = _safe_move(p, dest, overwrite=False)
+                if not result.moved:
+                    if ctx:
+                        ctx.log(f"album-consistency: destination conflict, tags patched but not moved: {p} -> {dest}")
+                    if db_t:
+                        db_t.album, db_t.album_artist = winning_album, winning_artist
+                        s.add(db_t)
+                    tracks_fixed += 1
+                    continue
+
+                _move_lyric_sidecar(p, dest)
+                _update_track_path(s, str(p), str(dest))
+                moved_t = s.exec(select(Track).where(Track.path == str(dest))).first()
+                if moved_t:
+                    moved_t.album, moved_t.album_artist = winning_album, winning_artist
+                    s.add(moved_t)
+                source_dirs.add(p.parent)
+                tracks_fixed += 1
+                if ctx:
+                    ctx.log(f"moved {p.name}: {p.parent} -> {dest.parent}")
+        s.commit()
+
+    folders_merged = _prune_empty_dirs(source_dirs, lib_root) if source_dirs else 0
+    summary = {"groups_checked": groups_checked, "tracks_fixed": tracks_fixed, "folders_merged": folders_merged}
+    log.info("check_album_consistency(%d): %s", folder_id, summary)
+    if ctx:
+        ctx.log(f"Checked {groups_checked} group(s), fixed {tracks_fixed} track(s), merged/pruned {folders_merged} empty folder(s)")
+    return summary
+
+
+# ---------------------------------------------------------------------------
 # Advisory re-evaluation (moved out of the route layer so chains can reuse it)
 # ---------------------------------------------------------------------------
 
@@ -884,13 +1056,22 @@ LIBRARY_ACTIONS: dict[str, tuple[str, str, Any]] = {
         "Find missing tracks",
         "Compare each album's local track count to MusicBrainz and list incomplete albums on the Incomplete tab.",
         find_missing_tracks),
+    "check_album_consistency": (
+        "Fix album/folder consistency",
+        "Detect tracks sharing a MusicBrainz release-group (or matching album+artist) "
+        "with inconsistent album/album_artist tags, normalize to the majority value, "
+        "and move outlier files into the resulting single folder. Skips protected tracks; "
+        "patches tags via a partial write (other fields untouched). Best-effort: a tag "
+        "patch always applies, but a physical move is skipped (and logged) if a same-path "
+        "file already exists for an unrelated reason.",
+        check_album_consistency),
 }
 
 # Batch compositions (keys into LIBRARY_ACTIONS, executed in order). "organize"
 # itself is prepended by the route layer because it lives in organizer.py.
 BATCH_ORGANIZE = [
-    "fix_disc_folders", "normalize_filenames", "extract_covers",
-    "prune", "find_duplicates", "find_missing_tracks",
+    "fix_disc_folders", "normalize_filenames", "check_album_consistency",
+    "extract_covers", "prune", "find_duplicates", "find_missing_tracks",
 ]
 BATCH_RETAG = ["validate_tags", "tag_advisories", "replaygain"]
 
@@ -901,8 +1082,8 @@ BATCH_RETAG = ["validate_tags", "tag_advisories", "replaygain"]
 # ReplayGain (per-file loudness) and the report-only/cleanup passes.
 BATCH_NUCLEAR = [
     "validate_tags", "fetch_covers", "fetch_lyrics", "tag_advisories",
-    "fix_disc_folders", "normalize_filenames", "extract_covers",
-    "replaygain", "find_duplicates", "find_missing_tracks", "prune",
+    "fix_disc_folders", "normalize_filenames", "check_album_consistency",
+    "extract_covers", "replaygain", "find_duplicates", "find_missing_tracks", "prune",
     "verify_integrity",
 ]
 

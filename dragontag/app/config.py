@@ -85,6 +85,12 @@ class UserSettings(BaseModel):
     # thread indefinitely, wedging all further processing.
     network_timeout_seconds: float = 15.0
 
+    # Hard wall-clock timeout (seconds) for the local fpcalc fingerprinting
+    # subprocess. fpcalc occasionally hangs on corrupt/unusual audio; without
+    # this bound the single ingest worker thread would block forever and
+    # every subsequently queued file would silently stop being processed.
+    fingerprint_timeout_seconds: float = 30.0
+
     # ----- tag rendering -----
     separators: Separators = Field(default_factory=Separators)
     # genre_limit: max genres written (0 = no limit)

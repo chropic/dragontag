@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..identify.artist_split import split_multi_artist
 from .writers._atomic import atomic_inplace
 
 
@@ -91,11 +92,11 @@ def write_basic_tags(
             if title:
                 f["TITLE"] = [title]
             if artist:
-                f["ARTIST"] = [artist]
+                f["ARTIST"] = split_multi_artist(artist)
             if album:
                 f["ALBUM"] = [album]
             if album_artist:
-                f["album_artist"] = [album_artist]
+                f["album_artist"] = split_multi_artist(album_artist)
             if track_str:
                 f["track"] = [track_str]
             if track_total:
@@ -118,11 +119,11 @@ def write_basic_tags(
             if title:
                 f.tags.setall("TIT2", [_id3.TIT2(encoding=3, text=[title])])
             if artist:
-                f.tags.setall("TPE1", [_id3.TPE1(encoding=3, text=[artist])])
+                f.tags.setall("TPE1", [_id3.TPE1(encoding=3, text=split_multi_artist(artist))])
             if album:
                 f.tags.setall("TALB", [_id3.TALB(encoding=3, text=[album])])
             if album_artist:
-                f.tags.setall("TPE2", [_id3.TPE2(encoding=3, text=[album_artist])])
+                f.tags.setall("TPE2", [_id3.TPE2(encoding=3, text=split_multi_artist(album_artist))])
             if track_str:
                 f.tags.setall("TRCK", [_id3.TRCK(encoding=3, text=[track_str])])
             if disc_str:
@@ -136,11 +137,11 @@ def write_basic_tags(
             if title:
                 f.tags["\xa9nam"] = [title]
             if artist:
-                f.tags["\xa9ART"] = [artist]
+                f.tags["\xa9ART"] = split_multi_artist(artist)
             if album:
                 f.tags["\xa9alb"] = [album]
             if album_artist:
-                f.tags["aART"] = [album_artist]
+                f.tags["aART"] = split_multi_artist(album_artist)
             if track:
                 f.tags["trkn"] = [(track, track_total or 0)]
             if disc:

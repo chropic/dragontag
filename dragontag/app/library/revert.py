@@ -12,12 +12,13 @@ from pathlib import Path
 
 from sqlmodel import Session, select
 
-from ..config import settings, store
+from ..config import store
 from ..db import session
 from ..identify import existing_tags
 from ..models import FileChange, Job, Track
 from ..tagging import snapshot
 from ..timeutil import now_utc
+from . import filelock
 from .mover import move
 from .paths import unique_path
 
@@ -42,11 +43,15 @@ def revert_change(change_id: int) -> tuple[bool, str]:
             return False, msg
 
         try:
-            snapshot.restore(file, change.original_tags_json or {})
-            if change.cover_jpg_created:
-                cover = file.parent / "cover.jpg"
-                if cover.exists():
-                    cover.unlink()
+            # Serialize against the ingest worker (S2): the worker may still
+            # be mid-write/move on this same path (e.g. a re-tag after a
+            # requeue) when the user clicks revert.
+            with filelock.path_lock(file):
+                snapshot.restore(file, change.original_tags_json or {})
+                if change.cover_jpg_created:
+                    cover = file.parent / "cover.jpg"
+                    if cover.exists():
+                        cover.unlink()
             _refresh_track(s, file)
             _repair_job(s, change.job_id, file)
             change.reverted_at = now_utc()
@@ -84,7 +89,8 @@ def move_back(change_id: int) -> tuple[bool, str]:
             dest = unique_path(dest)
 
         try:
-            res = move(file, dest, overwrite=False)
+            with filelock.path_lock(file):
+                res = move(file, dest, overwrite=False)
             if not res.moved:
                 return False, f"Could not move back: {dest} already exists."
         except Exception as e:  # noqa: BLE001 - surface any failure to the user
@@ -114,11 +120,14 @@ def move_back(change_id: int) -> tuple[bool, str]:
         # Only after the DB is durable do we exclude the restored path from
         # future automatic scans/ingests (the original location is often the
         # watched drop folder).
-        excluded = list(settings().scan_exclude_files)
-        if str(dest) not in excluded:
-            excluded.append(str(dest))
+        def _exclude_patch(cur):
+            excluded = list(cur.scan_exclude_files)
+            if str(dest) not in excluded:
+                excluded.append(str(dest))
             # FIFO cap so the list can't grow without bound.
-            store().update({"scan_exclude_files": excluded[-500:]})
+            return {"scan_exclude_files": excluded[-500:]}
+
+        store().transact(_exclude_patch)
 
         return True, f"Moved {dest.name} back to {dest.parent}."
 

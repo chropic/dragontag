@@ -48,8 +48,17 @@ def move(source: Path, destination: Path, *, overwrite: bool = False) -> MoveRes
             return MoveResult(moved=True, destination=destination)
         if not overwrite:
             return MoveResult(moved=False, destination=destination, conflict=True)
-        # ``shutil.move`` refuses to overwrite on Windows, so we unlink first.
-        destination.unlink()
+        # Overwrite path: stage the incoming file next to destination under a
+        # temp name and swap it in with ``os.replace`` instead of unlinking
+        # destination up front. The old code deleted destination first, so a
+        # subsequent ``shutil.move`` failure (vanished source, cross-device
+        # error, permission error) permanently lost the existing file with
+        # nothing to show for it. Staging means a failed move just leaves an
+        # orphan temp behind and destination is untouched.
+        return MoveResult(
+            moved=True,
+            destination=_staged_replace(source, destination),
+        )
 
     # Capture the source size up front so we can verify the move actually
     # landed every byte (defense-in-depth against a silently-truncated write
@@ -67,6 +76,42 @@ def move(source: Path, destination: Path, *, overwrite: bool = False) -> MoveRes
                 f"expected {src_size}"
             )
     return MoveResult(moved=True, destination=destination)
+
+
+def _staged_replace(source: Path, destination: Path) -> Path:
+    """Move ``source`` into ``destination``'s directory under a temp name,
+    verify its size, then atomically swap it over ``destination``.
+
+    On any failure before the final ``os.replace`` the original destination
+    is left completely untouched; at worst an orphan ``.dgmove-*`` temp is
+    left in the directory (harmless, and swept up like the tag-writer's own
+    ``.dgtag-*`` temps).
+    """
+    try:
+        src_size = source.stat().st_size
+    except OSError:
+        src_size = None
+
+    fd, tmp_name = tempfile.mkstemp(
+        dir=str(destination.parent), prefix=".dgmove-", suffix=destination.suffix
+    )
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    tmp_path.unlink()  # mkstemp's placeholder; shutil.move needs the name free
+    try:
+        shutil.move(str(source), str(tmp_path))
+        if src_size is not None:
+            dst_size = tmp_path.stat().st_size
+            if dst_size != src_size:
+                raise OSError(
+                    f"move verification failed: {tmp_path} is {dst_size} bytes, "
+                    f"expected {src_size}"
+                )
+        os.replace(tmp_path, destination)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    return destination
 
 
 def move_lyric_sidecar(old_audio: Path, new_audio: Path) -> bool:

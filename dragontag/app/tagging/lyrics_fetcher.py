@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import logging
 
+from ..config import settings
+
 log = logging.getLogger(__name__)
 
 _BASE = "https://lrclib.net/api"
 _HEADERS = {"User-Agent": "dragontag/0.1 (https://github.com/chropic/dragontag)"}
-_TIMEOUT = 10
 _MAX_BYTES = 8 * 1024 * 1024  # 8 MiB cap on a single LRCLIB response
 
 
@@ -51,7 +52,7 @@ def _fetch_inner(artist, title, album, duration) -> str | None:
     # body so a misbehaving upstream can't stream gigabytes of JSON into memory.
     resp, body = fetch_bytes(
         f"{_BASE}/get", params=params, headers=_HEADERS,
-        timeout=_TIMEOUT, max_bytes=_MAX_BYTES, validate=False,
+        timeout=settings().network_timeout_seconds, max_bytes=_MAX_BYTES, validate=False,
     )
     if resp.status_code == 200:
         result = _parse(_json.loads(body))
@@ -65,7 +66,7 @@ def _fetch_inner(artist, title, album, duration) -> str | None:
     search_params = {"track_name": title, "artist_name": artist}
     resp, body = fetch_bytes(
         f"{_BASE}/search", params=search_params, headers=_HEADERS,
-        timeout=_TIMEOUT, max_bytes=_MAX_BYTES, validate=False,
+        timeout=settings().network_timeout_seconds, max_bytes=_MAX_BYTES, validate=False,
     )
     if resp.status_code == 200:
         hits = _json.loads(body)

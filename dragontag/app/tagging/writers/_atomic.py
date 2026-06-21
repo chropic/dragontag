@@ -29,6 +29,12 @@ def atomic_inplace(path: Path) -> Iterator[Path]:
     on the library's filesystem (including the interior of an NFS/SMB mount).
     ``shutil.copy2`` preserves the file mode and mtime. On any exception the
     temp is removed and the original is left untouched.
+
+    The temp's data is fsync'd before the rename, and the containing
+    directory is fsync'd after, so the swap is durable across a real crash
+    (power loss, OOM kill) rather than just a Python exception — without
+    this, ``os.replace`` can land in the page cache and a crash right after
+    can leave the rename undone or the data behind it lost.
     """
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".dgtag-", suffix=path.suffix)
     os.close(fd)
@@ -36,7 +42,41 @@ def atomic_inplace(path: Path) -> Iterator[Path]:
     try:
         shutil.copy2(path, tmp_path)
         yield tmp_path
+        _fsync_file(tmp_path)
         os.replace(tmp_path, path)
+        _fsync_dir(path.parent)
     except BaseException:
         tmp_path.unlink(missing_ok=True)
         raise
+
+
+def _fsync_file(p: Path) -> None:
+    fd = os.open(str(p), os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _fsync_dir(d: Path) -> None:
+    fd = os.open(str(d), os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+# A crash between mkstemp and os.replace leaves a ``.dgtag-*`` orphan behind
+# forever (the in-process cleanup in the except branch above never runs).
+# Call this once at startup to sweep them out of the library before they
+# accumulate.
+def cleanup_orphaned_temp_files(root: Path) -> int:
+    removed = 0
+    for p in root.rglob(".dgtag-*"):
+        if p.is_file():
+            try:
+                p.unlink()
+                removed += 1
+            except OSError:
+                pass
+    return removed

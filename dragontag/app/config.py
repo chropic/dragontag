@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -291,6 +292,11 @@ class _Store:
         # first thing that touches the mount.
         self.env.config_path.mkdir(parents=True, exist_ok=True)
         self._settings_path = self.env.config_path / "settings.json"
+        # Guards the read-merge-write in update(): two concurrent callers
+        # (e.g. a settings POST racing move_back's scan_exclude_files append)
+        # would otherwise both read the same self.user, merge their own
+        # patch, and write — the second write silently discards the first.
+        self._update_lock = threading.Lock()
         self.user = self._load()
 
     def _load(self) -> UserSettings:
@@ -342,19 +348,44 @@ class _Store:
 
     def update(self, patch: dict[str, Any]) -> UserSettings:
         """Merge ``patch`` over the current settings, persist, and return."""
-        self.user = self.user.merged(patch)
-        self._save(self.user)
-        return self.user
+        with self._update_lock:
+            self.user = self.user.merged(patch)
+            self._save(self.user)
+            return self.user
+
+    def transact(self, fn) -> UserSettings:
+        """Atomic read-modify-write: ``fn(current_settings) -> patch dict``.
+
+        ``update()`` alone only protects the merge-and-save step; a caller
+        that reads ``settings()`` *before* calling ``update`` (e.g. to append
+        a path to a list) can still race another such caller and lose one of
+        the two appends. ``transact`` runs ``fn`` under the same lock that
+        guards the write, so the read it depends on is current.
+        """
+        with self._update_lock:
+            patch = fn(self.user)
+            self.user = self.user.merged(patch)
+            self._save(self.user)
+            return self.user
 
 
 _store: _Store | None = None
+_store_lock = threading.Lock()
 
 
 def store() -> _Store:
-    """Return the process-wide settings store (constructed lazily)."""
+    """Return the process-wide settings store (constructed lazily).
+
+    Double-checked locking: without the lock, two threads racing the very
+    first call could both see ``_store is None``, each construct their own
+    ``_Store`` (re-reading/re-writing settings.json), with the loser's
+    instance silently discarded.
+    """
     global _store
     if _store is None:
-        _store = _Store()
+        with _store_lock:
+            if _store is None:
+                _store = _Store()
     return _store
 
 

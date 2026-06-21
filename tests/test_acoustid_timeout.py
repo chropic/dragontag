@@ -69,6 +69,30 @@ def test_lookup_returns_empty_when_fpcalc_not_found(monkeypatch, tmp_path):
     assert acid_mod.lookup(audio) == []
 
 
+def test_network_lookup_failure_logs_at_warning(monkeypatch, tmp_path, caplog):
+    """S6: a network/API failure during the AcoustID lookup step must be
+    visible (warning), not buried at debug — otherwise a bad key or an
+    outage looks identical to "no match" with no operator-visible signal."""
+    _patch(monkeypatch)
+    monkeypatch.setattr(
+        acid_mod, "_fingerprint_file_with_timeout", lambda *a, **k: (1.0, b"AQ")
+    )
+
+    def boom(*a, **k):
+        raise RuntimeError("simulated AcoustID API outage")
+
+    monkeypatch.setattr(acid_mod.acoustid, "lookup", boom)
+
+    audio = tmp_path / "song.mp3"
+    audio.write_bytes(b"\x00")
+
+    with caplog.at_level("WARNING", logger=acid_mod.log.name):
+        result = acid_mod.lookup(audio)
+
+    assert result == []
+    assert any("AcoustID lookup failed" in r.message for r in caplog.records)
+
+
 def test_fingerprint_file_with_timeout_raises_on_timeout(monkeypatch, tmp_path):
     script = tmp_path / "slow_fpcalc.py"
     script.write_text("import time\ntime.sleep(5)\n")

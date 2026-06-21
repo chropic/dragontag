@@ -22,6 +22,10 @@ _CAA_BASE = "https://coverartarchive.org"
 # can't stream gigabytes into the worker's memory.
 _IMAGE_MAX_BYTES = 32 * 1024 * 1024  # 32 MiB
 _JSON_MAX_BYTES = 8 * 1024 * 1024  # 8 MiB
+# Decompression-bomb guard: a small byte stream can still declare an enormous
+# pixel grid. Check the (cheap, header-only) declared size before decoding
+# further with convert()/save(), which allocate the full pixel buffer.
+_MAX_DECODE_PIXELS = 40_000_000
 
 
 @dataclass
@@ -90,6 +94,11 @@ def _pick_and_download(images: list[dict]) -> CoverArt | None:
                 from PIL import Image
                 with Image.open(io.BytesIO(data)) as im:
                     w, h = im.size
+                    if w * h > _MAX_DECODE_PIXELS:
+                        # Declared pixel grid is absurd for cover art — skip
+                        # this candidate rather than risk a decode-time
+                        # decompression-bomb allocation.
+                        continue
                     if im.format == "PNG":
                         mime = "image/png"
                     elif im.format in ("JPEG", "MPO"):

@@ -52,6 +52,34 @@ def test_capture_never_raises_on_bad_file(tmp_path):
     assert snapshot.capture(p) == {"format": "flac", "tags": {}}
 
 
+def test_restore_id3_preserves_embedded_cover_art(tmp_path):
+    """S5: restore() must not drop embedded cover art (APIC) — the snapshot
+    only covers text tags, so a revert's tags.clear() previously wiped any
+    APIC frame the file had at restore time along with the text frames."""
+    from mutagen.id3 import APIC
+    from mutagen.wave import WAVE
+
+    p = tmp_path / "t.wav"
+    _make_wav(p)
+    write(p, TrackTags(title="Original"), Separators())
+    snap = snapshot.capture(p)
+
+    write(p, TrackTags(title="New"), Separators())
+
+    # Embed a cover *after* the destructive write, simulating art that was
+    # added (e.g. by the pipeline's cover-art step) before the user reverts.
+    audio = WAVE(str(p))
+    audio.tags.add(APIC(encoding=3, mime="image/jpeg", type=3, desc="Cover", data=b"\xff\xd8jpeg"))
+    audio.save()
+
+    snapshot.restore(p, snap)
+
+    restored = WAVE(str(p)).tags
+    assert restored.getall("TIT2")[0].text == ["Original"]
+    apics = restored.getall("APIC")
+    assert apics and apics[0].data == b"\xff\xd8jpeg"
+
+
 def test_snapshot_restores_uslt_lyrics(tmp_path):
     """Pre-existing embedded lyrics (ID3 USLT) survive a tag-write + revert."""
     from mutagen.wave import WAVE

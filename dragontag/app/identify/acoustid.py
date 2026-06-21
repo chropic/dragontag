@@ -122,7 +122,10 @@ def lookup(path: Path) -> list[AcoustIDMatch]:
         # WebServiceError, socket timeouts, and any other network/parse failure
         # are all non-fatal — fall through to the review queue rather than
         # erroring (and never let a raw exception escape into the pipeline).
-        log.debug("AcoustID lookup failed", exc_info=True)
+        # Logged at warning (not debug) so a systemic problem — bad API key,
+        # AcoustID outage, persistent rate-limiting — is actually visible
+        # instead of silently masquerading as "no match" for every file.
+        log.warning("AcoustID lookup failed for %s", path, exc_info=True)
         return []
 
     out: list[AcoustIDMatch] = []

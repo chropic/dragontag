@@ -15,6 +15,7 @@ with "database is locked".
 """
 from __future__ import annotations
 import logging
+import threading
 from sqlalchemy.exc import OperationalError
 from sqlalchemy import event, text
 from sqlmodel import Session, SQLModel, create_engine, select
@@ -24,6 +25,7 @@ from .config import env
 log = logging.getLogger(__name__)
 
 _engine = None
+_engine_lock = threading.Lock()
 
 
 def engine():
@@ -32,31 +34,45 @@ def engine():
     Deferred so test setup can override ``DRAGONTAG_CONFIG_PATH`` *before* the
     SQLite file is created. ``SQLModel.metadata.create_all`` is idempotent
     so it's safe to call on every boot.
+
+    Double-checked locking: without the lock, two threads racing the very
+    first call (e.g. a request thread and the scheduler/watcher starting up)
+    could both see ``_engine is None``, each build their own ``Engine`` and
+    run ``_migrate``/``create_all``/``_seed_library_folder`` concurrently,
+    with the loser's Engine silently discarded after doing real (if mostly
+    idempotent) work against the same SQLite file.
     """
     global _engine
     if _engine is None:
-        db_path = env().config_path / "dragontag.db"
-        _engine = create_engine(
-            f"sqlite:///{db_path}",
-            echo=False,
-            connect_args={"check_same_thread": False, "timeout": 30},
-        )
-
-        @event.listens_for(_engine, "connect")
-        def _set_sqlite_pragmas(dbapi_conn, _record):  # noqa: ANN001
-            # Run once per new DBAPI connection. WAL + busy_timeout are what keep
-            # the worker thread and request threads from colliding with
-            # "database is locked"; synchronous=NORMAL is the WAL-safe default.
-            cur = dbapi_conn.cursor()
-            cur.execute("PRAGMA journal_mode=WAL")
-            cur.execute("PRAGMA busy_timeout=30000")
-            cur.execute("PRAGMA synchronous=NORMAL")
-            cur.close()
-
-        _migrate(_engine)
-        SQLModel.metadata.create_all(_engine)
-        _seed_library_folder()
+        with _engine_lock:
+            if _engine is None:
+                _engine = _build_engine()
     return _engine
+
+
+def _build_engine():
+    db_path = env().config_path / "dragontag.db"
+    eng = create_engine(
+        f"sqlite:///{db_path}",
+        echo=False,
+        connect_args={"check_same_thread": False, "timeout": 30},
+    )
+
+    @event.listens_for(eng, "connect")
+    def _set_sqlite_pragmas(dbapi_conn, _record):  # noqa: ANN001
+        # Run once per new DBAPI connection. WAL + busy_timeout are what keep
+        # the worker thread and request threads from colliding with
+        # "database is locked"; synchronous=NORMAL is the WAL-safe default.
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.execute("PRAGMA busy_timeout=30000")
+        cur.execute("PRAGMA synchronous=NORMAL")
+        cur.close()
+
+    _migrate(eng)
+    SQLModel.metadata.create_all(eng)
+    _seed_library_folder(eng)
+    return eng
 
 
 def reset_engine() -> None:
@@ -92,14 +108,14 @@ def _migrate(engine):
                 pass
 
 
-def _seed_library_folder() -> None:
+def _seed_library_folder(eng) -> None:
     """Insert a default LibraryFolder from env().library_path if the table is empty.
 
     Keeps single-library deployments working transparently after the upgrade.
     Called once per engine construction (i.e. once per process).
     """
     from .models import LibraryFolder
-    with Session(_engine) as s:
+    with Session(eng) as s:
         if s.exec(select(LibraryFolder)).first():
             return
         s.add(LibraryFolder(path=str(env().library_path), label="Default library"))

@@ -148,6 +148,10 @@ def _startup() -> None:
     """Initialize config + DB, start worker, resume in-flight jobs, start watcher."""
     store()                       # ensure /config and SQLite are ready
     logsetup.apply(settings().log_verbosity)
+    from .tagging.writers._atomic import cleanup_orphaned_temp_files
+    removed = cleanup_orphaned_temp_files(env().library_path)
+    if removed:
+        log.warning("swept %d orphaned .dgtag-* temp file(s) from library", removed)
     pipeline.start_worker()
     pipeline.resubmit_pending()   # finish anything that was mid-flight at last shutdown
     if settings().watcher_enabled:
@@ -1344,15 +1348,20 @@ def library_track_protect_toggle(track_id: int, request: Request, _: None = Depe
         path_str = track.path
         folder_id = track.library_folder_id
 
-    excluded = list(settings().scan_exclude_files)
     if now_protected:
-        if path_str not in excluded:
-            excluded.append(path_str)
-            store().update({"scan_exclude_files": excluded[-500:]})
+        def _add(cur):
+            excluded = list(cur.scan_exclude_files)
+            if path_str not in excluded:
+                excluded.append(path_str)
+            return {"scan_exclude_files": excluded[-500:]}
+        store().transact(_add)
     else:
-        if path_str in excluded:
-            excluded.remove(path_str)
-            store().update({"scan_exclude_files": excluded})
+        def _remove(cur):
+            excluded = list(cur.scan_exclude_files)
+            if path_str in excluded:
+                excluded.remove(path_str)
+            return {"scan_exclude_files": excluded}
+        store().transact(_remove)
 
     msg = "Protected from overwrite." if now_protected else "Protection removed."
     return _toast_response(f"/library?folder_id={folder_id or ''}", msg)

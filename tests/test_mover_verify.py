@@ -44,6 +44,42 @@ def test_cross_volume_size_mismatch_is_detected(tmp_path: Path, monkeypatch):
         move(src, dest)
 
 
+def test_overwrite_failure_does_not_destroy_existing_destination(tmp_path: Path, monkeypatch):
+    """S4: a failed overwrite move must never lose the file already at
+    destination. The old code unlinked destination before attempting
+    shutil.move, so a failure partway through left nothing behind."""
+    dest = tmp_path / "b.flac"
+    dest.write_bytes(b"old-content")
+    src = tmp_path / "a.flac"
+    src.write_bytes(b"new-content")
+
+    def boom(s, d):
+        raise OSError("simulated cross-device failure")
+
+    monkeypatch.setattr(mover.shutil, "move", boom)
+
+    with pytest.raises(OSError, match="simulated cross-device failure"):
+        move(src, dest, overwrite=True)
+
+    assert dest.read_bytes() == b"old-content"
+    assert src.exists()
+    assert not list(tmp_path.glob(".dgmove-*"))
+
+
+def test_overwrite_replaces_destination_on_success(tmp_path: Path):
+    dest = tmp_path / "b.flac"
+    dest.write_bytes(b"old-content")
+    src = tmp_path / "a.flac"
+    src.write_bytes(b"new-content")
+
+    result = move(src, dest, overwrite=True)
+
+    assert result.moved is True
+    assert dest.read_bytes() == b"new-content"
+    assert not src.exists()
+    assert not list(tmp_path.glob(".dgmove-*"))
+
+
 def test_write_cover_jpg_is_atomic_and_leaves_no_temp(tmp_path: Path):
     folder = tmp_path / "Album"
     out = write_cover_jpg(folder, b"\xff\xd8jpegdata", min_overwrite_pixels=0, new_width=500)

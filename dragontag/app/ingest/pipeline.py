@@ -30,6 +30,7 @@ from ..identify import acoustid as acid
 from ..identify import existing_tags, filename_parse
 from ..identify import musicbrainz as mbq
 from ..identify.scoring import score_candidate
+from ..library import filelock
 from ..library.mover import move, move_lyric_sidecar, write_cover_jpg
 from ..library.paths import build_destination
 from ..models import FileChange, Job, JobStatus, ReviewReason, append_job_log
@@ -57,7 +58,23 @@ _ACTIVE_STATUSES = [
     JobStatus.identifying,
     JobStatus.tagging,
     JobStatus.moving,
+    # A job sitting in needs_review still "owns" its source file (the user
+    # hasn't resolved it yet); without this a re-touch of the same path (e.g.
+    # the watcher firing again on a slow rewrite) spawns a second job that
+    # races the pending review for the same physical file.
+    JobStatus.needs_review,
 ]
+
+# Statuses ``process()`` is actually willing to run. Guards against a job
+# being submitted twice for the same id (or submitted after it's already
+# moved on to needs_review/done/error) and re-running the pipeline on a file
+# another thread/job may already be touching.
+_PROCESSABLE_STATUSES = {
+    JobStatus.queued,
+    JobStatus.identifying,
+    JobStatus.tagging,
+    JobStatus.moving,
+}
 
 # Serializes the dedup check-then-insert in ``enqueue`` so the watcher thread
 # and an HTTP/bulk thread can't both miss the existing-job check and create two
@@ -128,7 +145,7 @@ def process(job_id: int) -> None:
     """Top-level worker entry point: load the job, run the pipeline, save errors."""
     with session() as s:
         job = s.get(Job, job_id)
-        if not job:
+        if not job or job.status not in _PROCESSABLE_STATUSES:
             return
         try:
             _process_inner(s, job)
@@ -392,47 +409,50 @@ def _commit_tag_path(s: Session, job: Job, src: Path, tags: TrackTags, *, score:
     s.commit()
 
     # ----- snapshot original tags before the destructive write (for revert) -----
-    original_snapshot = snapshot.capture(src)
-    original_path = str(src)
+    # Held for the full write+move so a concurrent revert/move-back (HTTP
+    # thread) can't read/rewrite the same file mid-flight (S2).
+    with filelock.path_lock(src):
+        original_snapshot = snapshot.capture(src)
+        original_path = str(src)
 
-    # ----- write tags -----
-    try:
-        write_tags(src, tags)
-    except Exception as e:
-        _append_log(job, f"write_tags failed: {e}")
-        _set(job, status=JobStatus.error, error=str(e))
+        # ----- write tags -----
+        try:
+            write_tags(src, tags)
+        except Exception as e:
+            _append_log(job, f"write_tags failed: {e}")
+            _set(job, status=JobStatus.error, error=str(e))
+            s.add(job)
+            s.commit()
+            return
+
+        # ----- move into library -----
+        lib_root = _pick_library_folder()
+        dest = build_destination(tags, src.suffix, library_root=lib_root)
+        # Persist the destination *before* the physical move. If the worker is hard
+        # killed (OOM/SIGKILL) mid-move, the job row already records where the file
+        # is headed, so crash recovery in ``_process_inner`` (which falls back to
+        # ``destination_path`` when the source is gone) can find the moved file and
+        # re-tag it in place instead of erroring "Source file not found" and leaving
+        # an orphaned, unindexed file in the library.
+        _set(job, status=JobStatus.moving, destination_path=str(dest))
         s.add(job)
         s.commit()
-        return
 
-    # ----- move into library -----
-    lib_root = _pick_library_folder()
-    dest = build_destination(tags, src.suffix, library_root=lib_root)
-    # Persist the destination *before* the physical move. If the worker is hard
-    # killed (OOM/SIGKILL) mid-move, the job row already records where the file
-    # is headed, so crash recovery in ``_process_inner`` (which falls back to
-    # ``destination_path`` when the source is gone) can find the moved file and
-    # re-tag it in place instead of erroring "Source file not found" and leaving
-    # an orphaned, unindexed file in the library.
-    _set(job, status=JobStatus.moving, destination_path=str(dest))
-    s.add(job)
-    s.commit()
+        result = move(src, dest, overwrite=False)
+        if not result.moved and result.conflict:
+            # Don't auto-overwrite — kick to review so the user decides.
+            _append_log(job, f"Destination conflict: {dest}")
+            _set(
+                job,
+                status=JobStatus.needs_review,
+                review_reason=ReviewReason.destination_conflict,
+                destination_path=str(dest),
+            )
+            s.add(job)
+            s.commit()
+            return
 
-    result = move(src, dest, overwrite=False)
-    if not result.moved and result.conflict:
-        # Don't auto-overwrite — kick to review so the user decides.
-        _append_log(job, f"Destination conflict: {dest}")
-        _set(
-            job,
-            status=JobStatus.needs_review,
-            review_reason=ReviewReason.destination_conflict,
-            destination_path=str(dest),
-        )
-        s.add(job)
-        s.commit()
-        return
-
-    move_lyric_sidecar(src, dest)
+        move_lyric_sidecar(src, dest)
 
     # ----- side-effect: write cover.jpg next to the file -----
     cover_jpg = dest.parent / "cover.jpg"

@@ -30,10 +30,15 @@ class _Handler(FileSystemEventHandler):
     """Coalesces create/modify/move events per-path with a settle timestamp."""
 
     def __init__(self) -> None:
-        # path -> (last_event_ts, last_seen_size). The size lets us require the
-        # file to have *stopped growing* before we ingest it — the settle
-        # window alone can't tell "finished" from "stalled mid-transfer".
-        self._pending: dict[Path, tuple[float, int]] = {}
+        # path -> (last_event_ts, last_seen_size, stable_hits). The size lets
+        # us require the file to have *stopped growing* before we ingest it —
+        # the settle window alone can't tell "finished" from "stalled
+        # mid-transfer". ``stable_hits`` requires the size to match on two
+        # separate settle-window checks (not just one stat() call) before
+        # declaring the file ready, so a single coincidentally-matching
+        # sample (e.g. a paused-but-not-finished SMB/NFS write landing on a
+        # round byte count) can't fool us into ingesting mid-transfer.
+        self._pending: dict[Path, tuple[float, int, int]] = {}
         self._lock = threading.Lock()
         self._has_pending = threading.Event()
 
@@ -64,6 +69,10 @@ class _Handler(FileSystemEventHandler):
             return
         self._touch(Path(event.dest_path))
 
+    # Number of consecutive settle-window checks that must observe the same
+    # size before a file is declared ready.
+    _REQUIRED_STABLE_HITS = 2
+
     def _touch(self, p: Path) -> None:
         if self._is_ignored(p):
             return
@@ -72,18 +81,20 @@ class _Handler(FileSystemEventHandler):
         except OSError:
             return  # vanished/unreadable between event and stat — ignore
         with self._lock:
-            self._pending[p] = (time.time(), size)
+            self._pending[p] = (time.time(), size, 0)
         self._has_pending.set()
 
     def _collect_ready(self, now: float, settle: float) -> list[Path]:
-        """Return paths whose settle window elapsed *and* whose size is stable.
+        """Return paths whose settle window elapsed *and* whose size has been
+        observed stable on two separate checks.
 
-        Files still growing have their timer reset; vanished/unreadable files
-        are dropped. Extracted from ``settle_loop`` so it can be unit-tested.
+        Files still growing (or only stable once so far) have their timer
+        reset; vanished/unreadable files are dropped. Extracted from
+        ``settle_loop`` so it can be unit-tested.
         """
         ready: list[Path] = []
         with self._lock:
-            for p, (t, seen_size) in list(self._pending.items()):
+            for p, (t, seen_size, hits) in list(self._pending.items()):
                 if now - t < settle:
                     continue
                 # Settle window elapsed; confirm the file has stopped growing
@@ -94,12 +105,16 @@ class _Handler(FileSystemEventHandler):
                 except OSError:
                     del self._pending[p]  # gone/unreadable; drop it
                     continue
-                if cur_size == seen_size:
+                if cur_size != seen_size:
+                    # Still changing — reset the timer and the stability streak.
+                    self._pending[p] = (now, cur_size, 0)
+                elif hits + 1 >= self._REQUIRED_STABLE_HITS:
                     ready.append(p)
                     del self._pending[p]
                 else:
-                    # Still changing — reset the timer with the new size.
-                    self._pending[p] = (now, cur_size)
+                    # Matches the last sample, but we want one more
+                    # confirmation a full settle window later before trusting it.
+                    self._pending[p] = (now, cur_size, hits + 1)
             if self._pending:
                 self._has_pending.set()
         return ready

@@ -46,6 +46,11 @@ from mutagen.id3 import (
 from ..schema import TrackTags
 
 _MAX_COVER_PX = 1200
+# Decompression-bomb guard: reject images whose *declared* pixel count is
+# absurd for cover art before Pillow decodes any pixel data. Header-only
+# (im.size) is cheap to read; thumbnail()/convert() is what actually
+# allocates the full decoded buffer.
+_MAX_DECODE_PIXELS = 40_000_000
 
 
 def _cap_cover(data: bytes, mime: str) -> tuple[bytes, str]:
@@ -58,6 +63,8 @@ def _cap_cover(data: bytes, mime: str) -> tuple[bytes, str]:
     from PIL import Image
     try:
         img = Image.open(BytesIO(data))
+        if img.size[0] * img.size[1] > _MAX_DECODE_PIXELS:
+            return data, mime
         if max(img.size) <= _MAX_COVER_PX:
             return data, mime
         img.thumbnail((_MAX_COVER_PX, _MAX_COVER_PX), Image.LANCZOS)

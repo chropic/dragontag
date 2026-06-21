@@ -28,7 +28,7 @@ from ..config import settings
 from ..tagging.schema import TrackTags
 from .artist_split import split_multi_artist
 
-_configured = False
+_pkg_version_cache: str | None = None
 
 
 def _mb_retry(fn, *args, retries: int = 2, backoff: float = 2.0, **kwargs):
@@ -47,18 +47,22 @@ def _mb_retry(fn, *args, retries: int = 2, backoff: float = 2.0, **kwargs):
 
 
 def _ensure_configured() -> None:
-    """One-time User-Agent / rate-limit setup. Called lazily so we pick up
-    any UA change the user makes in settings without restarting."""
-    global _configured
-    if _configured:
-        return
+    """User-Agent / rate-limit / timeout setup, re-applied on every call so a
+    live settings change (UA, MB server, network timeout) takes effect on the
+    next request instead of requiring a restart.
+
+    Only the package-version lookup is actually cached — it can't change at
+    runtime and ``importlib.metadata.version`` does real I/O.
+    """
+    global _pkg_version_cache
     s = settings()
-    try:
-        from importlib.metadata import version as _pkg_version
-        _version = _pkg_version("dragontag")
-    except Exception:
-        _version = "0.9.5"
-    mb.set_useragent("dragontag", _version, s.musicbrainz_user_agent)
+    if _pkg_version_cache is None:
+        try:
+            from importlib.metadata import version as _pkg_version
+            _pkg_version_cache = _pkg_version("dragontag")
+        except Exception:
+            _pkg_version_cache = "0.9.5"
+    mb.set_useragent("dragontag", _pkg_version_cache, s.musicbrainz_user_agent)
     mb.set_hostname(s.musicbrainz_server)
     mb.set_rate_limit(True)
     # musicbrainzngs uses urllib, which has no default timeout — a half-open
@@ -67,7 +71,6 @@ def _ensure_configured() -> None:
     # bounded. musicbrainzngs surfaces the resulting socket.timeout as a
     # NetworkError (a WebServiceError subclass), so _mb_retry still retries it.
     socket.setdefaulttimeout(s.network_timeout_seconds)
-    _configured = True
 
 
 # Require a punctuation separator (. - )) after the leading number so we only

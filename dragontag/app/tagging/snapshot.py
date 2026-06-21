@@ -126,7 +126,13 @@ def _restore_id3(path: Path, tags: dict[str, list[str]], ext: str) -> None:
         audio = _open_id3(tmp, ext)
         if audio.tags is None:
             audio.add_tags()
+        # Preserve embedded cover art (APIC) across the clear, the same way
+        # the FLAC/MP4 restorers keep PICTURE/covr intact — text tags are the
+        # only thing this snapshot/restore cycle is meant to touch.
+        apics = audio.tags.getall("APIC")
         audio.tags.clear()
+        for apic in apics:
+            audio.tags.add(apic)
         for key, vals in tags.items():
             vals = [str(x) for x in vals]
             if key.startswith("TXXX:"):

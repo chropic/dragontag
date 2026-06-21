@@ -548,6 +548,7 @@ def _upsert_track(s: Session, dest: Path, tags: TrackTags, lib_root: Path) -> "T
         existing.disc_total = tags.disc_total
         existing.mb_track_id = tags.mb_track_id
         existing.mb_album_id = tags.mb_album_id
+        existing.mb_release_group_id = tags.mb_release_group_id
         existing.advisory = tags.advisory
         existing.has_lyrics = bool(tags.lyrics)
         existing.duration = duration
@@ -570,6 +571,7 @@ def _upsert_track(s: Session, dest: Path, tags: TrackTags, lib_root: Path) -> "T
         disc_total=tags.disc_total,
         mb_track_id=tags.mb_track_id,
         mb_album_id=tags.mb_album_id,
+        mb_release_group_id=tags.mb_release_group_id,
         advisory=tags.advisory,
         has_lyrics=bool(tags.lyrics),
         duration=duration,

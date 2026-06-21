@@ -63,6 +63,7 @@ class Track(SQLModel, table=True):
     duration: float | None = None
     mb_track_id: str | None = None
     mb_album_id: str | None = None
+    mb_release_group_id: str | None = None
     advisory: int | None = Field(default=None)
     has_lyrics: bool = Field(default=False)
 

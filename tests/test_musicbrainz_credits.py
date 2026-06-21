@@ -42,3 +42,8 @@ def test_empty_credits():
     assert _credit_names([]) == []
     assert _credit_sorts([]) == []
     assert _credit_ids([]) == []
+
+
+def test_names_splits_unsplit_feat_credit():
+    creds = [{"artist": {"name": "2hollis feat. nate sib", "id": "abc"}}]
+    assert _credit_names(creds) == ["2hollis", "nate sib"]

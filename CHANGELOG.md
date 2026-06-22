@@ -2,6 +2,30 @@
 
 # Changelog
 
+## WIP — terminal/TUI frontend redesign (Direction A)
+
+### Changed
+- **Full UI restyle into a lazygit-style monochrome terminal vocabulary.** All 18 templates
+  (7 nav pages + `login`/`setup` + secondary pages + 5 htmx fragments) reworked with `.dt-*`
+  texture primitives (titled panels with corner reticles, notched labels, blinking cursor,
+  meter bars), bracketed `[ label ]` buttons, and text+glyph status (`● done · ▲ review · ✕ error`)
+  instead of filled badge chips. Green is reserved for *meaning* only (done/active/focus/progress);
+  amber for review, red for errors.
+- **Primary face is now JetBrains Mono** (vendored `JetBrainsMono-Regular/Bold.woff2`), body
+  switched `font-sans` → `font-mono`. `fonts.css` falls back to the already-vendored IBM Plex
+  Mono when the JetBrains files are absent, so the UI is never in a broken/missing-glyph state.
+- **`frontend/app.input.css`** gains an `@layer components` block with the reusable `.dt-*`
+  primitives; **`frontend/tailwind.config.js`** uses a JetBrains-first mono stack and a wider
+  safelist for dynamically-applied classes.
+- **Keybind status bar** (`{% block statusbar %}` in `base.html`) is pinned to the viewport
+  floor (`position: fixed` + body `pb-[30px]`).
+
+### Preserved
+- Every `hx-*` attribute, Alpine directive, input `name`/`id`, form action, `confirm()` handler,
+  and inline `<script>` carried over verbatim — purely presentational change. Review-apply,
+  cover picker, bulk-apply gather, cron-describe, settings token palette + dirty-state guard,
+  toast/progress JS, and drag/drop upload wiring all unchanged.
+
 ## 0.9.5 — repo housekeeping & UI polish (2026-06-15)
 
 ### Changed

@@ -1,34 +1,38 @@
 {% extends "base.html" %}
 {% block title %}dragontag | Docs{% endblock %}
 {% block content %}
-<style>html { scroll-padding-top: 80px; } section[id] { scroll-margin-top: 80px; }</style>
+<style>html { scroll-padding-top: 60px; } section[id] { scroll-margin-top: 60px; }</style>
 <div class="max-w-3xl mx-auto space-y-8">
 <div class="flex items-center justify-between mb-2">
-  <h2 class="text-xl font-mono font-semibold">User manual</h2>
+  <div class="flex items-center gap-2">
+    <span class="text-[#c7f0c7]">&#9656;</span>
+    <h2 class="font-bold text-lg">docs</h2>
+    <span class="text-[#5a5a5a] text-xs">man dragontag(1)</span>
+  </div>
   <span class="text-xs">
-    <a href="/api-docs" class="px-3 py-1 border border-[#4a4a4a] text-[#cfcfcf] hover:text-white hover:border-white">API reference (Swagger)</a>
+    <a href="/api-docs" class="px-3 py-1 border border-[#2a2a2a] text-[#cfcfcf] hover:text-white hover:border-[#3a3a3a]">API reference (Swagger)</a>
   </span>
 </div>
 <p class="text-[#8a8a8a] text-sm">Everything you need to know to drive dragontag day-to-day. Reference material (env vars, tokens, payloads) is at the bottom.</p>
 
-<nav class="bg-[#0c0c0c] border border-[#4a4a4a] p-3 text-xs text-[#cfcfcf]">
-  <span class="text-[#8a8a8a] uppercase tracking-widest mr-2">Jump to</span>
-  <a href="#start" class="mr-3 hover:text-white">Getting started</a>
-  <a href="#flow" class="mr-3 hover:text-white">Tagging workflow</a>
-  <a href="#dashboard" class="mr-3 hover:text-white">Dashboard</a>
-  <a href="#settings" class="mr-3 hover:text-white">Settings</a>
-  <a href="#library" class="mr-3 hover:text-white">Library</a>
-  <a href="#review" class="mr-3 hover:text-white">Review</a>
-  <a href="#jobs" class="mr-3 hover:text-white">Jobs</a>
-  <a href="#changes" class="mr-3 hover:text-white">Changes</a>
-  <a href="#schedule" class="mr-3 hover:text-white">Schedule</a>
-  <a href="#backup" class="mr-3 hover:text-white">Backup</a>
-  <a href="#formatting" class="mr-3 hover:text-white">Smart formatting</a>
-  <a href="#reference" class="hover:text-white">Reference</a>
+<nav class="relative border border-[#242424] bg-[#0a0a0a] p-3 text-xs text-[#cfcfcf]">
+  <span class="text-[#5a5a5a] uppercase tracking-widest mr-2">jump to</span>
+  <a href="#start" class="mr-3 hover:text-white">getting started</a>
+  <a href="#flow" class="mr-3 hover:text-white">tagging workflow</a>
+  <a href="#dashboard" class="mr-3 hover:text-white">dashboard</a>
+  <a href="#settings" class="mr-3 hover:text-white">settings</a>
+  <a href="#library" class="mr-3 hover:text-white">library</a>
+  <a href="#review" class="mr-3 hover:text-white">review</a>
+  <a href="#jobs" class="mr-3 hover:text-white">jobs</a>
+  <a href="#changes" class="mr-3 hover:text-white">changes</a>
+  <a href="#schedule" class="mr-3 hover:text-white">schedule</a>
+  <a href="#backup" class="mr-3 hover:text-white">backup</a>
+  <a href="#formatting" class="mr-3 hover:text-white">smart formatting</a>
+  <a href="#reference" class="hover:text-white">reference</a>
 </nav>
 
 <section id="start" class="space-y-3">
-  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">1. Getting started</h3>
+  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">1. Getting started</h3>
   <p class="text-sm text-[#cfcfcf]">On first boot you'll be redirected to <code>/setup</code> to create the admin login and (optionally) paste an AcoustID key. After login, head to <strong>Library → Manage libraries</strong> and add at least one path on disk that dragontag should manage. This becomes the destination root for everything you tag.</p>
   <p class="text-sm text-[#cfcfcf]">Three ways to feed files into the pipeline:</p>
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
@@ -39,8 +43,8 @@
 </section>
 
 <section id="flow" class="space-y-3">
-  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">2. Tagging workflow</h3>
-  <pre class="text-xs text-[#cfcfcf] bg-[#0c0c0c] border border-[#4a4a4a] p-4 overflow-x-auto">
+  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">2. Tagging workflow</h3>
+  <pre class="text-xs text-[#cfcfcf] bg-black border border-[#242424] p-4 overflow-x-auto">
 Drop file  →  Read existing tags + filename clues
            →  MusicBrainz text search
            →  [empty] AcoustID fingerprint fallback
@@ -56,7 +60,7 @@ Drop file  →  Read existing tags + filename clues
 </section>
 
 <section id="dashboard" class="space-y-3">
-  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">3. Dashboard</h3>
+  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">3. Dashboard</h3>
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
     <li><strong>Stats bar</strong> — total tracks, albums, artists currently indexed.</li>
     <li><strong>Tag audio files</strong> — upload individual files or kick off a folder re-tag.</li>
@@ -66,7 +70,7 @@ Drop file  →  Read existing tags + filename clues
 </section>
 
 <section id="settings" class="space-y-3">
-  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">4. Settings</h3>
+  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">4. Settings</h3>
   <p class="text-sm text-[#cfcfcf]">Hover the <code>?</code> badge beside any field for an inline tooltip. Highlights:</p>
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
     <li><strong>Identification</strong> — AcoustID toggle, auto-apply threshold, watcher on/off, global dry-run. The dry-run checkboxes on Library actions are per-run only and never change this global default.</li>
@@ -89,7 +93,7 @@ Drop file  →  Read existing tags + filename clues
 </section>
 
 <section id="library" class="space-y-3">
-  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">5. Library</h3>
+  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">5. Library</h3>
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
     <li><strong>Scan library</strong> — refresh the DB from on-disk tags. Run after manually editing tags outside dragontag.</li>
     <li><strong>Organize library (batch)</strong> — structural cleanup chain: move files to match templates, fix disc folders, normalize filenames, extract embedded covers, prune junk &amp; empty folders, find duplicates, find missing tracks. <span class="text-[#ffb4b4]">Files are moved/renamed and junk + empty directories deleted; audio files are never deleted.</span></li>
@@ -117,7 +121,7 @@ Drop file  →  Read existing tags + filename clues
 </section>
 
 <section id="review" class="space-y-3">
-  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">6. Queue — review section</h3>
+  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">6. Queue — review section</h3>
   <p class="text-sm text-[#cfcfcf]">Review and Jobs now live together on the <strong>Queue</strong> page (the old <code>/review</code> and <code>/jobs</code> URLs redirect there). A file lands in the review section when it scored below the threshold, no candidate was found, the destination already exists, RELEASETYPE was missing, or dry-run mode was on. From there you can:</p>
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
     <li>Search MusicBrainz manually by title / artist / album or a pasted MB URL / ID — click <strong>Search</strong> (or press Enter in any field) to run the query.</li>
@@ -129,7 +133,7 @@ Drop file  →  Read existing tags + filename clues
 </section>
 
 <section id="jobs" class="space-y-3">
-  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">7. Queue — jobs section</h3>
+  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">7. Queue — jobs section</h3>
   <p class="text-sm text-[#cfcfcf]">The jobs section of the Queue page shows every queued / processed file with pagination and per-row cancel/requeue. Background work — library scans, batches, lyrics/cover fetches and scheduled runs — also appears here with a kind badge, a persistent log, and <code>n/total</code> progress. A running task can be stopped from its row (or the <em>stop</em> control on the progress line); work done so far is kept and the job is marked skipped. A thin progress line under the nav (visible on every page) shows the percentage, item counts and the file currently being processed. Bulk controls:</p>
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
     <li><strong>Cancel all queued</strong> — mark every queued (not-yet-started) job as skipped.</li>
@@ -140,7 +144,7 @@ Drop file  →  Read existing tags + filename clues
 </section>
 
 <section id="changes" class="space-y-3">
-  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">8. Changes &amp; revert</h3>
+  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">8. Changes &amp; revert</h3>
   <p class="text-sm text-[#cfcfcf]">Every pipeline tag-write records a full pre-write snapshot. From the Changes page you can:</p>
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
     <li><strong>Revert</strong> — restore the original tags in place and remove the <code>cover.jpg</code> dragontag created. The job can be requeued afterwards to re-tag.</li>
@@ -151,20 +155,20 @@ Drop file  →  Read existing tags + filename clues
 </section>
 
 <section id="schedule" class="space-y-3">
-  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">9. Schedule</h3>
+  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">9. Schedule</h3>
   <p class="text-sm text-[#cfcfcf]">The Schedule tab runs any maintenance task on a standard 5-field cron expression (UTC): scan, organize, the Organize / Re-tag batches, bulk re-tag (with optional dry-run), fetch lyrics, fetch covers, or backup. As you type a cron expression the form shows a plain-English description ("At 06:00, only on Tuesday"), also shown on every schedule row. Each schedule shows its next and last run; <strong>Run now</strong> fires it immediately, and runs appear on the Queue page like any other task. A run is skipped if the previous run of the same kind is still going.</p>
   <p class="text-sm text-[#8a8a8a]">Examples: <code>0 3 * * *</code> daily at 03:00 · <code>0 */6 * * *</code> every 6 hours · <code>0 4 * * 0</code> Sundays at 04:00.</p>
 </section>
 
 <section id="backup" class="space-y-3">
-  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">10. Backup &amp; restore</h3>
+  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">10. Backup &amp; restore</h3>
   <p class="text-sm text-[#cfcfcf]"><strong>Settings → Backup</strong> downloads a versioned tarball containing the SQLite database (a consistent snapshot, safe while the app runs), <code>settings.json</code>, the password hash and the AcoustID key, with a manifest and per-file checksums. The last 10 backups are also kept in <code>/config/backups</code>, and backups can be scheduled (§9).</p>
   <p class="text-sm text-[#cfcfcf]">Restoring validates the bundle first (manifest, checksums, database integrity check, settings schema) and refuses while jobs are active; the previous files are kept beside the new ones as <code>*.pre-restore</code>. A container restart afterwards is recommended. If the UI can't boot, restore from the command line:</p>
-  <pre class="text-xs bg-black border border-[#4a4a4a] p-2 overflow-x-auto">python -m dragontag.tools.restore_backup /config/backups/dragontag-backup-XXXX.tar.gz</pre>
+  <pre class="text-xs bg-black border border-[#242424] p-2 overflow-x-auto text-[#cfcfcf]">python -m dragontag.tools.restore_backup /config/backups/dragontag-backup-XXXX.tar.gz</pre>
 </section>
 
 <section id="formatting" class="space-y-3">
-  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">11. Smart formatting</h3>
+  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">11. Smart formatting</h3>
   <p class="text-sm text-[#cfcfcf]">Three independent toggles under Settings → Smart formatting:</p>
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
     <li><strong>Title Case</strong> — capitalizes the first/last word and any non-article/preposition. Acronyms are preserved.</li>
@@ -174,47 +178,47 @@ Drop file  →  Read existing tags + filename clues
 </section>
 
 <section id="reference" class="space-y-3">
-  <h3 class="font-mono font-semibold border-b border-[#4a4a4a] pb-1">12. Reference</h3>
+  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">12. Reference</h3>
 
-  <h4 class="font-mono text-sm text-[#cfcfcf] mt-3">Environment variables</h4>
+  <h4 class="text-sm text-[#cfcfcf] mt-3 font-bold">Environment variables</h4>
   <table class="w-full text-xs">
-    <thead class="text-[#8a8a8a] border-b border-[#4a4a4a]">
-      <tr><th class="text-left pb-2 pr-4">Variable</th><th class="text-left pb-2 pr-4">Default</th><th class="text-left pb-2">Description</th></tr>
+    <thead>
+      <tr class="text-[10px] uppercase tracking-widest text-[#5a5a5a] border-b border-[#1f1f1f]"><th class="text-left pb-2 pr-4">variable</th><th class="text-left pb-2 pr-4">default</th><th class="text-left pb-2">description</th></tr>
     </thead>
     <tbody class="text-[#cfcfcf]">
-      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">DRAGONTAG_USERNAME</td><td class="py-1 pr-4">admin</td><td class="py-1">Web UI login username</td></tr>
-      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">DRAGONTAG_PASSWORD_FILE</td><td class="py-1 pr-4">—</td><td class="py-1">Path to argon2 hash (Docker secret)</td></tr>
-      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">DRAGONTAG_PASSWORD</td><td class="py-1 pr-4">—</td><td class="py-1">Plain-text password (dev only)</td></tr>
-      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">DRAGONTAG_ACOUSTID_KEY_FILE</td><td class="py-1 pr-4">—</td><td class="py-1">AcoustID API key file</td></tr>
-      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">DRAGONTAG_SESSION_SECRET_FILE</td><td class="py-1 pr-4">—</td><td class="py-1">Session signing secret file</td></tr>
-      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">DRAGONTAG_LIBRARY_PATH</td><td class="py-1 pr-4">/library</td><td class="py-1">Library root directory</td></tr>
-      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">DRAGONTAG_DROP_PATH</td><td class="py-1 pr-4">/drop</td><td class="py-1">Watched ingest folder</td></tr>
-      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">DRAGONTAG_CONFIG_PATH</td><td class="py-1 pr-4">/config</td><td class="py-1">Config directory (DB + settings.json)</td></tr>
-      <tr><td class="py-1 pr-4 font-mono">TZ</td><td class="py-1 pr-4">UTC</td><td class="py-1">Timezone for displayed timestamps</td></tr>
+      <tr class="border-b border-[#141414]"><td class="py-1 pr-4 text-[#c7f0c7]">DRAGONTAG_USERNAME</td><td class="py-1 pr-4">admin</td><td class="py-1">Web UI login username</td></tr>
+      <tr class="border-b border-[#141414]"><td class="py-1 pr-4 text-[#c7f0c7]">DRAGONTAG_PASSWORD_FILE</td><td class="py-1 pr-4">—</td><td class="py-1">Path to argon2 hash (Docker secret)</td></tr>
+      <tr class="border-b border-[#141414]"><td class="py-1 pr-4 text-[#c7f0c7]">DRAGONTAG_PASSWORD</td><td class="py-1 pr-4">—</td><td class="py-1">Plain-text password (dev only)</td></tr>
+      <tr class="border-b border-[#141414]"><td class="py-1 pr-4 text-[#c7f0c7]">DRAGONTAG_ACOUSTID_KEY_FILE</td><td class="py-1 pr-4">—</td><td class="py-1">AcoustID API key file</td></tr>
+      <tr class="border-b border-[#141414]"><td class="py-1 pr-4 text-[#c7f0c7]">DRAGONTAG_SESSION_SECRET_FILE</td><td class="py-1 pr-4">—</td><td class="py-1">Session signing secret file</td></tr>
+      <tr class="border-b border-[#141414]"><td class="py-1 pr-4 text-[#c7f0c7]">DRAGONTAG_LIBRARY_PATH</td><td class="py-1 pr-4">/library</td><td class="py-1">Library root directory</td></tr>
+      <tr class="border-b border-[#141414]"><td class="py-1 pr-4 text-[#c7f0c7]">DRAGONTAG_DROP_PATH</td><td class="py-1 pr-4">/drop</td><td class="py-1">Watched ingest folder</td></tr>
+      <tr class="border-b border-[#141414]"><td class="py-1 pr-4 text-[#c7f0c7]">DRAGONTAG_CONFIG_PATH</td><td class="py-1 pr-4">/config</td><td class="py-1">Config directory (DB + settings.json)</td></tr>
+      <tr><td class="py-1 pr-4 text-[#c7f0c7]">TZ</td><td class="py-1 pr-4">UTC</td><td class="py-1">Timezone for displayed timestamps</td></tr>
     </tbody>
   </table>
 
-  <h4 class="font-mono text-sm text-[#cfcfcf] mt-4">File formats</h4>
+  <h4 class="text-sm text-[#cfcfcf] mt-4 font-bold">File formats</h4>
   <p class="text-sm text-[#cfcfcf]">Supported: <code class="text-xs">.flac</code> <code class="text-xs">.mp3</code> <code class="text-xs">.wav</code> <code class="text-xs">.m4a</code> <code class="text-xs">.mp4</code></p>
   <p class="text-sm text-[#8a8a8a]">FLAC uses Vorbis Comments. MP3/WAV use ID3v2.4 with TXXX frames for custom fields. MP4/M4A use standard atoms with <code class="text-xs">----:com.apple.iTunes:&lt;NAME&gt;</code> for custom fields — Picard-compatible.</p>
 
-  <h4 class="font-mono text-sm text-[#cfcfcf] mt-4">Template tokens</h4>
+  <h4 class="text-sm text-[#cfcfcf] mt-4 font-bold">Template tokens</h4>
   <table class="w-full text-xs">
-    <thead class="text-[#8a8a8a] border-b border-[#4a4a4a]">
-      <tr><th class="text-left pb-2 pr-4">Token</th><th class="text-left pb-2">Example</th></tr>
+    <thead>
+      <tr class="text-[10px] uppercase tracking-widest text-[#5a5a5a] border-b border-[#1f1f1f]"><th class="text-left pb-2 pr-4">token</th><th class="text-left pb-2">example</th></tr>
     </thead>
     <tbody class="text-[#cfcfcf]">
-      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">{track:02d}</td><td class="py-1">01, 02, 12</td></tr>
-      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">{disc}</td><td class="py-1">1, 2</td></tr>
-      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">{title}</td><td class="py-1">Song Title</td></tr>
-      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">{artist}</td><td class="py-1">Artist Name</td></tr>
-      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">{ext}</td><td class="py-1">flac, mp3</td></tr>
-      <tr class="border-b border-[#1a1a1a]"><td class="py-1 pr-4 font-mono">{tracktotal}</td><td class="py-1">12</td></tr>
-      <tr><td class="py-1 pr-4 font-mono">{disctotal}</td><td class="py-1">2</td></tr>
+      <tr class="border-b border-[#141414]"><td class="py-1 pr-4 text-[#c7f0c7]">{track:02d}</td><td class="py-1">01, 02, 12</td></tr>
+      <tr class="border-b border-[#141414]"><td class="py-1 pr-4 text-[#c7f0c7]">{disc}</td><td class="py-1">1, 2</td></tr>
+      <tr class="border-b border-[#141414]"><td class="py-1 pr-4 text-[#c7f0c7]">{title}</td><td class="py-1">Song Title</td></tr>
+      <tr class="border-b border-[#141414]"><td class="py-1 pr-4 text-[#c7f0c7]">{artist}</td><td class="py-1">Artist Name</td></tr>
+      <tr class="border-b border-[#141414]"><td class="py-1 pr-4 text-[#c7f0c7]">{ext}</td><td class="py-1">flac, mp3</td></tr>
+      <tr class="border-b border-[#141414]"><td class="py-1 pr-4 text-[#c7f0c7]">{tracktotal}</td><td class="py-1">12</td></tr>
+      <tr><td class="py-1 pr-4 text-[#c7f0c7]">{disctotal}</td><td class="py-1">2</td></tr>
     </tbody>
   </table>
 
-  <h4 class="font-mono text-sm text-[#cfcfcf] mt-4">Review reasons</h4>
+  <h4 class="text-sm text-[#cfcfcf] mt-4 font-bold">Review reasons</h4>
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
     <li><strong>low_score</strong> — Best candidate scored below threshold</li>
     <li><strong>no_match</strong> — Neither MB search nor AcoustID returned anything</li>
@@ -223,9 +227,15 @@ Drop file  →  Read existing tags + filename clues
     <li><strong>dry_run</strong> — Dry-run mode is active</li>
   </ul>
 
-  <h4 class="font-mono text-sm text-[#cfcfcf] mt-4">Webhook</h4>
+  <h4 class="text-sm text-[#cfcfcf] mt-4 font-bold">Webhook</h4>
   <p class="text-sm text-[#cfcfcf]">Configure a Discord webhook (or any HTTP endpoint) in Settings → Webhook. Use the <strong>Test</strong> button to verify connectivity. Payloads are Discord-compatible embeds sent via HTTP POST and fire on a daemon thread so they cannot block the pipeline.</p>
 </section>
 
 </div>
+{% endblock %}
+
+{% block statusbar %}
+  <span class="dt-key"><b>/</b> search docs</span>
+  <span class="dt-key"><b>g</b> api-docs</span>
+  <span class="dt-status-note">man dragontag &middot; /openapi.json</span>
 {% endblock %}

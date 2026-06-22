@@ -2,34 +2,38 @@
 {% block title %}dragontag | Libraries{% endblock %}
 {% block content %}
 <div class="flex items-center justify-between mb-4">
-  <h2 class="text-xl font-mono font-semibold">Libraries</h2>
-  <a href="/library" class="text-sm text-[#cfcfcf] hover:text-white">Back to Library</a>
+  <div class="flex items-center gap-2">
+    <span class="text-[#c7f0c7]">&#9656;</span>
+    <h2 class="font-bold text-lg">libraries</h2>
+  </div>
+  <a href="/library" class="text-xs text-[#cfcfcf] hover:text-white">&larr; back to library</a>
 </div>
 
 {% if folders %}
-<div class="bg-[#0c0c0c] border border-[#4a4a4a] mb-6">
+<div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 mb-6">
+  <span class="dt-label">configured folders</span>
   <table class="w-full text-sm">
     <thead>
-      <tr class="text-left text-[#8a8a8a] border-b border-[#4a4a4a]">
-        <th class="px-4 py-2">Path</th>
-        <th class="px-4 py-2">Label</th>
-        <th class="px-4 py-2">Priority</th>
-        <th class="px-4 py-2">Enabled</th>
-        <th class="px-4 py-2"></th>
+      <tr class="text-left text-[10px] uppercase tracking-widest text-[#5a5a5a] border-b border-[#1f1f1f]">
+        <th class="py-2 pr-4">path</th>
+        <th class="py-2 pr-4">label</th>
+        <th class="py-2 pr-4">priority</th>
+        <th class="py-2 pr-4">enabled</th>
+        <th class="py-2"></th>
       </tr>
     </thead>
     <tbody>
       {% for f in folders %}
-      <tr class="border-b border-[#4a4a4a] hover:bg-[#131313]">
-        <td class="px-4 py-2 font-mono text-xs text-[#cfcfcf]">{{ f.path }}</td>
-        <td class="px-4 py-2 text-[#cfcfcf]">{{ f.label or "—" }}</td>
-        <td class="px-4 py-2 text-[#8a8a8a]">{{ f.priority }}</td>
-        <td class="px-4 py-2 text-[#8a8a8a]">{{ "Yes" if f.enabled else "No" }}</td>
-        <td class="px-4 py-2 text-right">
+      <tr class="border-b border-[#141414] hover:bg-[#0d0d0d]">
+        <td class="py-2 pr-4 text-xs text-[#cfcfcf]">{{ f.path }}</td>
+        <td class="py-2 pr-4 text-[#cfcfcf]">{{ f.label or "—" }}</td>
+        <td class="py-2 pr-4 text-[#8a8a8a]">{{ f.priority }}</td>
+        <td class="py-2 pr-4">{% if f.enabled %}<span class="text-[#7fbf7f]">&#9679; yes</span>{% else %}<span class="text-[#5a5a5a]">&#9675; no</span>{% endif %}</td>
+        <td class="py-2 text-right">
           <form method="post" action="/library/folders/{{ f.id }}/delete">
-            <button class="text-xs text-[#ffb4b4] hover:text-white"
+            <button class="text-xs text-[#8a8a8a] hover:text-[#ffb4b4]"
                     onclick="return confirm('Remove this folder record? Files on disk are not deleted.')">
-              Remove
+              remove
             </button>
           </form>
         </td>
@@ -39,30 +43,35 @@
   </table>
 </div>
 {% else %}
-<div class="bg-[#0c0c0c] p-6 border border-[#4a4a4a] text-[#8a8a8a] text-sm mb-6">
+<div class="relative border border-[#242424] bg-[#0a0a0a] p-6 text-[#8a8a8a] text-sm mb-6">
   No library folders configured yet.
 </div>
 {% endif %}
 
-<div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a]">
-  <h3 class="font-mono font-semibold text-sm mb-3">Add folder</h3>
+<div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4">
+  <span class="dt-label">add folder</span>
   <form method="post" action="/library/folders" class="space-y-3">
     <div>
       <label class="block text-xs text-[#8a8a8a] mb-1">Path</label>
       <input type="text" name="path" required placeholder="/path/to/music"
-             class="w-full p-2 bg-black border border-[#4a4a4a] text-sm font-mono">
+             class="w-full p-2 bg-black border border-[#2a2a2a] text-white text-sm focus:outline-none">
     </div>
     <div>
       <label class="block text-xs text-[#8a8a8a] mb-1">Label (optional)</label>
       <input type="text" name="label" placeholder="My Music"
-             class="w-full p-2 bg-black border border-[#4a4a4a] text-sm">
+             class="w-full p-2 bg-black border border-[#2a2a2a] text-white text-sm focus:outline-none">
     </div>
     <div>
       <label class="block text-xs text-[#8a8a8a] mb-1">Priority (lower = preferred for routing)</label>
       <input type="number" name="priority" value="0"
-             class="w-32 p-2 bg-black border border-[#4a4a4a] text-sm">
+             class="w-32 p-2 bg-black border border-[#2a2a2a] text-white text-sm focus:outline-none">
     </div>
-    <button class="px-3 py-1 bg-white text-black hover:bg-[#cfcfcf] text-sm">Add folder</button>
+    <button class="px-3 py-1.5 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f] text-sm">[ add folder ]</button>
   </form>
 </div>
+{% endblock %}
+
+{% block statusbar %}
+  <span class="dt-key"><b>esc</b> back</span>
+  <span class="dt-status-note">{{ folders|length }} folder{% if folders|length != 1 %}s{% endif %} configured</span>
 {% endblock %}

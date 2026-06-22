@@ -22,7 +22,7 @@
     <col style="width:32px">
   </colgroup>
   <thead>
-    <tr class="text-left text-[#8a8a8a] border-b border-[#4a4a4a]">
+    <tr class="text-left text-[10px] uppercase tracking-widest text-[#5a5a5a] border-b border-[#1f1f1f]">
       <th class="pb-2 pr-2"></th>
       <th class="pb-2 pr-2">{{ sort_header("track", "#") }}</th>
       <th class="pb-2 pr-1 w-6">E</th>
@@ -30,38 +30,38 @@
       <th class="pb-2 pr-2">{{ sort_header("artist", "Artist") }}</th>
       <th class="pb-2 pr-2">{{ sort_header("album", "Album") }}</th>
       <th class="pb-2 pr-2">{{ sort_header("disc", "Disc") }}</th>
-      <th class="pb-2 pr-2">{{ sort_header("duration", "Duration") }}</th>
+      <th class="pb-2 pr-2">{{ sort_header("duration", "Dur") }}</th>
       <th class="pb-2">{{ sort_header("path", "Path") }}</th>
       <th class="pb-2 w-8"></th>
     </tr>
   </thead>
   <tbody>
     {% for t in tracks %}
-    <tr class="border-b border-[#4a4a4a] hover:bg-[#0c0c0c]">
-      <td class="py-1 pr-2 overflow-hidden">
+    <tr class="border-b border-[#141414] hover:bg-[#0d0d0d]">
+      <td class="py-1.5 pr-2 overflow-hidden">
         <input type="checkbox" name="track_ids" value="{{ t.id }}">
       </td>
-      <td class="py-1 pr-2 text-[#8a8a8a] overflow-hidden">{{ t.track_num or "—" }}</td>
-      <td class="py-1 pr-1 overflow-hidden">{% if t.advisory == 1 %}<span class="text-xs px-1 bg-[#ffb4b4] text-black font-mono">E</span>{% endif %}</td>
-      <td class="py-1 pr-2 truncate">
-        <a href="#" class="hover:underline hover:text-white" title="{{ t.title or '' }} — click to edit tags"
+      <td class="py-1.5 pr-2 text-[#5a5a5a] overflow-hidden">{{ t.track_num or "—" }}</td>
+      <td class="py-1.5 pr-1 overflow-hidden">{% if t.advisory == 1 %}<span class="text-xs px-1 text-[#ffb4b4] border border-[#5a3a3a]">E</span>{% endif %}</td>
+      <td class="py-1.5 pr-2 truncate">
+        <a href="#" class="text-white hover:underline" title="{{ t.title or '' }} — click to edit tags"
            hx-get="/library/tracks/{{ t.id }}/edit" hx-target="#track-modal-root" hx-swap="innerHTML">{{ t.title or "—" }}</a>
       </td>
-      <td class="py-1 pr-2 text-[#cfcfcf] truncate" title="{{ t.artist or '' }}">{{ t.artist or "—" }}</td>
-      <td class="py-1 pr-2 text-[#cfcfcf] truncate" title="{{ t.album or '' }}">{{ t.album or "—" }}</td>
-      <td class="py-1 pr-2 text-[#8a8a8a] overflow-hidden">{{ t.disc_num or "—" }}</td>
-      <td class="py-1 pr-2 text-[#8a8a8a] overflow-hidden">
+      <td class="py-1.5 pr-2 text-[#cfcfcf] truncate" title="{{ t.artist or '' }}">{{ t.artist or "—" }}</td>
+      <td class="py-1.5 pr-2 text-[#8a8a8a] truncate" title="{{ t.album or '' }}">{{ t.album or "—" }}</td>
+      <td class="py-1.5 pr-2 text-[#5a5a5a] overflow-hidden">{{ t.disc_num or "—" }}</td>
+      <td class="py-1.5 pr-2 text-[#8a8a8a] overflow-hidden">
         {% if t.duration %}{{ "%-4.0f"|format(t.duration // 60) }}:{{ "%02.0f"|format(t.duration % 60) }}{% else %}—{% endif %}
       </td>
-      <td class="py-1 text-[#8a8a8a] text-xs truncate" title="{{ t.path }}">{{ t.path }}</td>
-      <td class="py-1 text-right">
+      <td class="py-1.5 text-[#5a5a5a] text-xs truncate" title="{{ t.path }}">{{ t.path }}</td>
+      <td class="py-1.5 text-right">
         {# Uses the external #track-delete-form (see library.html) because a
            nested form inside the retag form would be invalid HTML. #}
         <button type="submit" form="track-delete-form"
                 formaction="/library/tracks/{{ t.id }}/delete"
                 onclick="return confirm('Remove this entry from the library list? The DB row is deleted — the file on disk is NOT touched. A re-scan will re-add it if the file still exists.');"
                 title="Remove from library list (file is not touched)"
-                class="text-[#8a8a8a] hover:text-[#ffb4b4] text-sm leading-none">&times;</button>
+                class="text-[#5a5a5a] hover:text-[#ffb4b4] text-sm leading-none">&times;</button>
       </td>
     </tr>
     {% endfor %}
@@ -69,15 +69,15 @@
 </table>
 </div>
 
-<div class="flex items-center justify-between mt-3 text-xs text-[#8a8a8a]">
+<div class="flex items-center justify-between mt-3 text-xs text-[#5a5a5a]">
   <div>
     Showing {{ ((page - 1) * page_size) + 1 }}–{{ ((page - 1) * page_size) + tracks|length }} of {{ total }}
   </div>
   <div class="flex items-center gap-3">
     <label class="flex items-center gap-1">
-      Per page:
+      per page
       <select onchange="window.location.search = new URLSearchParams({...Object.fromEntries(new URLSearchParams(window.location.search)), page_size: this.value, page: 1}).toString()"
-              class="bg-black border border-[#4a4a4a] px-1 py-0.5">
+              class="bg-black border border-[#2a2a2a] px-1 py-0.5 text-[#cfcfcf]">
         {% for ps in page_sizes %}
         <option value="{{ ps }}" {% if ps == page_size %}selected{% endif %}>{{ ps }}</option>
         {% endfor %}
@@ -87,11 +87,11 @@
     <div class="flex items-center gap-1">
       {% set base = "?folder_id=" ~ (folder_id or '') ~ "&q=" ~ q ~ "&page_size=" ~ page_size ~ "&sort=" ~ sort ~ "&dir=" ~ dir %}
       {% if page > 1 %}
-      <a href="{{ base }}&page={{ page - 1 }}" class="px-2 py-0.5 border border-[#4a4a4a] hover:text-white">Prev</a>
+      <a href="{{ base }}&page={{ page - 1 }}" class="px-2 py-0.5 border border-[#2a2a2a] hover:text-white">◂ prev</a>
       {% endif %}
-      <span class="px-2">Page {{ page }} / {{ total_pages }}</span>
+      <span class="px-2 text-[#cfcfcf]">{{ page }} / {{ total_pages }}</span>
       {% if page < total_pages %}
-      <a href="{{ base }}&page={{ page + 1 }}" class="px-2 py-0.5 border border-[#4a4a4a] hover:text-white">Next</a>
+      <a href="{{ base }}&page={{ page + 1 }}" class="px-2 py-0.5 border border-[#2a2a2a] hover:text-white">next ▸</a>
       {% endif %}
     </div>
     {% endif %}

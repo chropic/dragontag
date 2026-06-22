@@ -1,120 +1,128 @@
 {% extends "base.html" %}
 {% block title %}dragontag | Queue{% endblock %}
 {% block content %}
-<div class="flex items-center justify-between mb-4">
-  <h2 class="text-xl font-mono font-semibold">Queue</h2>
+<div class="flex items-center gap-2 mb-5">
+  <span class="text-[#c7f0c7]">&#9656;</span>
+  <h2 class="font-bold text-lg">queue</h2>
+  <span class="text-[#5a5a5a] text-xs">jobs &amp; review</span>
 </div>
 
 {# ====================== Jobs section ====================== #}
-<h3 class="text-lg font-mono font-semibold mb-3">Jobs</h3>
 
 <!-- Stats bar -->
-<div class="grid grid-cols-3 gap-4 mb-6">
-  <div class="bg-[#0c0c0c] border border-[#4a4a4a] p-3">
-    <p class="text-[#8a8a8a] text-xs font-mono uppercase tracking-widest mb-1">Pending</p>
-    <p class="font-mono font-bold text-xl">{{ pending }}</p>
+<div class="grid grid-cols-3 gap-4 mb-5">
+  <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-3">
+    <span class="dt-label">pending</span>
+    <p class="font-bold text-2xl text-white">{{ pending }}</p>
   </div>
-  <div class="bg-[#0c0c0c] border border-[#4a4a4a] p-3">
-    <p class="text-[#8a8a8a] text-xs font-mono uppercase tracking-widest mb-1">Done</p>
-    <p class="font-mono font-bold text-xl">{{ done_today }}</p>
+  <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-3">
+    <span class="dt-label">done</span>
+    <p class="font-bold text-2xl text-[#c7f0c7]">{{ done_today }}</p>
   </div>
-  <div class="bg-[#0c0c0c] border border-[#4a4a4a] p-3">
-    <p class="text-[#8a8a8a] text-xs font-mono uppercase tracking-widest mb-1">Errors</p>
-    <p class="font-mono font-bold text-xl {% if errors > 0 %}text-[#ffb4b4]{% endif %}">{{ errors }}</p>
+  <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-3">
+    <span class="dt-label">errors</span>
+    <p class="font-bold text-2xl {% if errors > 0 %}text-[#ffb4b4]{% else %}text-[#e6e6e6]{% endif %}">{{ errors }}</p>
   </div>
 </div>
 
 <!-- Bulk controls -->
-<div class="flex gap-2 mb-4 items-center flex-wrap">
+<div class="flex gap-2 mb-4 items-center flex-wrap text-xs">
   <form id="jobs-bulk-form" method="post" action="/jobs/clear-selected" class="inline flex items-center gap-2"
         onsubmit="return confirm('Delete the selected job rows? In-flight jobs are skipped.');">
-    <label class="flex items-center gap-1 text-sm text-[#8a8a8a]">
+    <label class="flex items-center gap-1 text-[#8a8a8a]">
       <input type="checkbox" id="jobs-select-all"
              onchange="document.querySelectorAll('input[name=job_ids][form=jobs-bulk-form]').forEach(c=>c.checked=this.checked)">
-      Select all
+      select all
     </label>
-    <button class="px-3 py-1 border border-[#ffb4b4] text-sm text-[#ffb4b4] hover:text-white hover:border-white">Clear selected</button>
+    <button class="px-3 py-1 border border-[#5a3a3a] text-[#ffb4b4] hover:border-[#ffb4b4]">clear selected</button>
   </form>
   <form method="post" action="/jobs/cancel-queued" class="inline">
-    <button class="px-3 py-1 border border-[#4a4a4a] text-sm text-[#cfcfcf] hover:text-white hover:border-white">Cancel all queued</button>
+    <button class="px-3 py-1 border border-[#2a2a2a] text-[#cfcfcf] hover:border-[#3a3a3a]">cancel all queued</button>
   </form>
   <form method="post" action="/jobs/clear-completed" class="inline">
-    <button class="px-3 py-1 border border-[#4a4a4a] text-sm text-[#cfcfcf] hover:text-white hover:border-white">Clear completed</button>
+    <button class="px-3 py-1 border border-[#2a2a2a] text-[#cfcfcf] hover:border-[#3a3a3a]">clear completed</button>
   </form>
   <form method="post" action="/jobs/clear-errors" class="inline">
-    <button class="px-3 py-1 border border-[#ffb4b4] text-sm text-[#ffb4b4] hover:text-white hover:border-white">Clear errors</button>
+    <button class="px-3 py-1 border border-[#5a3a3a] text-[#ffb4b4] hover:border-[#ffb4b4]">clear errors</button>
   </form>
   <form method="post" action="/jobs/clear-needs-review" class="inline"
         onsubmit="return confirm('Clear the entire review queue? This cannot be undone.');">
-    <button class="px-3 py-1 border border-[#f2e5b5] text-sm text-[#f2e5b5] hover:text-white hover:border-white">Clear Review Queue</button>
+    <button class="px-3 py-1 border border-[#4a4326] text-[#f2e5b5] hover:border-[#f2e5b5]">clear review queue</button>
   </form>
   <form method="post" action="/jobs/clear-all" class="inline ml-auto"
         onsubmit="return confirm('Delete every non-active job? This removes done, error, skipped, and needs-review rows.');">
-    <button class="px-3 py-1 border border-[#ffb4b4] text-sm text-[#ffb4b4] hover:text-white hover:border-white">Clear all</button>
+    <button class="px-3 py-1 border border-[#5a3a3a] text-[#ffb4b4] hover:border-[#ffb4b4]">clear all</button>
   </form>
 </div>
 
 <!-- Job table -->
-<div class="bg-[#0c0c0c] border border-[#4a4a4a] p-4">
+<div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4">
+  <span class="dt-label">jobs</span>
   <table class="w-full text-sm">
-    <thead class="text-[#8a8a8a] border-b border-[#4a4a4a]">
-      <tr>
+    <thead>
+      <tr class="text-[10px] uppercase tracking-widest text-[#5a5a5a] border-b border-[#1f1f1f]">
         <th class="text-left py-2 pr-2 w-6"></th>
         <th class="text-left py-2 pr-3 w-10">#</th>
-        <th class="text-left pr-3">File</th>
-        <th class="text-left pr-3">Status</th>
-        <th class="text-left pr-3">Score</th>
-        <th class="text-left pr-3">Updated</th>
-        <th class="text-left">Actions</th>
+        <th class="text-left pr-3">file</th>
+        <th class="text-left pr-3">status</th>
+        <th class="text-left pr-3">score</th>
+        <th class="text-left pr-3">updated</th>
+        <th class="text-left">actions</th>
       </tr>
     </thead>
     <tbody>
     {% for j in jobs %}
-      <tr class="border-b border-[#4a4a4a] hover:bg-[#131313]">
+      <tr class="border-b border-[#141414] hover:bg-[#0d0d0d]">
         <td class="py-2 pr-2"><input type="checkbox" name="job_ids" value="{{ j.id }}" form="jobs-bulk-form"></td>
-        <td class="py-2 pr-3 text-[#8a8a8a] font-mono text-xs">{{ j.id }}</td>
+        <td class="py-2 pr-3 text-[#5a5a5a] text-xs">{{ j.id }}</td>
         <td class="py-2 pr-3 truncate max-w-xs">
-          <a class="text-[#cfcfcf] hover:underline" href="/jobs/{{ j.id }}">{{ j.original_name }}</a>
+          <a class="text-[#cfcfcf] hover:text-white hover:underline" href="/jobs/{{ j.id }}">{{ j.original_name }}</a>
           {% if j.dry_run_override == true or (j.review_reason and j.review_reason.value == "dry_run") %}
-          <span class="text-xs px-2 py-0.5 bg-[#2a2a2a] text-[#8a8a8a] ml-1" title="Ran in dry-run mode (no files written)">DRY</span>
+          <span class="text-[10px] px-1.5 py-0.5 border border-[#2a2a2a] text-[#8a8a8a] ml-1" title="Ran in dry-run mode (no files written)">DRY</span>
           {% endif %}
         </td>
         <td class="py-2 pr-3">
-          <span class="px-2 py-0.5 text-xs
-            {% if j.status.value == 'done' %}bg-[#c7f0c7] text-black
-            {% elif j.status.value == 'error' %}bg-[#ffb4b4] text-black
-            {% elif j.status.value == 'needs_review' %}bg-[#f2e5b5] text-black
-            {% elif j.status.value == 'skipped' %}bg-[#2a2a2a] text-[#8a8a8a]
-            {% else %}bg-[#131313]{% endif %}">
-            {{ j.status.value }}
+          <span class="
+            {% if j.status.value == 'done' %}text-[#c7f0c7]
+            {% elif j.status.value == 'error' %}text-[#ffb4b4]
+            {% elif j.status.value == 'needs_review' %}text-[#f2e5b5]
+            {% elif j.status.value == 'running' %}text-[#f2e5b5]
+            {% elif j.status.value == 'skipped' %}text-[#5a5a5a]
+            {% else %}text-[#8a8a8a]{% endif %}">
+            {%- if j.status.value == 'done' %}&#9679; done
+            {%- elif j.status.value == 'error' %}&#10005; error
+            {%- elif j.status.value == 'needs_review' %}&#9650; review
+            {%- elif j.status.value == 'running' %}&#9727; running
+            {%- elif j.status.value == 'skipped' %}&middot; skipped
+            {%- else %}&middot; {{ j.status.value }}{% endif -%}
           </span>
         </td>
         <td class="py-2 pr-3 text-[#8a8a8a]">
           {% if j.score is not none %}{{ "%.2f"|format(j.score) }}{% endif %}
         </td>
-        <td class="py-2 pr-3 text-[#8a8a8a] text-xs">{{ format_local(j.updated_at) }}</td>
+        <td class="py-2 pr-3 text-[#5a5a5a] text-xs">{{ format_local(j.updated_at) }}</td>
         <td class="py-2">
-          <div class="flex gap-2">
+          <div class="flex gap-2 text-xs">
             {% if j.status.value == 'queued' %}
             <form method="post" action="/jobs/{{ j.id }}/cancel" class="inline">
-              <button class="text-xs text-[#8a8a8a] hover:text-[#ffb4b4]">cancel</button>
+              <button class="text-[#8a8a8a] hover:text-[#ffb4b4]">cancel</button>
             </form>
             {% endif %}
             {% if j.status.value == 'running' %}
             <form method="post" action="/jobs/{{ j.id }}/cancel" class="inline"
                   onsubmit="return confirm('Stop this task? Work done so far is kept.');">
-              <button class="text-xs text-[#8a8a8a] hover:text-[#ffb4b4]">stop</button>
+              <button class="text-[#8a8a8a] hover:text-[#ffb4b4]">stop</button>
             </form>
             {% endif %}
             {% if j.status.value in ['done', 'error', 'skipped'] %}
             <form method="post" action="/jobs/{{ j.id }}/requeue" class="inline">
-              <button class="text-xs text-[#8a8a8a] hover:text-white">requeue</button>
+              <button class="text-[#8a8a8a] hover:text-white">requeue</button>
             </form>
             {% endif %}
           </div>
         </td>
       </tr>
-      <tr id="log-{{ j.id }}" class="hidden border-b border-[#4a4a4a]">
+      <tr id="log-{{ j.id }}" class="hidden border-b border-[#141414]">
         <td colspan="7" class="p-0"></td>
       </tr>
     {% else %}
@@ -123,11 +131,11 @@
     </tbody>
   </table>
 
-  <div class="flex items-center justify-between gap-4 mt-3 text-sm text-[#8a8a8a]">
+  <div class="flex items-center justify-between gap-4 mt-3 text-xs text-[#5a5a5a]">
     <label class="flex items-center gap-1">
-      Per page:
+      per page
       <select onchange="window.location='/queue?page=1&page_size=' + this.value"
-              class="bg-black border border-[#4a4a4a] px-1 py-0.5">
+              class="bg-black border border-[#2a2a2a] px-1 py-0.5 text-[#cfcfcf]">
         {% for ps in page_sizes %}
         <option value="{{ ps }}" {% if ps == page_size %}selected{% endif %}>{{ ps }}</option>
         {% endfor %}
@@ -136,11 +144,11 @@
     {% if total_pages > 1 %}
     <div class="flex items-center gap-4">
       {% if page > 1 %}
-      <a href="/queue?page={{ page - 1 }}&page_size={{ page_size }}" class="hover:text-white">&larr; Prev</a>
+      <a href="/queue?page={{ page - 1 }}&page_size={{ page_size }}" class="hover:text-white">&larr; prev</a>
       {% endif %}
-      <span>Page {{ page }} / {{ total_pages }}</span>
+      <span class="text-[#cfcfcf]">page {{ page }} / {{ total_pages }}</span>
       {% if page < total_pages %}
-      <a href="/queue?page={{ page + 1 }}&page_size={{ page_size }}" class="hover:text-white">Next &rarr;</a>
+      <a href="/queue?page={{ page + 1 }}&page_size={{ page_size }}" class="hover:text-white">next &rarr;</a>
       {% endif %}
     </div>
     {% endif %}
@@ -148,19 +156,21 @@
 </div>
 
 {# ====================== Review section ====================== #}
-<div class="mb-8 mt-10 pt-6 border-t border-[#2a2a2a]">
-  <h3 class="text-lg font-mono font-semibold mb-3">Needs review
-    {% if items %}<span class="text-xs px-2 py-0.5 bg-[#f2e5b5] text-black align-middle ml-1">{{ items|length }}</span>{% endif %}
-  </h3>
+<div class="mb-8 mt-8 pt-6 border-t border-[#242424]">
+  <div class="flex items-center gap-2 mb-4">
+    <span class="text-[#f2e5b5]">&#9650;</span>
+    <h3 class="font-bold text-base">needs review</h3>
+    {% if items %}<span class="text-xs px-2 py-0.5 border border-[#4a4326] text-[#f2e5b5]">{{ items|length }}</span>{% endif %}
+  </div>
 
 {% if items %}
 <form method="post" action="/review/bulk-apply" id="review-bulk-form" class="mb-3 flex items-center gap-3 text-sm">
   <label class="flex items-center gap-2 text-[#8a8a8a]">
     <input type="checkbox" id="review-select-all" onchange="document.querySelectorAll('input[name=job_ids][form=review-bulk-form]').forEach(c=>c.checked=this.checked)">
-    Select all
+    select all
   </label>
-  <button type="submit" class="px-3 py-1 border border-[#c7f0c7] text-[#c7f0c7] hover:text-white hover:border-white">Apply selected</button>
-  <span class="text-[#8a8a8a] text-xs">{{ items|length }} item{% if items|length != 1 %}s{% endif %}</span>
+  <button type="submit" class="px-3 py-1 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f]">apply selected</button>
+  <span class="text-[#5a5a5a] text-xs">{{ items|length }} item{% if items|length != 1 %}s{% endif %}</span>
 </form>
 <script>
   // Gather each checked job's chosen candidate (and cover) from its own
@@ -204,40 +214,40 @@
 {% endif %}
 
 {% for j in items %}
-<div class="bg-[#0c0c0c] px-3 py-2 mb-2 border border-[#4a4a4a]">
+<div class="relative border border-[#242424] bg-[#0a0a0a] px-3 py-2.5 mb-2">
   <div class="flex items-center gap-2">
     <input type="checkbox" name="job_ids" value="{{ j.id }}" form="review-bulk-form">
-    <a href="/jobs/{{ j.id }}" class="font-medium text-[#cfcfcf] hover:underline truncate">{{ j.original_name }}</a>
-    <span class="text-xs px-2 py-0.5 bg-[#f2e5b5] text-black">{{ j.review_reason.value if j.review_reason else "review" }}</span>
+    <a href="/jobs/{{ j.id }}" class="font-medium text-white hover:underline truncate">{{ j.original_name }}</a>
+    <span class="text-xs px-2 py-0.5 border border-[#4a4326] text-[#f2e5b5]">{{ j.review_reason.value if j.review_reason else "review" }}</span>
     {% if j.dry_run_override == true or (j.review_reason and j.review_reason.value == "dry_run") %}
-    <span class="text-xs px-2 py-0.5 bg-[#2a2a2a] text-[#8a8a8a]" title="Ran in dry-run mode (no files written)">DRY</span>
+    <span class="text-xs px-2 py-0.5 border border-[#2a2a2a] text-[#8a8a8a]" title="Ran in dry-run mode (no files written)">DRY</span>
     {% endif %}
     {% if j.score is not none %}<span class="text-xs text-[#8a8a8a]">score {{ "%.2f"|format(j.score) }}</span>{% endif %}
   </div>
 
   {% if j.review_reason and j.review_reason.value == "destination_conflict" %}
-    <form method="post" action="/review/{{ j.id }}/resolve_conflict" class="mt-2 flex gap-2 text-sm">
+    <form method="post" action="/review/{{ j.id }}/resolve_conflict" class="mt-2 flex gap-2 text-sm items-center flex-wrap">
       <span class="text-[#8a8a8a]">Destination exists: <span class="text-[#cfcfcf]">{{ j.destination_path }}</span></span>
-      <button name="action" value="replace" class="px-3 py-1 bg-[#ffb4b4] text-black hover:bg-[#ffb4b4]/80">Replace</button>
-      <button name="action" value="rename" class="px-3 py-1 bg-white text-black hover:bg-[#cfcfcf]">Rename (-1)</button>
-      <button name="action" value="skip" class="px-3 py-1 bg-[#131313] hover:bg-[#131313]/80">Skip</button>
+      <button name="action" value="replace" class="px-3 py-1 border border-[#5a3a3a] bg-[#0e0808] text-[#ffb4b4] hover:border-[#ffb4b4]">Replace</button>
+      <button name="action" value="rename" class="px-3 py-1 border border-[#2a2a2a] bg-[#0c0c0c] text-[#cfcfcf] hover:border-[#3a3a3a]">Rename (-1)</button>
+      <button name="action" value="skip" class="px-3 py-1 border border-[#2a2a2a] text-[#8a8a8a] hover:border-[#3a3a3a]">Skip</button>
     </form>
   {% else %}
     <form method="post" action="/review/{{ j.id }}/apply" enctype="multipart/form-data" id="apply-form-{{ j.id }}" class="mt-3 space-y-3 text-sm">
 
       {# ---- dry-run preview: tag table + computed destination ---- #}
       {% if j.review_reason and j.review_reason.value == "dry_run" %}
-      <div class="bg-black/60 border border-[#4a4a4a] p-3">
-        <div class="text-[#8a8a8a] text-xs mb-2 font-semibold uppercase tracking-wide">Dry-run preview</div>
+      <div class="bg-black/60 border border-[#242424] p-3">
+        <div class="text-[#5a5a5a] text-xs mb-2 uppercase tracking-widest">Dry-run preview</div>
         {% if j.destination_path %}
-        <div class="mb-2 text-xs"><span class="text-[#8a8a8a]">Destination: </span><span class="text-[#cfcfcf] font-mono">{{ j.destination_path }}</span></div>
+        <div class="mb-2 text-xs"><span class="text-[#8a8a8a]">Destination: </span><span class="text-[#cfcfcf]">{{ j.destination_path }}</span></div>
         {% endif %}
         {% if j.chosen_tags_json %}
         <table class="w-full text-xs border-collapse">
           {% for k, v in j.chosen_tags_json.items() %}
           {% if v is not none and v != "" and v != [] and v != false and k != "cover_mime" %}
-          <tr class="border-t border-[#4a4a4a]/50">
-            <td class="py-0.5 pr-3 text-[#8a8a8a] font-mono whitespace-nowrap">{{ k }}</td>
+          <tr class="border-t border-[#1f1f1f]">
+            <td class="py-0.5 pr-3 text-[#8a8a8a] whitespace-nowrap">{{ k }}</td>
             <td class="py-0.5 text-[#cfcfcf] break-all">
               {%- if v is iterable and v is not string -%}{{ v | join(", ") }}{%- else -%}{{ v }}{%- endif -%}
             </td>
@@ -257,22 +267,22 @@
       <div class="mb-2" id="mb-search-{{ j.id }}">
         <div class="grid grid-cols-3 gap-1">
           <input type="text" name="title" placeholder="Title"
-                 class="mb-search-input p-1 bg-black border border-[#4a4a4a] text-sm">
+                 class="mb-search-input p-1.5 bg-black border border-[#2a2a2a] text-white text-sm focus:outline-none">
           <input type="text" name="artist" placeholder="Artist"
-                 class="mb-search-input p-1 bg-black border border-[#4a4a4a] text-sm">
+                 class="mb-search-input p-1.5 bg-black border border-[#2a2a2a] text-white text-sm focus:outline-none">
           <input type="text" name="album" placeholder="Album"
-                 class="mb-search-input p-1 bg-black border border-[#4a4a4a] text-sm">
+                 class="mb-search-input p-1.5 bg-black border border-[#2a2a2a] text-white text-sm focus:outline-none">
         </div>
         <div class="flex gap-1 mt-1">
           <input type="text" name="mbid" placeholder="…or paste a MusicBrainz URL / ID"
-                 class="mb-search-input flex-1 p-1 bg-black border border-[#4a4a4a] text-sm">
+                 class="mb-search-input flex-1 p-1.5 bg-black border border-[#2a2a2a] text-white text-sm focus:outline-none">
           <button type="button" id="mb-search-btn-{{ j.id }}"
                   hx-get="/api/mb-search"
                   hx-trigger="click"
                   hx-target="#mb-results-{{ j.id }}"
                   hx-include="#mb-search-{{ j.id }} input"
                   hx-vals='{"job_id": {{ j.id }}}'
-                  class="px-3 py-1 bg-white text-black hover:bg-[#cfcfcf] text-sm">Search</button>
+                  class="px-3 py-1 border border-[#2a2a2a] bg-[#0c0c0c] text-[#cfcfcf] hover:border-[#3a3a3a] text-sm">Search</button>
         </div>
         <div id="mb-results-{{ j.id }}" class="mt-1"></div>
         <script>
@@ -292,10 +302,10 @@
       {% if cands %}
       <div class="space-y-1">
         {% for c in cands %}
-          <label class="flex items-center gap-2 p-2 hover:bg-[#131313]/40">
+          <label class="flex items-center gap-2 p-2 hover:bg-[#0d0d0d]">
             <input type="radio" name="pick" value="{{ c.recording_id }}|{{ c.release_id }}" {% if loop.first %}checked{% endif %}>
-            <span class="font-mono text-xs">{{ "%.2f"|format(c.score) }}</span>
-            <span>{{ c.title }} — {{ c.album }}</span>
+            <span class="text-xs text-[#8a8a8a]">{{ "%.2f"|format(c.score) }}</span>
+            <span class="text-[#cfcfcf]">{{ c.title }} — {{ c.album }}</span>
             <a class="ml-auto text-xs text-[#cfcfcf] hover:underline" target="_blank"
                href="https://musicbrainz.org/recording/{{ c.recording_id }}">MB</a>
           </label>
@@ -303,8 +313,8 @@
       </div>
       {% else %}
       <div class="text-[#8a8a8a]">No candidates were stored. Pick a manual search result above, or paste MB ids:</div>
-      <input name="manual_recording_id" placeholder="MB recording id" class="p-1 bg-black border border-[#4a4a4a] w-72">
-      <input name="manual_release_id" placeholder="MB release id" class="p-1 bg-black border border-[#4a4a4a] w-72">
+      <input name="manual_recording_id" placeholder="MB recording id" class="p-1.5 bg-black border border-[#2a2a2a] text-white w-72 focus:outline-none">
+      <input name="manual_release_id" placeholder="MB release id" class="p-1.5 bg-black border border-[#2a2a2a] text-white w-72 focus:outline-none">
       {% endif %}
 
       {# Hidden fields the form actually submits. Populated on submit from a
@@ -354,13 +364,13 @@
       {# ---- cover art picker ---- #}
       {% if cands %}
       <div class="space-y-2">
-        <div class="text-[#8a8a8a] text-xs font-semibold uppercase tracking-wide">Cover art</div>
+        <div class="text-[#5a5a5a] text-xs uppercase tracking-widest">Cover art</div>
         <div class="flex gap-2 flex-wrap" id="covers-{{ j.id }}">
           {% for c in cands %}
           <button type="button"
             data-url="https://coverartarchive.org/release/{{ c.release_id }}/front"
             onclick="selectCover(this, 'covers-{{ j.id }}', 'cover_url_{{ j.id }}')"
-            class="cover-btn overflow-hidden border-2 border-transparent focus:outline-none {% if loop.first %}border-white{% endif %}"
+            class="cover-btn overflow-hidden border-2 border-transparent focus:outline-none {% if loop.first %}border-[#c7f0c7]{% endif %}"
             title="{{ c.album }}">
             <img src="https://coverartarchive.org/release/{{ c.release_id }}/front-250"
                  onerror="this.closest('button').style.display='none'"
@@ -380,11 +390,11 @@
       <script>
         function selectCover(btn, groupId, urlInputId) {
           document.querySelectorAll('#' + groupId + ' .cover-btn').forEach(function(b) {
-            b.classList.remove('border-white');
+            b.classList.remove('border-[#c7f0c7]');
             b.classList.add('border-transparent');
           });
           btn.classList.remove('border-transparent');
-          btn.classList.add('border-white');
+          btn.classList.add('border-[#c7f0c7]');
           document.getElementById(urlInputId).value = btn.dataset.url;
           // Mark an explicit cover choice so the submit handler won't override
           // it with the chosen release's default front cover.
@@ -398,17 +408,17 @@
 
       <div class="flex items-center gap-2">
         <label class="text-[#8a8a8a]">RELEASETYPE override:</label>
-        <select name="release_type_override" class="p-1 bg-black border border-[#4a4a4a]">
+        <select name="release_type_override" class="p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
           <option value="">(use MB value)</option>
           <option>Album</option><option>Single</option><option>EP</option>
           <option>Compilation</option><option>Soundtrack</option><option>Other</option>
         </select>
         {% if j.review_reason and j.review_reason.value == "dry_run" %}
-        <button class="review-submit-btn ml-auto px-3 py-1 bg-[#c7f0c7] text-black hover:bg-[#c7f0c7]/80"
+        <button class="review-submit-btn ml-auto px-3 py-1 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f]"
                 data-label="Commit" data-loading-text="Committing…"
                 onclick="this.disabled=true; this.textContent=this.dataset.loadingText; this.form.requestSubmit();">Commit</button>
         {% else %}
-        <button class="review-submit-btn ml-auto px-3 py-1 bg-[#c7f0c7] text-black hover:bg-[#c7f0c7]/80"
+        <button class="review-submit-btn ml-auto px-3 py-1 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f]"
                 data-label="Apply" data-loading-text="Applying…"
                 onclick="this.disabled=true; this.textContent=this.dataset.loadingText; this.form.requestSubmit();">Apply</button>
         {% endif %}
@@ -417,7 +427,7 @@
 
     {% if j.review_reason and j.review_reason.value == "dry_run" %}
     <form method="post" action="/review/{{ j.id }}/resolve_conflict" class="mt-2">
-      <button name="action" value="skip" class="text-xs px-3 py-1 bg-[#131313] hover:bg-[#131313]/80">Skip (discard)</button>
+      <button name="action" value="skip" class="text-xs px-3 py-1 border border-[#2a2a2a] text-[#8a8a8a] hover:border-[#3a3a3a]">Skip (discard)</button>
     </form>
     {% endif %}
   {% endif %}
@@ -437,4 +447,11 @@ window.addEventListener('pageshow', function(e) {
   }
 });
 </script>
+{% endblock %}
+
+{% block statusbar %}
+  <span class="dt-key"><b>space</b> select</span>
+  <span class="dt-key"><b>a</b> apply</span>
+  <span class="dt-key"><b>x</b> cancel</span>
+  <span class="dt-status-note">{{ pending }} pending &middot; {% if items %}{{ items|length }} review{% else %}0 review{% endif %} &middot; {{ errors }} error{% if errors != 1 %}s{% endif %}</span>
 {% endblock %}

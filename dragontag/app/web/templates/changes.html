@@ -1,52 +1,58 @@
 {% extends "base.html" %}
 {% block title %}dragontag | Changes{% endblock %}
 {% block content %}
-<div class="flex items-center justify-between mb-2">
-  <h2 class="text-xl font-mono font-semibold">Recent changes</h2>
+<div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+  <div class="flex items-center gap-2">
+    <span class="text-[#c7f0c7]">&#9656;</span>
+    <h2 class="font-bold text-lg">changes</h2>
+    <span class="text-[#5a5a5a] text-xs">audit log</span>
+  </div>
   <div class="flex items-center gap-3">
-    <span class="text-[#8a8a8a] text-sm">Last {{ changes|length }} change{% if changes|length != 1 %}s{% endif %}</span>
+    <span class="text-[#8a8a8a] text-xs">last {{ changes|length }} change{% if changes|length != 1 %}s{% endif %}</span>
     {% if changes %}
     <form method="post" action="/changes/clear" class="inline"
           onsubmit="return confirm('Clear all change records? Files and tags are untouched, but revert / move-back will no longer be possible for these entries.');">
-      <button class="text-xs px-3 py-1 border border-[#ffb4b4] text-[#ffb4b4] hover:text-white hover:border-white">Clear all</button>
+      <button class="text-xs px-3 py-1 border border-[#5a3a3a] bg-[#0e0808] text-[#ffb4b4] hover:border-[#ffb4b4]">[ clear all ]</button>
     </form>
     {% endif %}
   </div>
 </div>
 
-<p class="text-[#8a8a8a] text-sm mb-4">Each row is a tag write the pipeline applied to a file. Reverting restores the
-file's original tags in place and removes the <code class="text-xs">cover.jpg</code> dragontag added.
+<p class="text-[#8a8a8a] text-xs mb-4 leading-relaxed max-w-3xl">Each row is a tag write the pipeline applied to a file. Reverting restores the
+file's original tags in place and removes the <code class="text-[#cfcfcf]">cover.jpg</code> dragontag added.
 "Move back" returns the file to its pre-pipeline directory and adds it to the excluded files (Settings → Scan filters) so it isn't automatically re-ingested.
 The number of records kept is configurable in Settings.</p>
 
-<div class="bg-[#0c0c0c] border border-[#4a4a4a] p-4">
+<div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-3">
+  <span class="dt-label">change history</span>
+  <span class="dt-label-r">newest first</span>
   <table class="w-full text-sm table-fixed">
-    <thead class="text-[#8a8a8a] border-b border-[#4a4a4a]">
-      <tr>
-        <th class="text-left py-2 pr-3 w-2/5">File / applied tags</th>
-        <th class="text-left pr-3 w-1/5">When</th>
-        <th class="text-left pr-3 w-[15%]">Status</th>
-        <th class="text-left">Action</th>
+    <thead>
+      <tr class="text-left text-[10px] uppercase tracking-widest text-[#5a5a5a] border-b border-[#1f1f1f]">
+        <th class="text-left py-2 pr-3 w-2/5">file / applied tags</th>
+        <th class="text-left pr-3 w-1/5">when</th>
+        <th class="text-left pr-3 w-[15%]">status</th>
+        <th class="text-left">action</th>
       </tr>
     </thead>
     <tbody>
     {% for c in changes %}
-      <tr class="border-b border-[#4a4a4a] hover:bg-[#131313] align-top">
+      <tr class="border-b border-[#141414] hover:bg-[#0d0d0d] align-top">
         <td class="py-2 pr-3">
-          <div class="text-[#cfcfcf] truncate">{{ c.new_tags_json.get('title') or c.original_name }}</div>
+          <div class="text-[#e6e6e6] truncate">{{ c.new_tags_json.get('title') or c.original_name }}</div>
           <div class="text-[#8a8a8a] text-xs truncate">
             {{ c.new_tags_json.get('artist_display') or '—' }}{% if c.new_tags_json.get('album') %} · {{ c.new_tags_json.get('album') }}{% endif %}
           </div>
-          <div class="text-[#6a6a6a] text-xs font-mono truncate">{{ c.file_path }}</div>
+          <div class="text-[#5a5a5a] text-xs truncate">{{ c.file_path }}</div>
         </td>
-        <td class="py-2 pr-3 text-[#8a8a8a] text-xs">{{ format_local(c.created_at) }}</td>
-        <td class="py-2 pr-3">
+        <td class="py-2 pr-3 text-[#5a5a5a] text-xs">{{ format_local(c.created_at) }}</td>
+        <td class="py-2 pr-3 text-xs">
           {% if c.reverted_at %}
-            <span class="px-2 py-0.5 text-xs bg-[#2a2a2a] text-[#8a8a8a]">reverted</span>
+            <span class="text-[#5a5a5a]">&middot; reverted</span>
           {% elif c.revert_error %}
-            <span class="text-xs text-[#ffb4b4]" title="{{ c.revert_error }}">revert failed</span>
+            <span class="text-[#ffb4b4]" title="{{ c.revert_error }}">&#10005; revert failed</span>
           {% else %}
-            <span class="text-xs text-[#8a8a8a]">applied</span>
+            <span class="text-[#c7f0c7]">&#9679; applied</span>
           {% endif %}
         </td>
         <td class="py-2">
@@ -54,7 +60,7 @@ The number of records kept is configurable in Settings.</p>
             {% if not c.reverted_at %}
             <form method="post" action="/changes/{{ c.id }}/revert" class="inline"
                   onsubmit="return confirm('Restore the original tags for this file? This rewrites the tags in place.');">
-              <button class="text-xs px-3 py-1 border border-[#f2e5b5] text-[#f2e5b5] hover:text-white hover:border-white">Revert</button>
+              <button class="text-xs px-3 py-1 border border-[#4a4326] bg-[#0e0d08] text-[#f2e5b5] hover:border-[#f2e5b5]">&#8634; revert</button>
             </form>
             {% endif %}
             {% if c.original_path and c.original_path != c.file_path %}
@@ -62,8 +68,8 @@ The number of records kept is configurable in Settings.</p>
                string — apostrophes in paths would break the inline handler. #}
             <form method="post" action="/changes/{{ c.id }}/move-back" class="inline"
                   onsubmit="return confirm('Move the file back to its original directory? It will be added to the excluded files so it is not re-ingested.');">
-              <button class="text-xs px-3 py-1 border border-[#4a4a4a] text-[#cfcfcf] hover:text-white hover:border-white"
-                      title="Move back to {{ c.original_path }}">Move back</button>
+              <button class="text-xs px-3 py-1 border border-[#2a2a2a] bg-[#0c0c0c] text-[#cfcfcf] hover:border-[#3a3a3a]"
+                      title="Move back to {{ c.original_path }}">&#8617; move back</button>
             </form>
             {% endif %}
           </div>
@@ -75,4 +81,11 @@ The number of records kept is configurable in Settings.</p>
     </tbody>
   </table>
 </div>
+{% endblock %}
+
+{% block statusbar %}
+  <span class="dt-key"><b>&#8634;</b> revert</span>
+  <span class="dt-key"><b>&#8617;</b> move back</span>
+  <span class="dt-key"><b>/</b> filter</span>
+  <span class="dt-status-note">{{ changes|length }} record{% if changes|length != 1 %}s{% endif %} &middot; newest first</span>
 {% endblock %}

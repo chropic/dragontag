@@ -15,8 +15,8 @@
       inset: 0;
       pointer-events: none;
       z-index: 9999;
-      background: linear-gradient(180deg,rgba(255,255,255,.04) 0,rgba(255,255,255,.04) 1px,transparent 1px,transparent 4px);
-      background-size: 100% 4px;
+      background: linear-gradient(180deg,rgba(255,255,255,.03) 0,rgba(255,255,255,.03) 1px,transparent 1px,transparent 3px);
+      background-size: 100% 3px;
     }
     input:focus, textarea:focus, select:focus {
       outline: none;
@@ -24,12 +24,15 @@
     }
   </style>
 </head>
-<body class="bg-black text-white font-sans min-h-screen flex items-center justify-center p-6">
+<body class="bg-black text-white font-mono min-h-screen flex items-center justify-center p-6">
   <div class="w-full max-w-md space-y-6">
 
-    <div>
-      <h1 class="font-mono font-semibold text-2xl tracking-tight">dragontag</h1>
-      <p class="text-[#8a8a8a] text-sm mt-1">First-run setup — configure credentials before use.</p>
+    <div class="flex items-center gap-2.5">
+      <span class="text-[#c7f0c7] text-xl" style="text-shadow:0 0 12px rgba(199,240,199,.7)">&#9608;</span>
+      <div>
+        <h1 class="font-bold text-xl tracking-tight">dragontag</h1>
+        <p class="text-[#5a5a5a] text-xs tracking-widest">FIRST-RUN SETUP &middot; configure credentials</p>
+      </div>
     </div>
 
     {% if error %}
@@ -38,61 +41,58 @@
 
     <form method="post" action="/setup" class="space-y-5">
 
-      <div class="border border-[#4a4a4a] p-4 space-y-3">
-        <h2 class="font-mono font-semibold text-sm uppercase tracking-widest text-[#cfcfcf]">Credentials</h2>
-
+      <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-3">
+        <span class="absolute left-3 -top-[7px] bg-black px-[7px] text-[10px] uppercase tracking-[0.2em] text-[#8a8a8a]">Credentials</span>
         <div>
           <label class="block text-xs text-[#8a8a8a] mb-1">
             Username
-            <span class="ml-1 font-mono text-[#4a4a4a]">(set via <code>AIO_USERNAME</code> env var)</span>
+            <span class="ml-1 text-[#4a4a4a]">(set via <code>AIO_USERNAME</code> env var)</span>
           </label>
-          <div class="p-2 bg-[#0c0c0c] border border-[#4a4a4a] text-[#8a8a8a] font-mono text-sm select-none">
+          <div class="p-2 bg-black border border-[#2a2a2a] text-[#8a8a8a] text-sm select-none">
             {{ username }}
           </div>
         </div>
-
         <div>
           <label class="block text-xs text-[#8a8a8a] mb-1" for="password">Password</label>
           <input id="password" name="password" type="password" required autocomplete="new-password"
-                 class="w-full p-2 bg-black border border-[#4a4a4a] text-white placeholder-[#8a8a8a] focus:outline-none focus:border-[#a8a8a8]"
+                 class="w-full p-2 bg-black border border-[#2a2a2a] text-white placeholder-[#3a3a3a] text-sm focus:outline-none"
                  placeholder="choose a strong password">
         </div>
-
         <div>
           <label class="block text-xs text-[#8a8a8a] mb-1" for="password_confirm">Confirm password</label>
           <input id="password_confirm" name="password_confirm" type="password" required autocomplete="new-password"
-                 class="w-full p-2 bg-black border border-[#4a4a4a] text-white placeholder-[#8a8a8a] focus:outline-none focus:border-[#a8a8a8]"
+                 class="w-full p-2 bg-black border border-[#2a2a2a] text-white placeholder-[#3a3a3a] text-sm focus:outline-none"
                  placeholder="repeat password">
         </div>
       </div>
 
-      <div class="border border-[#4a4a4a] p-4 space-y-3">
-        <h2 class="font-mono font-semibold text-sm uppercase tracking-widest text-[#cfcfcf]">AcoustID <span class="text-[#4a4a4a] font-normal normal-case tracking-normal">optional</span></h2>
+      <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-3">
+        <span class="absolute left-3 -top-[7px] bg-black px-[7px] text-[10px] uppercase tracking-[0.2em] text-[#8a8a8a]">AcoustID <span class="text-[#4a4a4a] normal-case tracking-normal">optional</span></span>
         <p class="text-xs text-[#8a8a8a]">
           Enables audio fingerprint fallback when MusicBrainz text search finds nothing.
-          Get a free key at <span class="font-mono text-[#cfcfcf]">acoustid.org/login</span>.
+          Get a free key at <span class="text-[#cfcfcf]">acoustid.org/login</span>.
         </p>
         <div>
           <label class="block text-xs text-[#8a8a8a] mb-1" for="acoustid_key">API key</label>
           <input id="acoustid_key" name="acoustid_key" type="text" autocomplete="off"
-                 class="w-full p-2 bg-black border border-[#4a4a4a] text-white placeholder-[#8a8a8a] font-mono focus:outline-none focus:border-[#a8a8a8]"
+                 class="w-full p-2 bg-black border border-[#2a2a2a] text-white placeholder-[#3a3a3a] focus:outline-none"
                  placeholder="leave blank to skip">
         </div>
       </div>
 
-      <div class="border border-[#4a4a4a] p-4 space-y-1 text-xs text-[#8a8a8a]">
-        <h2 class="font-mono font-semibold text-sm uppercase tracking-widest text-[#cfcfcf] mb-2">Volumes</h2>
-        <div class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono">
-          <span class="text-[#cfcfcf]">/library</span><span>destination for tagged files</span>
-          <span class="text-[#cfcfcf]">/drop</span><span>watched ingest folder</span>
-          <span class="text-[#cfcfcf]">/config</span><span>database, settings, this password hash</span>
+      <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-1 text-xs text-[#8a8a8a]">
+        <span class="absolute left-3 -top-[7px] bg-black px-[7px] text-[10px] uppercase tracking-[0.2em] text-[#8a8a8a]">Volumes</span>
+        <div class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+          <span class="text-[#c7f0c7]">/library</span><span>destination for tagged files</span>
+          <span class="text-[#c7f0c7]">/drop</span><span>watched ingest folder</span>
+          <span class="text-[#c7f0c7]">/config</span><span>database, settings, this password hash</span>
         </div>
-        <p class="pt-2">Paths are set by Docker volume mounts — edit <span class="font-mono text-[#cfcfcf]">docker-compose.yml</span> to change them. More library folders can be added later from the Library page.</p>
+        <p class="pt-2">Paths are set by Docker volume mounts — edit <span class="text-[#cfcfcf]">docker-compose.yml</span> to change them. More library folders can be added later from the Library page.</p>
       </div>
 
       <button type="submit"
-              class="w-full p-2 bg-white text-black font-mono font-semibold hover:bg-[#cfcfcf] transition-colors">
-        Save and continue to login
+              class="w-full p-2.5 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] text-sm hover:bg-[#0f140f] transition-colors">
+        [ save &amp; continue to login &#9656; ]
       </button>
 
     </form>

@@ -15,28 +15,49 @@
       inset: 0;
       pointer-events: none;
       z-index: 9999;
-      background: linear-gradient(180deg,rgba(255,255,255,.04) 0,rgba(255,255,255,.04) 1px,transparent 1px,transparent 4px);
-      background-size: 100% 4px;
+      background: linear-gradient(180deg,rgba(255,255,255,.03) 0,rgba(255,255,255,.03) 1px,transparent 1px,transparent 3px);
+      background-size: 100% 3px;
     }
     input:focus, textarea:focus, select:focus {
       outline: none;
       box-shadow: 0 0 0 1px #c7f0c7, inset 0 0 0 1px rgba(199,240,199,0.1);
     }
+    @keyframes dt-blink { 0%,48%{opacity:1} 49%,100%{opacity:0} }
   </style>
 </head>
-<body class="bg-black text-white font-sans min-h-screen flex items-center justify-center">
-  <form method="post" action="/login" class="bg-[#0c0c0c] p-8 w-80 space-y-3 border border-[#4a4a4a]">
-    <h1 class="font-mono font-semibold text-xl tracking-tight">dragontag</h1>
+<body class="bg-black text-white font-mono min-h-screen flex items-center justify-center p-6">
+  <form method="post" action="/login"
+        class="relative bg-[#0a0d0a] p-7 w-[420px] space-y-4 border border-[#335533]"
+        style="box-shadow:0 0 40px rgba(199,240,199,.04)">
+    <!-- corner reticles -->
+    <span class="absolute -top-px -left-px w-2.5 h-2.5 border-t border-l border-[#c7f0c7]"></span>
+    <span class="absolute -top-px -right-px w-2.5 h-2.5 border-t border-r border-[#c7f0c7]"></span>
+    <span class="absolute -bottom-px -left-px w-2.5 h-2.5 border-b border-l border-[#c7f0c7]"></span>
+    <span class="absolute -bottom-px -right-px w-2.5 h-2.5 border-b border-r border-[#c7f0c7]"></span>
+
+    <div class="flex items-center gap-2.5 font-bold text-lg">
+      <span class="text-[#c7f0c7]" style="text-shadow:0 0 12px rgba(199,240,199,.7)">&#9608;</span>dragontag
+    </div>
+    <div class="text-[11px] text-[#5a5a5a] tracking-widest -mt-2">AUTHENTICATION REQUIRED</div>
+
     {% if error %}
-    <div class="text-[#ffb4b4] text-sm">{{ error }}</div>
+    <div class="border border-[#ffb4b4] bg-[#ffb4b4]/10 px-3 py-2 text-[#ffb4b4] text-xs">{{ error }}</div>
     {% endif %}
-    <input name="username" placeholder="username" autocomplete="username"
-           class="w-full p-2 bg-black border border-[#4a4a4a] text-white placeholder-[#8a8a8a] focus:outline-none focus:border-[#a8a8a8]" />
-    <input name="password" placeholder="password" type="password" autocomplete="current-password"
-           class="w-full p-2 bg-black border border-[#4a4a4a] text-white placeholder-[#8a8a8a] focus:outline-none focus:border-[#a8a8a8]" />
-    <button class="w-full p-2 bg-white text-black font-mono font-semibold hover:bg-[#cfcfcf] transition-colors">
-      Sign in
+
+    <label class="block">
+      <span class="text-xs text-[#8a8a8a]">login</span>
+      <input name="username" placeholder="username" autocomplete="username"
+             class="mt-1 w-full p-2.5 bg-black border border-[#2a2a2a] text-white placeholder-[#3a3a3a] text-sm focus:outline-none" />
+    </label>
+    <label class="block">
+      <span class="text-xs text-[#8a8a8a]">password</span>
+      <input name="password" placeholder="••••••••••" type="password" autocomplete="current-password"
+             class="mt-1 w-full p-2.5 bg-black border border-[#335533] text-white placeholder-[#3a3a3a] text-sm focus:outline-none" />
+    </label>
+    <button class="w-full p-2.5 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] text-sm hover:bg-[#0f140f] transition-colors">
+      [ authenticate &#9656; ]
     </button>
+    <div class="text-[11px] text-[#5a5a5a] text-center pt-1">~$ dragontag --login</div>
   </form>
 </body>
 </html>

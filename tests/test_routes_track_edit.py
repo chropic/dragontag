@@ -57,7 +57,7 @@ def test_edit_modal_renders(client, track):
     tid, _ = track
     resp = client.get(f"/library/tracks/{tid}/edit")
     assert resp.status_code == 200
-    assert b"Edit track" in resp.content
+    assert b"edit track" in resp.content
 
 
 def test_edit_save_updates_partial_tags_only(client, track, monkeypatch):

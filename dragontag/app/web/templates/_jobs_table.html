@@ -1,42 +1,49 @@
 {% if total_pages is defined and total_pages > 1 %}
-<div class="flex justify-end items-center gap-2 mb-2 text-xs text-[#8a8a8a]">
-  {% if page > 1 %}<a href="?page={{ page - 1 }}" class="hover:text-white">← Prev</a>{% endif %}
+<div class="flex justify-end items-center gap-2 mb-2 text-xs text-[#5a5a5a]">
+  {% if page > 1 %}<a href="?page={{ page - 1 }}" class="hover:text-white">← prev</a>{% endif %}
   <span>{{ page }} / {{ total_pages }}</span>
-  {% if page < total_pages %}<a href="?page={{ page + 1 }}" class="hover:text-white">Next →</a>{% endif %}
+  {% if page < total_pages %}<a href="?page={{ page + 1 }}" class="hover:text-white">next →</a>{% endif %}
 </div>
 {% endif %}
 <table class="w-full text-sm">
-  <thead class="text-[#8a8a8a] border-b border-[#4a4a4a]">
-    <tr>
-      <th class="text-left py-2">File</th>
-      <th class="text-left">Status</th>
-      <th class="text-left">Score</th>
-      <th class="text-left">Updated</th>
-      <th class="text-left">Log</th>
-      <th class="text-left">Actions</th>
+  <thead>
+    <tr class="text-[10px] uppercase tracking-widest text-[#5a5a5a] border-b border-[#1f1f1f]">
+      <th class="text-left py-2">file</th>
+      <th class="text-left">status</th>
+      <th class="text-left">score</th>
+      <th class="text-left">updated</th>
+      <th class="text-left">log</th>
+      <th class="text-left">actions</th>
     </tr>
   </thead>
   <tbody>
   {% for j in jobs %}
-    <tr class="border-b border-[#4a4a4a] hover:bg-[#0c0c0c]/50">
+    <tr class="border-b border-[#141414] hover:bg-[#0d0d0d]">
       <td class="py-2 truncate max-w-xs">
-        <a class="text-[#cfcfcf] hover:underline" href="/jobs/{{ j.id }}">{{ j.original_name }}</a>
+        <a class="text-[#cfcfcf] hover:text-white hover:underline" href="/jobs/{{ j.id }}">{{ j.original_name }}</a>
         {% if j.kind and j.kind != 'ingest' %}
-        <span class="ml-1 px-1.5 py-0.5 text-[10px] font-mono bg-[#131313] border border-[#4a4a4a] text-[#8a8a8a]">{{ j.kind }}</span>
+        <span class="ml-1 px-1.5 py-0.5 text-[10px] border border-[#2a2a2a] text-[#8a8a8a]">{{ j.kind }}</span>
         {% endif %}
       </td>
       <td>
-        <span class="px-2 py-0.5 text-xs
-          {% if j.status.value == 'done' %}bg-[#c7f0c7] text-black{% elif j.status.value == 'error' %}bg-[#ffb4b4] text-black
-          {% elif j.status.value == 'needs_review' %}bg-[#f2e5b5] text-black{% else %}bg-[#131313]{% endif %}">
-          {{ j.status.value }}
+        <span class="
+          {% if j.status.value == 'done' %}text-[#c7f0c7]
+          {% elif j.status.value == 'error' %}text-[#ffb4b4]
+          {% elif j.status.value == 'needs_review' %}text-[#f2e5b5]
+          {% elif j.status.value == 'running' %}text-[#f2e5b5]
+          {% else %}text-[#8a8a8a]{% endif %}">
+          {%- if j.status.value == 'done' %}&#9679; done
+          {%- elif j.status.value == 'error' %}&#10005; error
+          {%- elif j.status.value == 'needs_review' %}&#9650; review
+          {%- elif j.status.value == 'running' %}&#9727; running
+          {%- else %}&middot; {{ j.status.value }}{% endif -%}
         </span>
         {% if j.status.value == 'running' and j.progress_total %}
-        <span class="ml-1 text-[10px] font-mono text-[#8a8a8a]">{{ j.progress_current or 0 }}/{{ j.progress_total }}</span>
+        <span class="ml-1 text-[10px] text-[#8a8a8a]">{{ j.progress_current or 0 }}/{{ j.progress_total }}</span>
         {% endif %}
       </td>
-      <td>{% if j.score is not none %}{{ "%.2f"|format(j.score) }}{% endif %}</td>
-      <td class="text-[#8a8a8a] text-xs">{{ format_local(j.updated_at) }}</td>
+      <td class="text-[#8a8a8a]">{% if j.score is not none %}{{ "%.2f"|format(j.score) }}{% endif %}</td>
+      <td class="text-[#5a5a5a] text-xs">{{ format_local(j.updated_at) }}</td>
       <td>
         <button class="text-[#8a8a8a] hover:text-white text-xs"
                 hx-get="/jobs/{{ j.id }}/log"
@@ -45,24 +52,24 @@
                 hx-on:click="this.closest('tr').nextElementSibling.classList.toggle('hidden')">▶</button>
       </td>
       <td class="py-1">
-        <div class="flex gap-1 flex-wrap">
+        <div class="flex gap-1 flex-wrap text-xs">
           {% if j.status.value in ('done', 'error', 'skipped') and (j.kind or 'ingest') == 'ingest' %}
           <form method="post" action="/jobs/{{ j.id }}/requeue" class="inline">
-            <button class="text-xs px-2 py-0.5 border border-[#4a4a4a] hover:border-white">Requeue</button>
+            <button class="px-2 py-0.5 border border-[#2a2a2a] text-[#cfcfcf] hover:border-[#3a3a3a]">requeue</button>
           </form>
           {% endif %}
           {% if j.status.value == 'queued' %}
           <form method="post" action="/jobs/{{ j.id }}/cancel" class="inline">
-            <button class="text-xs px-2 py-0.5 border border-[#ffb4b4] text-[#ffb4b4] hover:bg-[#ffb4b4] hover:text-black">Cancel</button>
+            <button class="px-2 py-0.5 border border-[#5a3a3a] text-[#ffb4b4] hover:border-[#ffb4b4]">cancel</button>
           </form>
           {% endif %}
           {% if j.status.value == 'needs_review' %}
-          <a href="/queue" class="text-xs px-2 py-0.5 border border-[#f2e5b5] text-[#f2e5b5] hover:bg-[#f2e5b5] hover:text-black">Review</a>
+          <a href="/queue" class="px-2 py-0.5 border border-[#4a4326] text-[#f2e5b5] hover:border-[#f2e5b5]">review</a>
           {% endif %}
         </div>
       </td>
     </tr>
-    <tr id="log-{{ j.id }}" class="hidden border-b border-[#4a4a4a]">
+    <tr id="log-{{ j.id }}" class="hidden border-b border-[#141414]">
       <td id="log-cell-{{ j.id }}" colspan="6" class="p-0"></td>
     </tr>
   {% else %}

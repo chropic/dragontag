@@ -1275,7 +1275,12 @@ def library_track_delete(track_id: int, request: Request, _: None = Depends(requ
 
 
 def _existing_albums() -> list[dict[str, Any]]:
-    """Distinct albums already in the library, for the edit-modal album picker."""
+    """Distinct albums already in the library, for the edit-modal album picker.
+
+    Deduped on ``mb_album_id`` when present, else ``(album, album_artist)`` —
+    a plain SELECT DISTINCT over every column would surface the same album
+    more than once if its tracks disagree on disc/track totals or MB ids.
+    """
     with session() as s:
         rows = s.exec(
             select(
@@ -1290,13 +1295,18 @@ def _existing_albums() -> list[dict[str, Any]]:
             .distinct()
             .order_by(Track.album_artist, Track.album)
         ).all()
-    return [
-        {
+    seen: set[Any] = set()
+    albums = []
+    for r in rows:
+        key = r[2] or (r[0], r[1])
+        if key in seen:
+            continue
+        seen.add(key)
+        albums.append({
             "album": r[0], "album_artist": r[1], "mb_album_id": r[2],
             "mb_release_group_id": r[3], "disc_total": r[4], "track_total": r[5],
-        }
-        for r in rows
-    ]
+        })
+    return albums
 
 
 @app.get("/library/tracks/{track_id}/edit", response_class=HTMLResponse)

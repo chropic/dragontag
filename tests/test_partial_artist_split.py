@@ -62,8 +62,8 @@ def test_write_album_link_tags_writes_album_fields_only(tmp_path):
     audio = WAVE(str(p))
     assert audio.tags.getall("TALB")[0].text == ["Shared Album"]
     assert audio.tags.getall("TPE2")[0].text == ["Diplo", "SIDEPIECE"]
-    assert audio.tags.getall("TXXX:TRACKTOTAL")[0].text == ["10"]
-    assert audio.tags.getall("TXXX:DISCTOTAL")[0].text == ["2"]
+    assert audio.tags.getall("TRCK")[0].text[0].endswith("/10")
+    assert audio.tags.getall("TPOS")[0].text[0].endswith("/2")
     assert audio.tags.getall("TXXX:MusicBrainz Album Id")[0].text == ["album-mbid"]
     assert audio.tags.getall("TXXX:MusicBrainz Release Group Id")[0].text == ["rg-mbid"]
     # Title/artist were never passed and must be untouched (no TIT2/TPE1 frames).

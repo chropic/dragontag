@@ -28,8 +28,8 @@
   button cluster next to the close button; their explanatory paragraphs became `title=` hover
   text. Both forms' actions are unchanged. (`_track_edit_modal.html`)
 - **Settings tooltips** switched from a hover-only `tip()` macro to an inline `hint(text)` macro
-  that renders a muted line directly under each field; the 18-item skip-fields grid uses native
-  `title=` tooltips instead of per-item hint blocks. (`settings.html`)
+  that renders a muted line directly under each field, including the skip-fields grid (no more
+  hover-only `title=` tooltips anywhere on the page). (`settings.html`)
 - **Filename-template live preview** now parses real `str.format()` tokens (including
   `{track:02d}`-style zero-padding specs) instead of naive string substitution, so the preview
   matches `library/paths.render_filename` exactly. (`settings.html`)

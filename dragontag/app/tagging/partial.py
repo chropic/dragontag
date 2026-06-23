@@ -199,11 +199,13 @@ def write_album_link_tags(
             if album_artist:
                 f.tags.setall("TPE2", [_id3.TPE2(encoding=3, text=split_multi_artist(album_artist))])
             if track_total:
-                f.tags.delall("TXXX:TRACKTOTAL")
-                f.tags.add(_id3.TXXX(encoding=3, desc="TRACKTOTAL", text=[str(track_total)]))
+                cur_trck = f.tags.getall("TRCK")
+                cur_track = cur_trck[0].text[0].split("/")[0] if cur_trck else "0"
+                f.tags.setall("TRCK", [_id3.TRCK(encoding=3, text=[f"{cur_track}/{track_total}"])])
             if disc_total:
-                f.tags.delall("TXXX:DISCTOTAL")
-                f.tags.add(_id3.TXXX(encoding=3, desc="DISCTOTAL", text=[str(disc_total)]))
+                cur_tpos = f.tags.getall("TPOS")
+                cur_disc = cur_tpos[0].text[0].split("/")[0] if cur_tpos else "0"
+                f.tags.setall("TPOS", [_id3.TPOS(encoding=3, text=[f"{cur_disc}/{disc_total}"])])
             if mb_album_id:
                 f.tags.delall("TXXX:MusicBrainz Album Id")
                 f.tags.add(_id3.TXXX(encoding=3, desc="MusicBrainz Album Id", text=[mb_album_id]))

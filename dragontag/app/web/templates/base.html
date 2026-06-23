@@ -42,6 +42,88 @@
       x-data="toastManager()"
       x-init="init()">
 
+  <!-- Global keyboard shortcuts: must be defined before any page content
+       script runs (page templates call dtKeys.register(...) from their own
+       content block, which the browser executes before scripts at the
+       bottom of <body>), so this lives here rather than with the other
+       inline scripts below. -->
+  <script>
+    window.dtKeys = (() => {
+      const handlers = [];
+      const goTo = { d: '/', l: '/library', q: '/queue', c: '/changes', h: '/schedule', s: '/settings', o: '/docs' };
+      let gPending = false, gTimer = null;
+
+      function isTyping(el) {
+        return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
+      }
+      function overlay(text) {
+        let el = document.getElementById('dt-keys-overlay');
+        if (!el) {
+          el = document.createElement('div');
+          el.id = 'dt-keys-overlay';
+          el.className = 'fixed bottom-10 right-4 z-[95] px-3 py-1.5 bg-[#0c0c0c] border border-[#c7f0c7] text-[#c7f0c7] text-xs font-mono';
+          document.body.appendChild(el);
+        }
+        el.textContent = text;
+        el.style.display = 'block';
+        clearTimeout(el._t);
+        el._t = setTimeout(() => { el.style.display = 'none'; }, 1500);
+      }
+      function toggleHelp(force) {
+        const help = document.getElementById('dt-keys-help');
+        if (!help) return;
+        if (force === false) help.classList.add('hidden');
+        else help.classList.toggle('hidden');
+      }
+
+      document.addEventListener('keydown', (e) => {
+        if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+        const typing = isTyping(e.target);
+
+        if (e.key === 'Escape') {
+          gPending = false;
+          if (typing) e.target.blur();
+          toggleHelp(false);
+          return;
+        }
+        if (typing) return;
+
+        if (gPending) {
+          gPending = false;
+          clearTimeout(gTimer);
+          const dest = goTo[e.key.toLowerCase()];
+          if (dest) { e.preventDefault(); window.location.href = dest; }
+          return;
+        }
+        if (e.key === '/') {
+          const search = document.querySelector('[data-dt-search]');
+          if (search) { e.preventDefault(); search.focus(); search.select && search.select(); }
+          return;
+        }
+        if (e.key === '?') {
+          e.preventDefault();
+          toggleHelp();
+          return;
+        }
+        if (e.key === 'g') {
+          gPending = true;
+          overlay('go to: (d)ashboard (l)ibrary (q)ueue (c)hanges sc(h)edule (s)ettings d(o)cs');
+          gTimer = setTimeout(() => { gPending = false; }, 1500);
+          return;
+        }
+        for (const h of handlers) {
+          if (h.key.toLowerCase() === e.key.toLowerCase()) { e.preventDefault(); h.fn(e); return; }
+        }
+      });
+
+      return {
+        // Register a single-key shortcut for the current page. Ignored while
+        // the user is typing in a field or mid-"g" go-to prefix.
+        register(key, fn) { handlers.push({ key, fn }); },
+      };
+    })();
+  </script>
+
   <!-- ── Top bar ─────────────────────────────────────────────────────────── -->
   <nav class="bg-[#060606] h-11 px-4 flex items-center gap-5 border-b border-[#242424] sticky top-0 z-50">
     <a href="/" class="flex items-center gap-2 font-bold text-sm tracking-tight">
@@ -220,85 +302,6 @@
         }
       }
     }
-
-
-    // ── Global keyboard shortcuts ────────────────────────────────────────
-    // Universal keys (/, ?, g<letter>) plus a register() API pages use to
-    // wire up the keys they advertise in their statusbar block.
-    const dtKeys = (() => {
-      const handlers = [];
-      const goTo = { d: '/', l: '/library', q: '/queue', c: '/changes', h: '/schedule', s: '/settings', o: '/docs' };
-      let gPending = false, gTimer = null;
-
-      function isTyping(el) {
-        return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
-      }
-      function overlay(text) {
-        let el = document.getElementById('dt-keys-overlay');
-        if (!el) {
-          el = document.createElement('div');
-          el.id = 'dt-keys-overlay';
-          el.className = 'fixed bottom-10 right-4 z-[95] px-3 py-1.5 bg-[#0c0c0c] border border-[#c7f0c7] text-[#c7f0c7] text-xs font-mono';
-          document.body.appendChild(el);
-        }
-        el.textContent = text;
-        el.style.display = 'block';
-        clearTimeout(el._t);
-        el._t = setTimeout(() => { el.style.display = 'none'; }, 1500);
-      }
-      function toggleHelp(force) {
-        const help = document.getElementById('dt-keys-help');
-        if (!help) return;
-        if (force === false) help.classList.add('hidden');
-        else help.classList.toggle('hidden');
-      }
-
-      document.addEventListener('keydown', (e) => {
-        if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
-        const typing = isTyping(e.target);
-
-        if (e.key === 'Escape') {
-          gPending = false;
-          if (typing) e.target.blur();
-          toggleHelp(false);
-          return;
-        }
-        if (typing) return;
-
-        if (gPending) {
-          gPending = false;
-          clearTimeout(gTimer);
-          const dest = goTo[e.key.toLowerCase()];
-          if (dest) { e.preventDefault(); window.location.href = dest; }
-          return;
-        }
-        if (e.key === '/') {
-          const search = document.querySelector('[data-dt-search]');
-          if (search) { e.preventDefault(); search.focus(); search.select && search.select(); }
-          return;
-        }
-        if (e.key === '?') {
-          e.preventDefault();
-          toggleHelp();
-          return;
-        }
-        if (e.key === 'g') {
-          gPending = true;
-          overlay('go to: (d)ashboard (l)ibrary (q)ueue (c)hanges sc(h)edule (s)ettings d(o)cs');
-          gTimer = setTimeout(() => { gPending = false; }, 1500);
-          return;
-        }
-        for (const h of handlers) {
-          if (h.key.toLowerCase() === e.key.toLowerCase()) { e.preventDefault(); h.fn(e); return; }
-        }
-      });
-
-      return {
-        // Register a single-key shortcut for the current page. Ignored while
-        // the user is typing in a field or mid-"g" go-to prefix.
-        register(key, fn) { handlers.push({ key, fn }); },
-      };
-    })();
   </script>
 </body>
 </html>

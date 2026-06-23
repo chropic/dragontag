@@ -250,7 +250,7 @@
 
   <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-2">
     <span class="dt-label">skip fields</span>
-    <p class="text-xs text-[#8a8a8a]">Checked fields will not be written to audio files. Hover a field name for details.</p>
+    <p class="text-xs text-[#8a8a8a]">Checked fields will not be written to audio files.</p>
     {% set skipped = settings.skip_fields %}
     {% set skip_field_tips = {
       "acoustid_id": "AcoustID fingerprint UUID from acoustic identification. Lets other tools match the file without re-fingerprinting.",
@@ -284,13 +284,16 @@
       "script": "Writing script of the track listing (Latn, Cyrl …).",
       "track_total": "Total number of tracks on this disc."
     } %}
-    <div class="grid grid-cols-2 gap-1">
+    <div class="space-y-2">
       {% for field_name, field_tip in skip_field_tips.items() %}
-      <label class="flex items-center gap-2" title="{{ field_tip }}">
-        <input type="checkbox" name="skip_fields" value="{{ field_name }}"
-               {% if field_name in skipped %}checked{% endif %}>
-        <code class="text-xs text-[#cfcfcf]">{{ field_name }}</code>
-      </label>
+      <div>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" name="skip_fields" value="{{ field_name }}"
+                 {% if field_name in skipped %}checked{% endif %}>
+          <code class="text-xs text-[#cfcfcf]">{{ field_name }}</code>
+        </label>
+        {{ hint(field_tip) }}
+      </div>
       {% endfor %}
     </div>
   </div>

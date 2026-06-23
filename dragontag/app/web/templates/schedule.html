@@ -1,30 +1,34 @@
 {% extends "base.html" %}
 {% block title %}dragontag | Schedule{% endblock %}
 {% block content %}
-<h2 class="text-xl font-mono font-semibold mb-3">Schedule</h2>
-<p class="text-[#8a8a8a] text-sm mb-4">Run library tasks automatically on a cron schedule. Scheduled runs appear on the
+<div class="flex items-center gap-2 mb-3">
+  <span class="text-[#c7f0c7]">&#9656;</span>
+  <h2 class="font-bold text-lg">schedule</h2>
+  <span class="text-[#5a5a5a] text-xs">cron tasks</span>
+</div>
+<p class="text-[#8a8a8a] text-xs mb-4 max-w-3xl">Run library tasks automatically on a cron schedule. Scheduled runs appear on the
 Queue page like any other task. Times are UTC.</p>
 
-<div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] mb-4">
-  <h3 class="font-mono font-semibold text-sm mb-3">New schedule</h3>
+<div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 mb-4">
+  <span class="dt-label">new schedule</span>
   <form method="post" action="/schedule" class="space-y-2 text-sm"
         x-data="{ type: 'scan' }">
     <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
       <label class="block">
         <span class="text-[#8a8a8a] text-xs">Name</span>
-        <input name="name" placeholder="Nightly scan" class="mt-1 w-full p-1 bg-black border border-[#4a4a4a]">
+        <input name="name" placeholder="Nightly scan" class="mt-1 w-full p-2 bg-black border border-[#2a2a2a] focus:outline-none">
       </label>
       <label class="block" x-data="cronDescribe()">
         <span class="text-[#8a8a8a] text-xs">Cron expression</span>
         <input name="cron" required placeholder="0 3 * * *"
                @input.debounce.300ms="describe($event.target.value)"
-               class="mt-1 w-full p-1 bg-black border border-[#4a4a4a] font-mono">
+               class="mt-1 w-full p-2 bg-black border border-[#2a2a2a] text-[#c7f0c7] focus:outline-none">
         <span class="block mt-1 text-xs" x-cloak x-show="text"
               :class="valid ? 'text-[#c7f0c7]' : 'text-[#ffb4b4]'" x-text="text"></span>
       </label>
       <label class="block">
         <span class="text-[#8a8a8a] text-xs">Task</span>
-        <select name="task_type" x-model="type" class="mt-1 w-full p-1 bg-black border border-[#4a4a4a]">
+        <select name="task_type" x-model="type" class="mt-1 w-full p-2 bg-black border border-[#2a2a2a] focus:outline-none">
           {% for key, label in task_types.items() %}
           <option value="{{ key }}">{{ label }}</option>
           {% endfor %}
@@ -34,7 +38,7 @@ Queue page like any other task. Times are UTC.</p>
     <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
       <label class="block" x-show="['scan','organize','batch_organize','batch_retag','fetch_lyrics','fetch_covers'].includes(type)">
         <span class="text-[#8a8a8a] text-xs">Library folder</span>
-        <select name="folder_id" class="mt-1 w-full p-1 bg-black border border-[#4a4a4a]">
+        <select name="folder_id" class="mt-1 w-full p-2 bg-black border border-[#2a2a2a] focus:outline-none">
           {% for f in folders %}
           <option value="{{ f.id }}">{{ f.label or f.path }}</option>
           {% endfor %}
@@ -42,46 +46,50 @@ Queue page like any other task. Times are UTC.</p>
       </label>
       <label class="block md:col-span-2" x-show="type === 'bulk_retag'">
         <span class="text-[#8a8a8a] text-xs">Source path</span>
-        <input name="source_path" placeholder="/path/to/folder" class="mt-1 w-full p-1 bg-black border border-[#4a4a4a] font-mono">
+        <input name="source_path" placeholder="/path/to/folder" class="mt-1 w-full p-2 bg-black border border-[#2a2a2a] focus:outline-none">
       </label>
       <label class="flex items-end gap-2 text-xs text-[#8a8a8a] pb-1" x-show="['bulk_retag','batch_retag'].includes(type)">
         <input type="checkbox" name="dry_run"> Dry run
       </label>
     </div>
-    <div class="text-xs text-[#8a8a8a]">
-      Examples: <code>0 3 * * *</code> daily at 03:00 · <code>0 */6 * * *</code> every 6 hours ·
-      <code>0 4 * * 0</code> Sundays at 04:00 · <code>*/30 * * * *</code> every 30 minutes
+    <div class="text-xs text-[#5a5a5a]">
+      Examples: <code class="text-[#cfcfcf]">0 3 * * *</code> daily at 03:00 · <code class="text-[#cfcfcf]">0 */6 * * *</code> every 6 hours ·
+      <code class="text-[#cfcfcf]">0 4 * * 0</code> Sundays at 04:00 · <code class="text-[#cfcfcf]">*/30 * * * *</code> every 30 minutes
     </div>
-    <button class="px-4 py-1 bg-white text-black hover:bg-[#cfcfcf] font-mono">Add schedule</button>
+    <button class="px-4 py-1.5 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] text-sm hover:bg-[#0f140f]">[ + add schedule ]</button>
   </form>
 </div>
 
-<div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a]">
+<div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-3">
+  <span class="dt-label">crontab</span>
   <table class="w-full text-sm">
-    <thead class="text-[#8a8a8a] border-b border-[#4a4a4a]">
-      <tr>
-        <th class="text-left py-2 pr-3">Name</th>
-        <th class="text-left pr-3">Cron</th>
-        <th class="text-left pr-3">Task</th>
-        <th class="text-left pr-3">Next run</th>
-        <th class="text-left pr-3">Last run</th>
-        <th class="text-left pr-3">Status</th>
-        <th class="text-left">Actions</th>
+    <thead>
+      <tr class="text-left text-[10px] uppercase tracking-widest text-[#5a5a5a] border-b border-[#1f1f1f]">
+        <th class="text-left py-2 pr-3">name</th>
+        <th class="text-left pr-3">cron</th>
+        <th class="text-left pr-3">task</th>
+        <th class="text-left pr-3">next run</th>
+        <th class="text-left pr-3">last run</th>
+        <th class="text-left pr-3">status</th>
+        <th class="text-left">actions</th>
       </tr>
     </thead>
     <tbody>
     {% for t in schedules %}
-      <tr class="border-b border-[#4a4a4a] hover:bg-[#131313] {% if not t.enabled %}opacity-50{% endif %}">
-        <td class="py-2 pr-3 text-[#cfcfcf]">{{ t.name }}</td>
+      <tr class="border-b border-[#141414] hover:bg-[#0d0d0d] {% if not t.enabled %}opacity-50{% endif %}">
+        <td class="py-2 pr-3 text-[#e6e6e6]">
+          <span class="{% if t.enabled %}text-[#7fbf7f]{% else %}text-[#3a3a3a]{% endif %}">{% if t.enabled %}&#9679;{% else %}&#9675;{% endif %}</span>
+          {{ t.name }}
+        </td>
         <td class="pr-3 text-xs">
-          <span class="font-mono">{{ t.cron }}</span>
+          <span class="text-[#c7f0c7]">{{ t.cron }}</span>
           {% set human = describe_cron(t.cron) %}
           {% if human %}<div class="text-[#8a8a8a]">{{ human }}</div>{% endif %}
         </td>
-        <td class="pr-3 text-xs">
+        <td class="pr-3 text-xs text-[#cfcfcf]">
           {{ task_types.get(t.task_type, t.task_type) }}
           {% if t.params_json %}
-          <span class="text-[#6a6a6a] font-mono">{{ t.params_json }}</span>
+          <span class="text-[#5a5a5a]">{{ t.params_json }}</span>
           {% endif %}
         </td>
         <td class="pr-3 text-xs text-[#8a8a8a]">{% if t.enabled %}{{ format_local(t.next_run_at) }}{% else %}—{% endif %}</td>
@@ -92,22 +100,22 @@ Queue page like any other task. Times are UTC.</p>
           {% elif t.last_status %}
             <span class="text-[#ffb4b4]" title="{{ t.last_status }}">{{ t.last_status|truncate(40) }}</span>
           {% else %}
-            <span class="text-[#8a8a8a]">never run</span>
+            <span class="text-[#5a5a5a]">never run</span>
           {% endif %}
         </td>
         <td class="py-1">
           <div class="flex gap-1 flex-wrap">
             <form method="post" action="/schedule/{{ t.id }}/run-now" class="inline">
-              <button class="text-xs px-2 py-0.5 border border-[#c7f0c7] text-[#c7f0c7] hover:bg-[#c7f0c7] hover:text-black">Run now</button>
+              <button class="text-xs px-2 py-0.5 border border-[#335533] text-[#c7f0c7] hover:bg-[#0c0e0c]">run now</button>
             </form>
             <form method="post" action="/schedule/{{ t.id }}/toggle" class="inline">
-              <button class="text-xs px-2 py-0.5 border border-[#4a4a4a] hover:border-white">
-                {% if t.enabled %}Disable{% else %}Enable{% endif %}
+              <button class="text-xs px-2 py-0.5 border border-[#2a2a2a] text-[#cfcfcf] hover:border-[#3a3a3a]">
+                {% if t.enabled %}disable{% else %}enable{% endif %}
               </button>
             </form>
             <form method="post" action="/schedule/{{ t.id }}/delete" class="inline"
                   onsubmit="return confirm('Delete this schedule?');">
-              <button class="text-xs px-2 py-0.5 border border-[#ffb4b4] text-[#ffb4b4] hover:bg-[#ffb4b4] hover:text-black">Delete</button>
+              <button class="text-xs px-2 py-0.5 border border-[#5a3a3a] text-[#ffb4b4] hover:border-[#ffb4b4]">delete</button>
             </form>
           </div>
         </td>
@@ -139,4 +147,11 @@ Queue page like any other task. Times are UTC.</p>
     }
   }
 </script>
+{% endblock %}
+
+{% block statusbar %}
+  <span class="dt-key"><b>n</b> new task</span>
+  <span class="dt-key"><b>space</b> toggle</span>
+  <span class="dt-key"><b>enter</b> run now</span>
+  <span class="dt-status-note">{{ schedules|length }} task{% if schedules|length != 1 %}s{% endif %} &middot; TZ UTC</span>
 {% endblock %}

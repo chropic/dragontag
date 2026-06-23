@@ -2,30 +2,33 @@
 {% block title %}dragontag | Settings{% endblock %}
 
 {% macro tip(text) -%}
-<span class="ml-1 inline-block w-4 h-4 text-center text-[10px] leading-4 border border-[#4a4a4a] text-[#8a8a8a] cursor-help align-middle"
+<span class="ml-1 inline-block w-4 h-4 text-center text-[10px] leading-4 border border-[#2a2a2a] text-[#8a8a8a] cursor-help align-middle"
       title="{{ text }}">?</span>
 {%- endmacro %}
 
 {% block content %}
 <div class="max-w-2xl mx-auto">
-<h2 class="text-xl font-mono font-semibold mb-4">Settings</h2>
+<div class="flex items-center gap-2 mb-4">
+  <span class="text-[#c7f0c7]">&#9656;</span>
+  <h2 class="font-bold text-lg">settings</h2>
+</div>
 <form method="post" action="/settings" class="space-y-4 text-sm"
       x-data="settingsForm()" x-init="init()"
       @input="dirty = true" @change="dirty = true" @submit="dirty = false">
 
   {# Sticky save button: follows the user down the page, glows red while
      there are unsaved changes. #}
-  <div class="fixed top-[80px] right-4 z-40 flex items-center gap-3 pointer-events-none">
-    <span class="text-xs font-mono text-[#ffb4b4]" x-show="dirty" x-cloak>unsaved changes</span>
-    {% if saved %}<span class="text-[#c7f0c7] text-sm" x-show="!dirty">✓ Saved</span>{% endif %}
-    <button class="pointer-events-auto px-4 py-2 font-mono font-semibold transition-all duration-300"
+  <div class="fixed top-[56px] right-4 z-40 flex items-center gap-3 pointer-events-none">
+    <span class="text-xs text-[#ffb4b4]" x-show="dirty" x-cloak>unsaved changes</span>
+    {% if saved %}<span class="text-[#c7f0c7] text-sm" x-show="!dirty">✓ saved</span>{% endif %}
+    <button class="pointer-events-auto px-4 py-2 font-semibold transition-all duration-300 border"
             :class="dirty
-              ? 'bg-[#ffb4b4] text-black shadow-[0_0_14px_rgba(255,90,90,0.9)] animate-pulse'
-              : 'bg-white text-black hover:bg-[#cfcfcf]'">Save settings</button>
+              ? 'bg-[#ffb4b4] text-black border-[#ffb4b4] shadow-[0_0_14px_rgba(255,90,90,0.9)] animate-pulse'
+              : 'bg-[#0c0e0c] text-[#c7f0c7] border-[#335533] hover:bg-[#0f140f]'">[ save settings ]</button>
   </div>
 
-  <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-3">
-    <h3 class="font-mono font-semibold">Identification</h3>
+  <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-3">
+    <span class="dt-label">identification</span>
     <label class="flex items-center gap-2">
       <input type="checkbox" name="acoustid_enabled" {% if settings.acoustid_enabled %}checked{% endif %}>
       Enable AcoustID fingerprint fallback
@@ -37,7 +40,7 @@
         {{ tip("Jobs scoring at or above this value are tagged automatically. Below this, files land in the Review queue for manual confirmation. 0.85 is a balanced default — raise toward 0.95 for stricter auto-apply, lower toward 0.7 for faster throughput.") }}
         <input type="number" name="score_threshold" step="0.01" min="0" max="1"
                value="{{ settings.score_threshold }}"
-               class="mt-1 p-1 bg-black border border-[#4a4a4a] w-32">
+               class="mt-1 p-1.5 bg-black border border-[#2a2a2a] text-white w-32 focus:outline-none">
       </label>
     </div>
     <div>
@@ -46,7 +49,7 @@
         {{ tip("Per-request timeout for outbound MusicBrainz and AcoustID calls. Bounds a half-open connection so a stalled network can't hang the ingest worker indefinitely. 15s is a sensible default; raise it on a slow link.") }}
         <input type="number" name="network_timeout_seconds" step="0.5" min="1"
                value="{{ settings.network_timeout_seconds }}"
-               class="mt-1 p-1 bg-black border border-[#4a4a4a] w-32">
+               class="mt-1 p-1.5 bg-black border border-[#2a2a2a] text-white w-32 focus:outline-none">
       </label>
     </div>
     <label class="flex items-center gap-2">
@@ -70,7 +73,7 @@
       </span>
       <input name="replaygain_tool_path" value="{{ settings.replaygain_tool_path }}"
              placeholder="(auto-discover)"
-             class="mt-1 w-full p-1 bg-black border border-[#4a4a4a] font-mono text-sm">
+             class="mt-1 w-full p-1.5 bg-black border border-[#2a2a2a] text-white text-sm focus:outline-none">
     </label>
     <label class="flex items-center gap-2">
       <input type="checkbox" name="dry_run" {% if settings.dry_run %}checked{% endif %}>
@@ -79,8 +82,8 @@
     </label>
   </div>
 
-  <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-3">
-    <h3 class="font-mono font-semibold">Smart formatting</h3>
+  <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-3">
+    <span class="dt-label">smart formatting</span>
     <label class="flex items-center gap-2">
       <input type="checkbox" name="format_title_case" {% if settings.format_title_case %}checked{% endif %}>
       Convert title, album, artist to Title Case
@@ -120,14 +123,14 @@
     </div>
   </div>
 
-  <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-3">
-    <h3 class="font-mono font-semibold">Filename templates</h3>
+  <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-3">
+    <span class="dt-label">filename templates</span>
 
     <!-- Token palette -->
     <div class="flex flex-wrap gap-1 mb-1" x-data>
       {% for tok in ['{track:02d}', '{disc}', '{title}', '{artist}', '{ext}', '{tracktotal}', '{disctotal}'] %}
       <button type="button"
-              class="px-2 py-0.5 bg-[#1a1a1a] border border-[#4a4a4a] font-mono text-xs text-[#cfcfcf] hover:text-white"
+              class="px-2 py-0.5 bg-[#131313] border border-[#2a2a2a] text-xs text-[#cfcfcf] hover:text-white hover:border-[#3a3a3a]"
               onclick="insertToken(event, '{{ tok }}')">{{ tok }}</button>
       {% endfor %}
     </div>
@@ -135,36 +138,36 @@
       <span class="text-[#8a8a8a]">Single disc</span>
       {{ tip("Filename pattern used for albums with only one disc. Available tokens: {track}, {track:02d}, {disc}, {title}, {artist}, {ext}, {tracktotal}, {disctotal}.") }}
       <input id="tpl_single" name="filename_template_single" value="{{ settings.filename_template_single }}"
-             class="mt-1 w-full p-1 bg-black border border-[#4a4a4a] font-mono">
+             class="mt-1 w-full p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
     </label>
     <label class="block">
       <span class="text-[#8a8a8a]">Multi-disc (inside Disc N folder)</span>
       {{ tip("Filename pattern used for tracks on multi-disc releases, written inside the per-disc subfolder.") }}
       <input id="tpl_multi" name="filename_template_multidisc" value="{{ settings.filename_template_multidisc }}"
-             class="mt-1 w-full p-1 bg-black border border-[#4a4a4a] font-mono">
+             class="mt-1 w-full p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
     </label>
     <label class="block">
       <span class="text-[#8a8a8a]">Multi-disc folder name</span>
       {{ tip("Folder name pattern wrapping each disc of a multi-disc release. {disc} expands to the 1-based disc number.") }}
       <input id="tpl_discfolder" name="multidisc_folder_template" value="{{ settings.multidisc_folder_template }}"
-             class="mt-1 w-full p-1 bg-black border border-[#4a4a4a] font-mono">
+             class="mt-1 w-full p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
     </label>
     <label class="block">
       <span class="text-[#8a8a8a]">Artist-folder split separators</span>
       {{ tip("Characters on which a multi-artist album-artist is reduced to its first artist for the folder name (e.g. \"&,;\" files \"A & B\" under \"A\"). Empty (default) keeps the full credit, so \"Tyler, The Creator\" stays intact. \"feat./ft./featuring\" guests are always stripped; slashes are never split, so \"AC/DC\" and \"A//B\" stay combined.") }}
       <input name="folder_artist_split_separators" value="{{ settings.folder_artist_split_separators }}"
              placeholder="(empty)"
-             class="mt-1 w-full p-1 bg-black border border-[#4a4a4a] font-mono">
+             class="mt-1 w-full p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
     </label>
     <!-- Live preview -->
     <div class="text-xs text-[#8a8a8a] space-y-0.5">
-      <div>Single disc: <code id="tpl_preview" class="text-[#cfcfcf]"></code></div>
-      <div>Multi-disc: <code id="tpl_preview_multi" class="text-[#cfcfcf]"></code></div>
+      <div>Single disc: <code id="tpl_preview" class="text-[#c7f0c7]"></code></div>
+      <div>Multi-disc: <code id="tpl_preview_multi" class="text-[#c7f0c7]"></code></div>
     </div>
   </div>
 
-  <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-2">
-    <h3 class="font-mono font-semibold">Genre options</h3>
+  <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-2">
+    <span class="dt-label">genre options</span>
     <label class="flex items-center gap-2">
       <input type="checkbox" name="genre_whitelist_enabled" {% if settings.genre_whitelist_enabled %}checked{% endif %}>
       Filter genres against canonical list
@@ -174,12 +177,12 @@
       <span class="text-[#8a8a8a]">Max genres (0 = no limit)</span>
       {{ tip("Caps how many GENRE values are written per track. MusicBrainz often returns long tail genres; 3 keeps things tidy.") }}
       <input type="number" name="genre_limit" min="0" value="{{ settings.genre_limit }}"
-             class="mt-1 p-1 bg-black border border-[#4a4a4a] w-24">
+             class="mt-1 p-1.5 bg-black border border-[#2a2a2a] text-white w-24 focus:outline-none">
     </label>
     <label class="block">
       <span class="text-[#8a8a8a]">Genre casing</span>
       {{ tip("Title Case = \"Indie Rock\". lowercase = \"indie rock\". as-is = whatever MusicBrainz returns. Most players display Title Case best.") }}
-      <select name="genre_casing" class="mt-1 p-1 bg-black border border-[#4a4a4a]">
+      <select name="genre_casing" class="mt-1 p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
         <option value="title" {% if settings.genre_casing == "title" %}selected{% endif %}>Title Case</option>
         <option value="lower" {% if settings.genre_casing == "lower" %}selected{% endif %}>lowercase</option>
         <option value="as-is" {% if settings.genre_casing == "as-is" %}selected{% endif %}>as-is (raw MB tags)</option>
@@ -187,31 +190,28 @@
     </label>
   </div>
 
-  <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-2">
-    <h3 class="font-mono font-semibold">Multi-value separators
-      {{ tip("Joiner inserted between values for multi-valued tags. Vorbis players differ in how they split; // survives most readers, ; is the MusicBrainz convention for IDs.") }}
-    </h3>
+  <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-2">
+    <span class="dt-label">multi-value separators</span>
+    <p class="text-xs text-[#8a8a8a]">Joiner inserted between values for multi-valued tags. Vorbis players differ in how they split; // survives most readers, ; is the MusicBrainz convention for IDs.</p>
     <div class="grid grid-cols-2 gap-2">
       {% set sep = settings.separators %}
-      <label>ARTIST <input name="sep_ARTIST" value="{{ sep.ARTIST }}" class="p-1 bg-black border border-[#4a4a4a] w-24 ml-2 font-mono"></label>
-      <label>album_artist <input name="sep_album_artist" value="{{ sep.album_artist }}" class="p-1 bg-black border border-[#4a4a4a] w-24 ml-2 font-mono"></label>
-      <label>ARTISTS <input name="sep_ARTISTS" value="{{ sep.ARTISTS }}" class="p-1 bg-black border border-[#4a4a4a] w-24 ml-2 font-mono"></label>
-      <label>ARTISTSORT <input name="sep_ARTISTSORT" value="{{ sep.ARTISTSORT }}" class="p-1 bg-black border border-[#4a4a4a] w-24 ml-2 font-mono"></label>
-      <label>ALBUMARTISTSORT <input name="sep_ALBUMARTISTSORT" value="{{ sep.ALBUMARTISTSORT }}" class="p-1 bg-black border border-[#4a4a4a] w-24 ml-2 font-mono"></label>
-      <label>GENRE <input name="sep_GENRE" value="{{ sep.GENRE }}" class="p-1 bg-black border border-[#4a4a4a] w-24 ml-2 font-mono"></label>
-      <label>LABEL <input name="sep_LABEL" value="{{ sep.LABEL }}" class="p-1 bg-black border border-[#4a4a4a] w-24 ml-2 font-mono"></label>
-      <label>ISRC <input name="sep_ISRC" value="{{ sep.ISRC }}" class="p-1 bg-black border border-[#4a4a4a] w-24 ml-2 font-mono"></label>
-      <label>COMPOSER <input name="sep_COMPOSER" value="{{ sep.COMPOSER }}" class="p-1 bg-black border border-[#4a4a4a] w-24 ml-2 font-mono"></label>
-      <label>CONDUCTOR <input name="sep_CONDUCTOR" value="{{ sep.CONDUCTOR }}" class="p-1 bg-black border border-[#4a4a4a] w-24 ml-2 font-mono"></label>
-      <label>LYRICIST <input name="sep_LYRICIST" value="{{ sep.LYRICIST }}" class="p-1 bg-black border border-[#4a4a4a] w-24 ml-2 font-mono"></label>
-      <label>ARRANGER <input name="sep_ARRANGER" value="{{ sep.ARRANGER }}" class="p-1 bg-black border border-[#4a4a4a] w-24 ml-2 font-mono"></label>
+      <label class="text-[#8a8a8a]">ARTIST <input name="sep_ARTIST" value="{{ sep.ARTIST }}" class="p-1 bg-black border border-[#2a2a2a] text-white w-24 ml-2 focus:outline-none"></label>
+      <label class="text-[#8a8a8a]">album_artist <input name="sep_album_artist" value="{{ sep.album_artist }}" class="p-1 bg-black border border-[#2a2a2a] text-white w-24 ml-2 focus:outline-none"></label>
+      <label class="text-[#8a8a8a]">ARTISTS <input name="sep_ARTISTS" value="{{ sep.ARTISTS }}" class="p-1 bg-black border border-[#2a2a2a] text-white w-24 ml-2 focus:outline-none"></label>
+      <label class="text-[#8a8a8a]">ARTISTSORT <input name="sep_ARTISTSORT" value="{{ sep.ARTISTSORT }}" class="p-1 bg-black border border-[#2a2a2a] text-white w-24 ml-2 focus:outline-none"></label>
+      <label class="text-[#8a8a8a]">ALBUMARTISTSORT <input name="sep_ALBUMARTISTSORT" value="{{ sep.ALBUMARTISTSORT }}" class="p-1 bg-black border border-[#2a2a2a] text-white w-24 ml-2 focus:outline-none"></label>
+      <label class="text-[#8a8a8a]">GENRE <input name="sep_GENRE" value="{{ sep.GENRE }}" class="p-1 bg-black border border-[#2a2a2a] text-white w-24 ml-2 focus:outline-none"></label>
+      <label class="text-[#8a8a8a]">LABEL <input name="sep_LABEL" value="{{ sep.LABEL }}" class="p-1 bg-black border border-[#2a2a2a] text-white w-24 ml-2 focus:outline-none"></label>
+      <label class="text-[#8a8a8a]">ISRC <input name="sep_ISRC" value="{{ sep.ISRC }}" class="p-1 bg-black border border-[#2a2a2a] text-white w-24 ml-2 focus:outline-none"></label>
+      <label class="text-[#8a8a8a]">COMPOSER <input name="sep_COMPOSER" value="{{ sep.COMPOSER }}" class="p-1 bg-black border border-[#2a2a2a] text-white w-24 ml-2 focus:outline-none"></label>
+      <label class="text-[#8a8a8a]">CONDUCTOR <input name="sep_CONDUCTOR" value="{{ sep.CONDUCTOR }}" class="p-1 bg-black border border-[#2a2a2a] text-white w-24 ml-2 focus:outline-none"></label>
+      <label class="text-[#8a8a8a]">LYRICIST <input name="sep_LYRICIST" value="{{ sep.LYRICIST }}" class="p-1 bg-black border border-[#2a2a2a] text-white w-24 ml-2 focus:outline-none"></label>
+      <label class="text-[#8a8a8a]">ARRANGER <input name="sep_ARRANGER" value="{{ sep.ARRANGER }}" class="p-1 bg-black border border-[#2a2a2a] text-white w-24 ml-2 focus:outline-none"></label>
     </div>
   </div>
 
-  <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-2">
-    <h3 class="font-mono font-semibold">Skip fields
-      {{ tip("Checked fields are suppressed at write time across all formats. Use this to keep certain tags (e.g. MusicBrainz IDs or sort-name variants) out of your files.") }}
-    </h3>
+  <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-2">
+    <span class="dt-label">skip fields</span>
     <p class="text-xs text-[#8a8a8a]">Checked fields will not be written to audio files.</p>
     {% set skipped = settings.skip_fields %}
     {% set skip_field_tips = {
@@ -251,26 +251,26 @@
       <label class="flex items-center gap-2">
         <input type="checkbox" name="skip_fields" value="{{ field_name }}"
                {% if field_name in skipped %}checked{% endif %}>
-        <code class="text-xs">{{ field_name }}</code>
+        <code class="text-xs text-[#cfcfcf]">{{ field_name }}</code>
         {{ tip(field_tip) }}
       </label>
       {% endfor %}
     </div>
   </div>
 
-  <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-2">
-    <h3 class="font-mono font-semibold">Webhook notifications</h3>
+  <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-2">
+    <span class="dt-label">webhook notifications</span>
     <label class="block">
       <span class="text-[#8a8a8a]">Webhook URL (Discord or generic)</span>
       {{ tip("HTTP POST endpoint that receives a Discord-compatible embed on job events. Discord webhook URLs work directly; other targets see a generic JSON payload.") }}
       <div class="flex gap-2 mt-1">
         <input name="webhook_url" value="{{ settings.webhook_url }}" placeholder="https://discord.com/api/webhooks/..."
-               class="flex-1 p-1 bg-black border border-[#4a4a4a] font-mono text-xs">
+               class="flex-1 p-1.5 bg-black border border-[#2a2a2a] text-white text-xs focus:outline-none">
         <button type="button"
                 hx-post="/settings/test-webhook"
                 hx-target="#webhook-test-result"
                 hx-swap="innerHTML"
-                class="px-3 py-1 border border-[#4a4a4a] text-xs text-[#cfcfcf] hover:text-white">Test</button>
+                class="px-3 py-1 border border-[#2a2a2a] text-xs text-[#cfcfcf] hover:border-[#3a3a3a]">test</button>
       </div>
       <span id="webhook-test-result" class="text-xs mt-1 block"></span>
     </label>
@@ -286,27 +286,27 @@
     </label>
   </div>
 
-  <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-3">
-    <h3 class="font-mono font-semibold">Maintenance</h3>
+  <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-3">
+    <span class="dt-label">maintenance</span>
     <label class="block">
       <span class="text-[#8a8a8a]">Recent changes kept (0 = unlimited)</span>
       {{ tip("How many entries the Changes page retains. Older audit rows are pruned automatically when new changes are recorded; pruned rows can no longer be reverted. 0 disables pruning entirely.") }}
       <input type="number" name="max_recent_changes" min="0" value="{{ settings.max_recent_changes }}"
-             class="mt-1 p-1 bg-black border border-[#4a4a4a] w-32">
+             class="mt-1 p-1.5 bg-black border border-[#2a2a2a] text-white w-32 focus:outline-none">
     </label>
     <div x-data="{ v: {{ settings.log_verbosity }} }">
       <span class="text-[#8a8a8a]">Log verbosity</span>
       {{ tip("Controls how much dragontag writes to the container logs. 0 = silent, 1 = errors only, 2 = warnings, 3 = info (default), 4 = debug. Applied immediately on save.") }}
       <div class="flex items-center gap-3 mt-1">
         <input type="range" name="log_verbosity" min="0" max="4" step="1" x-model="v" class="w-48">
-        <span class="font-mono text-xs text-[#cfcfcf]"
+        <span class="text-xs text-[#c7f0c7]"
               x-text="['0 — Silent','1 — Errors','2 — Warnings','3 — Info','4 — Debug'][v]"></span>
       </div>
     </div>
   </div>
 
-  <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-3 text-sm">
-    <h3 class="font-mono font-semibold">Scan filters</h3>
+  <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-3 text-sm">
+    <span class="dt-label">scan filters</span>
     <p class="text-xs text-[#8a8a8a]">
       Files matching any filter pattern (regex on filename), inside an excluded directory,
       or listed as an excluded file are silently skipped by the watcher, library scanner,
@@ -319,7 +319,7 @@
         {{ tip("Regex patterns matched against the filename. E.g. \\.ini$ excludes all .ini files, Thumbs\\.db$ excludes Thumbs.db. One pattern per line.") }}
       </label>
       <textarea name="scan_filter_patterns_raw" rows="4"
-                class="w-full font-mono text-xs p-2 bg-black border border-[#4a4a4a] text-[#cfcfcf] resize-y"
+                class="w-full text-xs p-2 bg-black border border-[#2a2a2a] text-[#cfcfcf] resize-y focus:outline-none"
                 placeholder="\.ini$&#10;Thumbs\.db$&#10;\.DS_Store$">{{ settings.scan_filter_patterns | join('\n') }}</textarea>
     </div>
     <div>
@@ -328,7 +328,7 @@
         {{ tip("Absolute directory paths to skip entirely — files inside are never scanned or ingested. One path per line.") }}
       </label>
       <textarea name="scan_exclude_dirs_raw" rows="4"
-                class="w-full font-mono text-xs p-2 bg-black border border-[#4a4a4a] text-[#cfcfcf] resize-y"
+                class="w-full text-xs p-2 bg-black border border-[#2a2a2a] text-[#cfcfcf] resize-y focus:outline-none"
                 placeholder="/library/My Private Folder&#10;/library/Non-Music">{{ settings.scan_exclude_dirs | join('\n') }}</textarea>
     </div>
     <div>
@@ -337,11 +337,11 @@
         {{ tip("Individual files to skip. Populated automatically when a file is moved back from the Changes page so it isn't immediately re-ingested; you can also add or remove paths by hand. One path per line.") }}
       </label>
       <textarea name="scan_exclude_files_raw" rows="4"
-                class="w-full font-mono text-xs p-2 bg-black border border-[#4a4a4a] text-[#cfcfcf] resize-y"
+                class="w-full text-xs p-2 bg-black border border-[#2a2a2a] text-[#cfcfcf] resize-y focus:outline-none"
                 placeholder="/drop/keep-me.flac">{{ settings.scan_exclude_files | join('\n') }}</textarea>
     </div>
     <button type="submit" form="clear-scan-filters-form"
-            class="px-3 py-1 border border-[#4a4a4a] text-xs text-[#cfcfcf] hover:text-white">Clear all scan filters</button>
+            class="px-3 py-1 border border-[#2a2a2a] text-xs text-[#cfcfcf] hover:border-[#3a3a3a]">clear all scan filters</button>
   </div>
 
 </form>
@@ -349,20 +349,20 @@
 <form id="clear-scan-filters-form" method="post" action="/settings/clear-scan-filters"
       onsubmit="return confirm('Clear all scan filters? Filter patterns, excluded directories and excluded files will be emptied, and previously skipped files will be picked up again by the watcher and scans.');"></form>
 
-<div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-3 mt-4 text-sm">
-  <h3 class="font-mono font-semibold">Backup &amp; restore</h3>
+<div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-3 mt-4 text-sm">
+  <span class="dt-label">backup &amp; restore</span>
   <p class="text-xs text-[#8a8a8a]">
     A backup is a versioned tarball of the database, settings.json, password hash and AcoustID key.
-    Backups are also kept in <code class="text-xs">/config/backups</code> (last 10).
-    CLI restore: <code class="text-xs">python -m dragontag.tools.restore_backup &lt;file&gt;</code>.
+    Backups are also kept in <code class="text-[#cfcfcf]">/config/backups</code> (last 10).
+    CLI restore: <code class="text-[#cfcfcf]">python -m dragontag.tools.restore_backup &lt;file&gt;</code>.
   </p>
   <a href="/backup/download"
-     class="inline-block px-3 py-1 bg-white text-black hover:bg-[#cfcfcf] text-sm">Download backup</a>
+     class="inline-block px-3 py-1.5 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f] text-sm">[ download backup ]</a>
   <form method="post" action="/backup/restore" enctype="multipart/form-data"
         class="flex items-center gap-2 flex-wrap"
         onsubmit="return confirm('Restore this backup? The current database and settings will be replaced (old files kept as *.pre-restore). A container restart afterwards is recommended.');">
     <input type="file" name="bundle" accept=".gz,.tar.gz,application/gzip" required class="text-xs text-[#cfcfcf]">
-    <button class="px-3 py-1 border border-[#ffb4b4] text-[#ffb4b4] hover:text-white hover:border-white text-sm">Restore</button>
+    <button class="px-3 py-1.5 border border-[#5a3a3a] text-[#ffb4b4] hover:border-[#ffb4b4] text-sm">restore</button>
   </form>
 </div>
 </div>
@@ -420,4 +420,10 @@
     document.getElementById(id).addEventListener('input', updatePreview));
   updatePreview();
 </script>
+{% endblock %}
+
+{% block statusbar %}
+  <span class="dt-key"><b>&#8997;s</b> save</span>
+  <span class="dt-key"><b>space</b> toggle</span>
+  <span class="dt-status-note">{% if settings.dry_run %}dry-run ACTIVE{% else %}live mode{% endif %}</span>
 {% endblock %}

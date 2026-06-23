@@ -1,131 +1,143 @@
 {% extends "base.html" %}
 {% block title %}dragontag | Dashboard{% endblock %}
 {% block content %}
-<style>html, body { overflow-y: hidden; }</style>
-<section class="space-y-6">
+<section class="space-y-5">
 
-  <!-- ASCII art banner: slanted wordmark -->
+  <!-- ASCII boot banner -->
   <div class="flex justify-center">
-  <pre class="font-mono text-white text-[10px] sm:text-sm leading-tight select-none overflow-x-auto font-bold drop-shadow-[0_0_5px_rgba(255,255,255,0.4)]">
-    ____  ____  ___   __________  _   ___________   ______
+  <pre class="text-white text-[9px] sm:text-xs leading-tight select-none overflow-x-auto font-bold" style="text-shadow:0 0 6px rgba(255,255,255,.35)">    ____  ____  ___   __________  _   ___________   ______
    / __ \/ __ \/   | / ____/ __ \/ | / /_  __/   | / ____/
   / / / / /_/ / /| |/ / __/ / / /  |/ / / / / /| |/ / __
  / /_/ / _, _/ ___ / /_/ / /_/ / /|  / / / / ___ / /_/ /
 /_____/_/ |_/_/  |_\____/\____/_/ |_/ /_/ /_/  |_\____/</pre>
   </div>
 
-  <!-- Stats bar -->
+  <!-- Stats row -->
   <div class="grid grid-cols-3 gap-4">
-    <div class="bg-[#0c0c0c] border border-[#4a4a4a] p-4">
-      <p class="text-[#8a8a8a] text-xs font-mono uppercase tracking-widest mb-1">Tracks</p>
-      <p class="font-mono font-bold text-2xl">{{ total_tracks }}</p>
+    <div class="dt-panel pt-5 px-4 pb-4">
+      <span class="dt-label">tracks</span>
+      <p class="font-bold text-2xl text-white">{{ total_tracks }}</p>
+      <div class="dt-meter mt-2.5"><span style="width:100%"></span></div>
     </div>
-    <div class="bg-[#0c0c0c] border border-[#4a4a4a] p-4">
-      <p class="text-[#8a8a8a] text-xs font-mono uppercase tracking-widest mb-1">Albums</p>
-      <p class="font-mono font-bold text-2xl">{{ total_albums }}</p>
+    <div class="dt-panel pt-5 px-4 pb-4">
+      <span class="dt-label">albums</span>
+      <p class="font-bold text-2xl text-[#e6e6e6]">{{ total_albums }}</p>
+      <div class="dt-meter mt-2.5"><span style="width:58%;background:#6a6a6a"></span></div>
     </div>
-    <div class="bg-[#0c0c0c] border border-[#4a4a4a] p-4">
-      <p class="text-[#8a8a8a] text-xs font-mono uppercase tracking-widest mb-1">Artists</p>
-      <p class="font-mono font-bold text-2xl">{{ total_artists }}</p>
-    </div>
-  </div>
-
-  <!-- Upload + folder tagger -->
-  <div class="bg-[#0c0c0c] p-6 border border-[#4a4a4a]">
-    <h2 class="font-mono font-semibold text-lg mb-4">Tag audio files</h2>
-    <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-      <!-- File upload -->
-      <div>
-        <p class="text-xs text-[#8a8a8a] mb-2">Upload individual files</p>
-        <form id="upload-form" action="/upload" method="post" enctype="multipart/form-data"
-              hx-post="/upload" hx-encoding="multipart/form-data" hx-swap="none" class="space-y-2">
-          <div id="upload-zone"
-               class="border border-dashed border-[#4a4a4a] p-4 transition-colors cursor-pointer"
-               onclick="document.getElementById('file-input').click()">
-            <p class="text-xs text-[#8a8a8a] text-center">Drop files here or click to browse</p>
-            <input id="file-input" type="file" name="files" multiple class="hidden" onchange="this.closest('form').requestSubmit()" />
-          </div>
-          <button class="px-4 py-2 bg-white text-black font-mono font-semibold hover:bg-[#cfcfcf]">Upload &amp; queue</button>
-        </form>
-        <p class="text-xs text-[#8a8a8a] mt-1">FLAC, MP3, WAV, M4A accepted.</p>
-      </div>
-      <!-- Folder tagger -->
-      <div>
-        <p class="text-xs text-[#8a8a8a] mb-2">Tag a folder on the server</p>
-        <form action="/library/bulk-retag" method="post"
-              hx-post="/library/bulk-retag" hx-swap="none" class="space-y-2">
-          <div class="flex gap-1">
-            <input id="source-path-input" type="text" name="source_path" placeholder="/path/to/folder"
-                   class="block flex-1 bg-black border border-[#4a4a4a] p-2 text-sm font-mono text-white" />
-            <button type="button" onclick="document.getElementById('source-path-input').value=''"
-                    class="px-2 border border-[#4a4a4a] text-[#8a8a8a] hover:text-white text-sm"
-                    title="Clear folder path">×</button>
-          </div>
-          <button class="px-4 py-2 bg-white text-black font-mono font-semibold hover:bg-[#cfcfcf]">Full library re-tag</button>
-        </form>
-      </div>
+    <div class="dt-panel pt-5 px-4 pb-4">
+      <span class="dt-label">artists</span>
+      <p class="font-bold text-2xl text-[#e6e6e6]">{{ total_artists }}</p>
+      <div class="dt-meter mt-2.5"><span style="width:34%;background:#6a6a6a"></span></div>
     </div>
   </div>
 
-  <!-- Library stats -->
-  <div class="bg-[#0c0c0c] p-6 border border-[#4a4a4a]">
-    <h2 class="font-mono font-semibold text-lg mb-4">Library stats</h2>
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-      <div>
-        <p class="text-[#8a8a8a] text-xs font-mono uppercase tracking-widest mb-2">Top artists</p>
+  <!-- Ingest (focused) + Library composition -->
+  <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+
+    <!-- Ingest -->
+    <div class="dt-panel dt-panel-focus pt-5 px-4 pb-4 md:col-span-3">
+      <span class="dt-label">ingest &#9656; tag audio</span>
+      <div class="grid grid-cols-1 gap-4 md:grid-cols-2 mt-1">
+        <!-- File upload -->
+        <div>
+          <p class="text-[11px] text-[#6a6a6a] mb-2">drop individual files</p>
+          <form id="upload-form" action="/upload" method="post" enctype="multipart/form-data"
+                hx-post="/upload" hx-encoding="multipart/form-data" hx-swap="none" class="space-y-2">
+            <div id="upload-zone"
+                 class="border border-dashed border-[#3a4a3a] bg-[#070907] p-5 text-center transition-colors cursor-pointer"
+                 onclick="document.getElementById('file-input').click()">
+              <div class="text-xl text-[#c7f0c7] mb-1.5" style="text-shadow:0 0 12px rgba(199,240,199,.4)">&#9660;</div>
+              <p class="text-xs text-[#cfcfcf]">drop audio files here</p>
+              <p class="text-[11px] text-[#6a6a6a] mt-1.5 tracking-wider">FLAC &middot; MP3 &middot; WAV &middot; M4A</p>
+              <input id="file-input" type="file" name="files" multiple class="hidden" onchange="this.closest('form').requestSubmit()" />
+            </div>
+            <button class="w-full px-4 py-2 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] text-xs hover:bg-[#0f140f]">[ upload &amp; queue ]</button>
+          </form>
+        </div>
+        <!-- Folder tagger -->
+        <div>
+          <p class="text-[11px] text-[#6a6a6a] mb-2">or tag a folder on the server</p>
+          <form action="/library/bulk-retag" method="post"
+                hx-post="/library/bulk-retag" hx-swap="none" class="space-y-2">
+            <div class="border border-[#2a2a2a] bg-black px-3 py-2.5 text-xs text-[#cfcfcf] flex items-center gap-1">
+              <span class="text-[#5a5a5a]">~$</span>
+              <span class="text-white">tag</span>
+              <input id="source-path-input" type="text" name="source_path" placeholder="/music/incoming"
+                     class="flex-1 bg-transparent border-0 p-0 text-xs font-mono text-white placeholder-[#3a3a3a] focus:outline-none" style="box-shadow:none" />
+              <button type="button" onclick="document.getElementById('source-path-input').value=''"
+                      class="text-[#5a5a5a] hover:text-white" title="Clear folder path">&times;</button>
+            </div>
+            <button class="w-full px-4 py-2 border border-[#2a2a2a] bg-[#0c0c0c] text-[#cfcfcf] text-xs hover:border-[#3a3a3a]">[ full library re-tag ]</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Library composition -->
+    <div class="dt-panel pt-5 px-4 pb-4 md:col-span-2">
+      <span class="dt-label">library</span>
+      <div class="grid grid-cols-3 gap-3">
+        <div>
+          <p class="text-[10px] text-[#8a8a8a] uppercase tracking-widest mb-1">explicit</p>
+          <p class="font-bold text-xl text-[#ffb4b4]">{{ stats.explicit_count }}</p>
+        </div>
+        <div>
+          <p class="text-[10px] text-[#8a8a8a] uppercase tracking-widest mb-1">lyrics</p>
+          <p class="font-bold text-xl text-[#c7f0c7]">{{ stats.lyrics_count }}</p>
+        </div>
+        <div>
+          <p class="text-[10px] text-[#8a8a8a] uppercase tracking-widest mb-1">avg len</p>
+          <p class="font-bold text-xl text-[#e6e6e6]">{{ stats.avg_duration }}</p>
+        </div>
+      </div>
+      <div class="mt-4">
+        <p class="text-[10px] text-[#8a8a8a] uppercase tracking-widest mb-2">top artists</p>
         {% if stats.top_artists %}
-          <ul class="text-sm space-y-1">
+          <ul class="text-xs space-y-1.5">
             {% for name, count in stats.top_artists %}
-            <li class="flex justify-between border-b border-[#1a1a1a] py-0.5">
+            <li class="flex justify-between items-center border-b border-[#141414] pb-1">
               <span class="text-[#cfcfcf] truncate">{{ name }}</span>
-              <span class="text-[#8a8a8a] font-mono ml-2">{{ count }}</span>
+              <span class="text-[#8a8a8a] ml-2">{{ count }}</span>
             </li>
             {% endfor %}
           </ul>
         {% else %}
-          <p class="text-[#8a8a8a] text-sm">No data yet.</p>
+          <p class="text-[#8a8a8a] text-xs">No data yet.</p>
         {% endif %}
-      </div>
-      <div class="space-y-3">
-        <div>
-          <p class="text-[#8a8a8a] text-xs font-mono uppercase tracking-widest mb-1">Explicit tracks</p>
-          <p class="font-mono font-bold text-2xl">{{ stats.explicit_count }}</p>
-        </div>
-        <div>
-          <p class="text-[#8a8a8a] text-xs font-mono uppercase tracking-widest mb-1">Tracks with lyrics</p>
-          <p class="font-mono font-bold text-2xl">{{ stats.lyrics_count }}</p>
-        </div>
-        <div>
-          <p class="text-[#8a8a8a] text-xs font-mono uppercase tracking-widest mb-1">Average length</p>
-          <p class="font-mono font-bold text-2xl">{{ stats.avg_duration }}</p>
-        </div>
       </div>
     </div>
   </div>
 
-  <!-- Recent jobs (compact, last 5) -->
-  <div class="bg-[#0c0c0c] p-6 border border-[#4a4a4a]">
-    <div class="flex items-center justify-between mb-3">
-      <h2 class="font-mono font-semibold text-lg">Recent jobs <span class="text-[#8a8a8a] text-sm font-normal">({{ total_jobs }} total)</span></h2>
-      <a href="/queue" class="text-sm text-[#cfcfcf] hover:text-white">View all →</a>
-    </div>
+  <!-- Recent jobs -->
+  <div class="dt-panel pt-5 px-4 pb-3">
+    <span class="dt-label">recent jobs</span>
+    <span class="dt-label-r">{{ total_jobs }} total &middot; <a href="/queue" class="text-[#cfcfcf] hover:text-white">[j] open</a></span>
     {% if jobs %}
-    <ul class="text-sm divide-y divide-[#1a1a1a]">
+    <div class="grid grid-cols-[1fr_120px_120px] gap-3 text-[10px] uppercase tracking-widest text-[#5a5a5a] pb-2 border-b border-[#1f1f1f]">
+      <span>file</span><span>status</span><span class="text-right">updated</span>
+    </div>
+    <ul class="text-xs">
       {% for j in jobs %}
-      <li class="py-1 flex items-center gap-3">
-        <span class="px-2 py-0.5 text-xs w-28 text-center
-          {% if j.status.value == 'done' %}bg-[#c7f0c7] text-black
-          {% elif j.status.value == 'error' %}bg-[#ffb4b4] text-black
-          {% elif j.status.value == 'needs_review' %}bg-[#f2e5b5] text-black
-          {% elif j.status.value == 'skipped' %}bg-[#2a2a2a] text-[#8a8a8a]
-          {% else %}bg-[#131313]{% endif %}">{{ j.status.value }}</span>
-        <a class="text-[#cfcfcf] hover:underline truncate flex-1" href="/jobs/{{ j.id }}">{{ j.original_name }}</a>
-        <span class="text-[#8a8a8a] text-xs whitespace-nowrap">{{ format_local(j.updated_at) }}</span>
+      <li class="grid grid-cols-[1fr_120px_120px] gap-3 items-center py-1.5 border-b border-[#141414] last:border-0">
+        <a class="text-[#cfcfcf] hover:text-white hover:underline truncate" href="/jobs/{{ j.id }}">{{ j.original_name }}</a>
+        <span class="
+          {% if j.status.value == 'done' %}text-[#c7f0c7]
+          {% elif j.status.value == 'error' %}text-[#ffb4b4]
+          {% elif j.status.value == 'needs_review' %}text-[#f2e5b5]
+          {% elif j.status.value == 'skipped' %}text-[#5a5a5a]
+          {% else %}text-[#8a8a8a]{% endif %}">
+          {%- if j.status.value == 'done' %}&#9679; done
+          {%- elif j.status.value == 'error' %}&#10005; error
+          {%- elif j.status.value == 'needs_review' %}&#9650; review
+          {%- elif j.status.value == 'skipped' %}&middot; skipped
+          {%- else %}&#9727; {{ j.status.value }}{% endif -%}
+        </span>
+        <span class="text-[#5a5a5a] text-right whitespace-nowrap">{{ format_local(j.updated_at) }}</span>
       </li>
       {% endfor %}
     </ul>
     {% else %}
-    <p class="text-[#8a8a8a] text-sm">No jobs yet.</p>
+    <p class="text-[#8a8a8a] text-xs">No jobs yet.</p>
     {% endif %}
   </div>
 
@@ -139,12 +151,12 @@
 
     zone.addEventListener('dragover', e => {
       e.preventDefault();
-      zone.classList.add('border-white');
+      zone.classList.add('border-[#c7f0c7]');
     });
-    zone.addEventListener('dragleave', () => zone.classList.remove('border-white'));
+    zone.addEventListener('dragleave', () => zone.classList.remove('border-[#c7f0c7]'));
     zone.addEventListener('drop', e => {
       e.preventDefault();
-      zone.classList.remove('border-white');
+      zone.classList.remove('border-[#c7f0c7]');
       if (e.dataTransfer.files.length) {
         fileInput.files = e.dataTransfer.files;
         document.getElementById('upload-form').requestSubmit();
@@ -165,4 +177,12 @@
     }
   })();
 </script>
+{% endblock %}
+
+{% block statusbar %}
+  <span class="dt-key"><b>u</b> upload</span>
+  <span class="dt-key"><b>/</b> search</span>
+  <span class="dt-key"><b>r</b> retag</span>
+  <span class="dt-key"><b>j</b> jobs</span>
+  <span class="dt-status-note">watcher idle &middot; NORMAL</span>
 {% endblock %}

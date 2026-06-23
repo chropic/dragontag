@@ -9,7 +9,8 @@ metadata:
 
 ## Stack
 
-- **FastAPI** + **Jinja2** + **HTMX** + **Alpine.js** + **Tailwind via CDN** (no build step).
+- **FastAPI** + **Jinja2** + **HTMX** + **Alpine.js** + **Tailwind** (all assets self-hosted, no CDN). The stylesheet is compiled ahead of time: `frontend/app.input.css` + `frontend/tailwind.config.js` → committed `dragontag/app/web/static/app.css` via `bash frontend/build_css.sh`. Rerun it after adding/removing utility classes in templates.
+- **UI is a terminal/TUI redesign (Direction A)** — JetBrains Mono (vendored woff2, falls back to the also-vendored IBM Plex Mono), true-black canvas, `.dt-*` texture primitives (panel/label/statusbar/cursor/meter) defined in `app.input.css` `@layer components`, bracketed buttons, text+glyph status, and a `fixed` keybind status bar (`{% block statusbar %}` in `base.html`). Green is reserved for *meaning* (done/active/focus/progress).
 - **SQLModel / SQLite** at `${DRAGONTAG_CONFIG_PATH}/dragontag.db`. **Alembic** scaffolded under `alembic/`.
 - **mutagen** for tag I/O; **musicbrainzngs** + **acoustid** (`fpcalc`) for identification.
 
@@ -60,7 +61,7 @@ dragontag/app/
     revert.py              Undo a recorded FileChange (restore tags in place)
   web/
     templates/             Jinja2 (extends base.html)
-    static/                favicon, eventual static assets
+    static/                app.css (built), favicon, fonts/ (JetBrains Mono + IBM Plex woff2 + fonts.css), vendor/ (htmx, alpine)
 ```
 
 ## Job state machine (`models.JobStatus`)

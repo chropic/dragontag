@@ -12,6 +12,7 @@
   <script src="/static/vendor/htmx.min.js"></script>
   <style>
     [x-cloak] { display: none !important; }
+    /* CRT scanline overlay */
     body::before {
       content: '';
       position: fixed;
@@ -20,17 +21,15 @@
       z-index: 9999;
       background: linear-gradient(
         180deg,
-        rgba(255,255,255,.04) 0,
-        rgba(255,255,255,.04) 1px,
+        rgba(255,255,255,.03) 0,
+        rgba(255,255,255,.03) 1px,
         transparent 1px,
-        transparent 4px
+        transparent 3px
       );
-      background-size: 100% 4px;
+      background-size: 100% 3px;
     }
     /* Phosphor-monitor green glow on terminal-green text */
-    .text-\[#c7f0c7\] { text-shadow: 0 0 6px rgba(199,240,199,0.55); }
-    /* Subtle white glow on the active nav item */
-    nav a.border-b-2 { text-shadow: 0 0 8px rgba(255,255,255,0.4); }
+    .text-\[#c7f0c7\] { text-shadow: 0 0 6px rgba(199,240,199,0.45); }
     /* Terminal-green focus ring replaces browser default blue */
     input:focus, textarea:focus, select:focus {
       outline: none;
@@ -39,39 +38,47 @@
   </style>
   <script defer src="/static/vendor/alpine.min.js"></script>
 </head>
-<body class="bg-black text-white font-sans min-h-screen"
+<body class="bg-black text-white font-mono min-h-screen flex flex-col pb-[30px]"
       x-data="toastManager()"
       x-init="init()">
 
-  <nav class="bg-[#0c0c0c] px-6 py-5 flex items-center gap-5 border-b border-[#4a4a4a] sticky top-0 z-50">
-    <a href="/" class="font-mono font-bold text-lg tracking-tight">dragontag</a>
+  <!-- ── Top bar ─────────────────────────────────────────────────────────── -->
+  <nav class="bg-[#060606] h-11 px-4 flex items-center gap-5 border-b border-[#242424] sticky top-0 z-50">
+    <a href="/" class="flex items-center gap-2 font-bold text-sm tracking-tight">
+      <span class="text-[#c7f0c7]" style="text-shadow:0 0 9px rgba(199,240,199,.7)">&#9608;</span>dragontag
+    </a>
 
     {% set nav_items = [
-      ('/', 'dashboard', 'Dashboard'),
-      ('/library', 'library', 'Library'),
-      ('/queue', 'queue', 'Queue'),
-      ('/changes', 'changes', 'Changes'),
-      ('/schedule', 'schedule', 'Schedule'),
-      ('/settings', 'settings', 'Settings'),
-      ('/docs', 'docs', 'Docs'),
+      ('/', 'dashboard', 'dashboard'),
+      ('/library', 'library', 'library'),
+      ('/queue', 'queue', 'queue'),
+      ('/changes', 'changes', 'changes'),
+      ('/schedule', 'schedule', 'schedule'),
+      ('/settings', 'settings', 'settings'),
+      ('/docs', 'docs', 'docs'),
     ] %}
-    {% for href, page_key, label in nav_items %}
-      {% if active_page == page_key %}
-        <a href="{{ href }}" class="text-white font-bold text-sm border-b-2 border-white pb-0.5">{{ label }}</a>
-      {% else %}
-        <a href="{{ href }}" class="text-[#cfcfcf] hover:text-white text-sm">{{ label }}</a>
-      {% endif %}
-    {% endfor %}
+    <div class="flex items-center gap-4 text-xs ml-1">
+      {% for href, page_key, label in nav_items %}
+        {% if active_page == page_key %}
+          <a href="{{ href }}" class="text-white font-bold border-b-2 border-[#c7f0c7] pb-[3px]">{{ label }}</a>
+        {% else %}
+          <a href="{{ href }}" class="text-[#5a5a5a] hover:text-white">{{ label }}</a>
+        {% endif %}
+      {% endfor %}
+    </div>
 
-    <form action="/logout" method="post" class="ml-auto">
-      <button class="text-[#8a8a8a] hover:text-white text-sm">Log out</button>
-    </form>
+    <div class="ml-auto flex items-center gap-4 text-[11px] text-[#5a5a5a]">
+      <span class="text-[#7fbf7f]">&#9679; online</span>
+      <form action="/logout" method="post">
+        <button class="text-[#5a5a5a] hover:text-white">log&nbsp;out</button>
+      </form>
+    </div>
   </nav>
 
   <!-- Universal progress bar: thin line pinned under the nav, visible on every
        page while any job/scan/task is active. Polls /api/progress. -->
   <div x-data="progressBar()" x-init="poll()" x-show="active" x-cloak
-       class="sticky top-[65px] z-40">
+       class="sticky top-[44px] z-40">
     <div class="h-1.5 bg-[#1a1a1a] w-full overflow-hidden">
       <div class="h-1.5 bg-[#c7f0c7] transition-all duration-500"
            :class="percent === null ? 'animate-pulse w-full opacity-60' : ''"
@@ -87,12 +94,22 @@
     </div>
   </div>
 
-  <main class="max-w-6xl mx-auto p-6">
+  <main class="flex-1 max-w-6xl w-full mx-auto p-6">
     {% block content %}{% endblock %}
   </main>
 
+  <!-- ── Keybind status bar ──────────────────────────────────────────────── -->
+  <div class="dt-statusbar">
+    {% block statusbar %}
+      <span class="dt-key"><b>/</b> search</span>
+      <span class="dt-key"><b>g</b> go to</span>
+      <span class="dt-key"><b>?</b> help</span>
+      <span class="dt-status-note">dragontag</span>
+    {% endblock %}
+  </div>
+
   <!-- Toast container -->
-  <div class="fixed bottom-4 right-4 z-50 flex flex-col gap-2" style="pointer-events:none;">
+  <div class="fixed bottom-10 right-4 z-50 flex flex-col gap-2" style="pointer-events:none;">
     <template x-for="t in toasts" :key="t.id">
       <div class="px-4 py-2 text-sm font-mono border flex items-center gap-3 transition-all"
            style="pointer-events:auto;"

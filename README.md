@@ -244,6 +244,18 @@ DRAGONTAG_CONFIG_PATH=./config DRAGONTAG_USERNAME=dev DRAGONTAG_PASSWORD=dev \
 uvicorn dragontag.app.main:app --reload --port 7593
 ```
 
+### Front-end
+
+The UI is a self-hosted terminal/TUI design (JetBrains Mono, monochrome, `.dt-*` panel
+primitives) — no CDN. The stylesheet is compiled ahead of time and committed:
+
+```bash
+# After editing templates or frontend/app.input.css, rebuild dragontag/app/web/static/app.css
+bash frontend/build_css.sh
+```
+
+See `frontend/README.md` for the `.dt-*` component layer and font details.
+
 ### Database migrations
 
 ```bash

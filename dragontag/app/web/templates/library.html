@@ -2,78 +2,83 @@
 {% block title %}dragontag | Library{% endblock %}
 {% block content %}
 <div class="flex items-center justify-between mb-4">
-  <h2 class="text-xl font-mono font-semibold">Library</h2>
-  <a href="/library/folders" class="text-sm text-[#cfcfcf] hover:text-white">Manage libraries</a>
+  <div class="flex items-center gap-2">
+    <span class="text-[#c7f0c7]">&#9656;</span>
+    <h2 class="font-bold text-lg">library</h2>
+  </div>
+  <a href="/library/folders" class="text-xs text-[#cfcfcf] hover:text-white">manage libraries &#8594;</a>
 </div>
 
 {% if not folders %}
-<div class="bg-[#0c0c0c] p-6 border border-[#4a4a4a] text-[#8a8a8a] text-sm">
+<div class="relative border border-[#242424] bg-[#0a0a0a] p-6 text-[#8a8a8a] text-sm">
   No libraries configured. <a href="/library/folders" class="text-[#cfcfcf] hover:text-white">Add one.</a>
 </div>
 {% else %}
 
 {# Library tabs #}
-<div class="flex gap-2 mb-4 flex-wrap">
+<div class="flex gap-2 mb-4 flex-wrap text-xs">
   {% for f in folders %}
   <a href="/library?folder_id={{ f.id }}{% if q %}&q={{ q }}{% endif %}"
-     class="px-3 py-1 text-sm border
-            {% if f.id == active_id %}bg-white text-black border-white
-            {% else %}bg-[#0c0c0c] border-[#4a4a4a] text-[#cfcfcf] hover:text-white{% endif %}">
+     class="px-3 py-1.5 border
+            {% if f.id == active_id %}bg-white text-black border-white font-bold
+            {% else %}bg-[#0a0a0a] border-[#2a2a2a] text-[#cfcfcf] hover:text-white hover:border-[#3a3a3a]{% endif %}">
     {{ f.label or f.path }}
   </a>
   {% endfor %}
   <a href="/library/incomplete"
-     class="px-3 py-1 text-sm border bg-[#0c0c0c] border-[#f2e5b5] text-[#f2e5b5] hover:text-white hover:border-white"
+     class="px-3 py-1.5 border bg-[#0e0d08] border-[#4a4326] text-[#f2e5b5] hover:border-[#f2e5b5]"
      title="Albums whose local track count is below what MusicBrainz expects. Populated by 'Find missing tracks'.">
-    Incomplete
+    &#9650; incomplete
   </a>
+</div>
+
+{# Search #}
+<div class="relative border border-[#242424] bg-[#0a0a0a] p-3 mb-4 flex items-center gap-2">
+  <span class="text-[#5a5a5a] text-sm">/</span>
+  <input
+    type="text"
+    name="q"
+    value="{{ q }}"
+    placeholder="search title, artist, album…"
+    class="w-full bg-transparent border-0 p-0 text-sm text-white placeholder-[#3a3a3a] focus:outline-none"
+    style="box-shadow:none"
+    hx-get="/library/tracks"
+    hx-target="#library-tracks"
+    hx-trigger="input changed delay:300ms"
+    hx-include="[name='folder_id'],[name='page_size'],[name='sort'],[name='dir']">
+  <input type="hidden" name="folder_id" value="{{ active_id }}">
+  <input type="hidden" name="page_size" value="{{ page_size }}">
+  <input type="hidden" name="sort" value="{{ sort }}">
+  <input type="hidden" name="dir" value="{{ dir }}">
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
 
-  {# Search #}
-  <div class="lg:col-span-3 bg-[#0c0c0c] p-4 border border-[#4a4a4a]">
-    <input
-      type="text"
-      name="q"
-      value="{{ q }}"
-      placeholder="Search title, artist, album…"
-      class="w-full p-2 bg-black border border-[#4a4a4a] text-sm"
-      hx-get="/library/tracks"
-      hx-target="#library-tracks"
-      hx-trigger="input changed delay:300ms"
-      hx-include="[name='folder_id'],[name='page_size'],[name='sort'],[name='dir']">
-    <input type="hidden" name="folder_id" value="{{ active_id }}">
-    <input type="hidden" name="page_size" value="{{ page_size }}">
-    <input type="hidden" name="sort" value="{{ sort }}">
-    <input type="hidden" name="dir" value="{{ dir }}">
-  </div>
-
   {# Scan library card #}
-  <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-2">
-    <h3 class="font-mono font-semibold text-sm">Scan library</h3>
+  <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-2">
+    <span class="dt-label">scan</span>
     <p class="text-xs text-[#8a8a8a]">Read tags from all files in the selected library and refresh the DB.</p>
     <form method="post" action="/library/scan">
       <input type="hidden" name="folder_id" value="{{ active_id }}">
-      <button class="mt-1 px-3 py-1 bg-[#131313] border border-[#4a4a4a] hover:bg-[#1a1a1a] text-sm">Scan now</button>
+      <button class="mt-1 px-3 py-1.5 border border-[#2a2a2a] bg-[#0c0c0c] text-[#cfcfcf] hover:border-[#3a3a3a] text-xs">[ scan now ]</button>
     </form>
   </div>
 
   {# Organize batch card #}
-  <div class="bg-[#0c0c0c] p-4 border border-[#f2e5b5]/60 space-y-2">
-    <h3 class="font-mono font-semibold text-sm">Organize library</h3>
+  <div class="relative border border-[#4a4326] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-2">
+    <span class="dt-label" style="color:#f2e5b5">organize</span>
     <p class="text-xs text-[#8a8a8a]">Structural cleanup batch: move files to match templates, fix disc folders, normalize filenames, extract embedded covers, prune junk &amp; empty folders, find duplicates and missing tracks.</p>
-    <p class="text-xs text-[#ffb4b4]">⚠ Files are moved/renamed; junk files and empty directories are deleted. Audio is never deleted.</p>
+    <p class="text-xs text-[#ffb4b4]">&#9888; Files are moved/renamed; junk files and empty directories are deleted. Audio is never deleted.</p>
     <form method="post" action="/library/batch/organize"
           onsubmit="return confirm('Run the Organize batch? Files will be moved/renamed to match templates and junk + empty folders will be deleted (audio files are never deleted).');">
       <input type="hidden" name="folder_id" value="{{ active_id }}">
-      <button class="mt-1 px-3 py-1 bg-[#f2e5b5] text-black hover:bg-[#f2e5b5]/80 text-sm">Organize</button>
+      <button class="mt-1 px-3 py-1.5 border border-[#4a4326] bg-[#0e0d08] text-[#f2e5b5] hover:border-[#f2e5b5] text-xs">[ organize ]</button>
     </form>
   </div>
 
   {# Re-tag batch card #}
-  <div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a] space-y-2">
-    <h3 class="font-mono font-semibold text-sm">Full library re-tag</h3>
+  <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-2">
+    <span class="dt-label">full re-tag</span>
     <p class="text-xs text-[#8a8a8a]">Tag pipeline batch: validate tags, re-tag advisories, recompute ReplayGain, then queue every file through the full identify → tag → move pipeline.</p>
     <form method="post" action="/library/batch/retag" class="space-y-1"
           onsubmit="return confirm('Run the full re-tag batch on this library folder? Every file goes through identify → tag → move.');">
@@ -84,13 +89,13 @@
         </label>
         {% if settings.dry_run %}<span class="text-[#f2e5b5]">global default: on</span>{% endif %}
       </div>
-      <button class="px-3 py-1 bg-white text-black hover:bg-[#cfcfcf] text-sm">Re-tag</button>
+      <button class="px-3 py-1.5 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f] text-xs">[ re-tag ]</button>
     </form>
   </div>
 
   {# Nuclear card #}
-  <div class="bg-[#0c0c0c] p-4 border border-[#ffb4b4]/70 space-y-2">
-    <h3 class="font-mono font-semibold text-sm text-[#ffb4b4]">Nuclear option</h3>
+  <div class="relative border border-[#5a3a3a] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-2">
+    <span class="dt-label" style="color:#ffb4b4">nuclear option</span>
     <p class="text-xs text-[#8a8a8a]">Everything, in order: the whole Organize batch, then the whole Re-tag batch. One job, one progress bar, a long wait.</p>
     <form method="post" action="/library/batch/nuclear" class="space-y-1"
           onsubmit="return confirm('NUCLEAR OPTION: organize, fix, prune, validate, advisories, ReplayGain, then a full identify → tag → move re-tag of every file in this folder.\n\nThis is the most invasive thing dragontag can do. Continue?');">
@@ -101,28 +106,28 @@
         </label>
         {% if settings.dry_run %}<span class="text-[#f2e5b5]">global default: on</span>{% endif %}
       </div>
-      <button class="px-3 py-1 bg-[#ffb4b4] text-black hover:bg-[#ffb4b4]/80 text-sm font-semibold">Launch</button>
+      <button class="px-3 py-1.5 border border-[#5a3a3a] bg-[#0e0808] text-[#ffb4b4] hover:border-[#ffb4b4] text-xs font-bold">[ launch ]</button>
     </form>
   </div>
 
   {# Individual library actions — run one now, or tick several and queue them
      as a single sequential chain. #}
-  <div class="lg:col-span-3 bg-[#0c0c0c] p-4 border border-[#4a4a4a]">
-    <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
-      <h3 class="font-mono font-semibold text-sm">Individual library actions</h3>
+  <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 lg:col-span-2">
+    <span class="dt-label">individual actions</span>
+    <div class="flex items-center justify-end mb-3">
       <button type="submit" form="actions-chain-form"
-              class="px-3 py-1 bg-[#c7f0c7] text-black hover:bg-[#c7f0c7]/80 text-sm"
-              title="Run all checked actions one after another as a single job.">Queue selected</button>
+              class="px-3 py-1 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f] text-xs"
+              title="Run all checked actions one after another as a single job.">[ queue selected ]</button>
     </div>
     <form id="actions-chain-form" method="post" action="/library/run-selected">
       <input type="hidden" name="folder_id" value="{{ active_id }}">
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
         {% for key, label, desc in library_actions %}
-        <div class="flex items-center gap-2 border border-[#4a4a4a] px-2 py-1.5 hover:border-[#8a8a8a]" title="{{ desc }}">
+        <div class="flex items-center gap-2 border border-[#1f1f1f] px-2 py-1.5 hover:border-[#3a3a3a]" title="{{ desc }}">
           <input type="checkbox" name="actions" value="{{ key }}" form="actions-chain-form">
-          <span class="text-sm flex-1">{{ label }}</span>
+          <span class="text-xs flex-1 text-[#cfcfcf]">{{ label }}</span>
           <button type="submit" form="action-run-{{ key }}"
-                  class="text-xs px-2 py-0.5 border border-[#4a4a4a] text-[#8a8a8a] hover:text-white hover:border-white"
+                  class="text-[11px] px-2 py-0.5 border border-[#2a2a2a] text-[#8a8a8a] hover:text-white hover:border-[#3a3a3a]"
                   title="Run just this action now.">run</button>
         </div>
         {% endfor %}
@@ -141,18 +146,19 @@
 {# Track table with checkboxes #}
 <form method="post" action="/library/retag-selected" id="retag-form">
 <input type="hidden" name="select_all_folder" id="select-all-folder" value="">
-<div class="bg-[#0c0c0c] p-4 border border-[#4a4a4a]">
-  <div class="flex items-center gap-3 mb-3 flex-wrap">
-    <label class="flex items-center gap-2 text-sm text-[#8a8a8a]">
-      <input type="checkbox" id="select-all" onchange="toggleAll(this)"> Select page
+<div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4">
+  <span class="dt-label">tracks</span>
+  <div class="flex items-center gap-3 mb-3 flex-wrap text-xs">
+    <label class="flex items-center gap-2 text-[#8a8a8a]">
+      <input type="checkbox" id="select-all" onchange="toggleAll(this)"> select page
     </label>
     <button type="button" onclick="selectAllFolder()"
-            class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white">Select all in folder</button>
-    <button type="submit" class="px-3 py-1 border border-[#4a4a4a] text-sm hover:border-white">Re-tag selected</button>
-    <label class="flex items-center gap-2 text-xs text-[#8a8a8a]" title="Applies to this run only — the global dry-run setting is unchanged.">
-      <input type="checkbox" name="dry_run"> Dry run (this run only)
+            class="px-3 py-1 border border-[#2a2a2a] text-[#cfcfcf] hover:border-[#3a3a3a]">select all in folder</button>
+    <button type="submit" class="px-3 py-1 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f]">re-tag selected</button>
+    <label class="flex items-center gap-2 text-[#8a8a8a]" title="Applies to this run only — the global dry-run setting is unchanged.">
+      <input type="checkbox" name="dry_run"> dry run (this run only)
     </label>
-    {% if settings.dry_run %}<span class="text-xs text-[#f2e5b5]">global default: on</span>{% endif %}
+    {% if settings.dry_run %}<span class="text-[#f2e5b5]">global default: on</span>{% endif %}
   </div>
   <div id="library-tracks">
     {% include "_library_tracks.html" %}
@@ -178,4 +184,12 @@
     document.getElementById('retag-form').submit();
   }
 </script>
+{% endblock %}
+
+{% block statusbar %}
+  <span class="dt-key"><b>/</b> search</span>
+  <span class="dt-key"><b>space</b> select</span>
+  <span class="dt-key"><b>enter</b> edit tags</span>
+  <span class="dt-key"><b>r</b> retag</span>
+  <span class="dt-status-note">{% if active_id %}folder #{{ active_id }}{% else %}all folders{% endif %}</span>
 {% endblock %}

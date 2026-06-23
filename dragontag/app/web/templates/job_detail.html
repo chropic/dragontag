@@ -1,27 +1,57 @@
 {% extends "base.html" %}
 {% block title %}dragontag | Job #{{ job.id }}{% endblock %}
 {% block content %}
-<a href="/" class="text-[#8a8a8a] hover:text-white text-sm">&larr; Back</a>
-{% if job.status.value in ("done", "error", "skipped") %}
-<form method="post" action="/jobs/{{ job.id }}/requeue" class="inline ml-4">
-  <button class="text-sm px-3 py-1 border border-[#4a4a4a] text-[#cfcfcf] hover:bg-[#4a4a4a]">Re-queue</button>
-</form>
-{% endif %}
-<h2 class="font-mono font-semibold text-xl mt-2">{{ job.original_name }}</h2>
-<dl class="mt-4 grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-  <dt class="text-[#8a8a8a]">Status</dt><dd>{{ job.status.value }}</dd>
-  <dt class="text-[#8a8a8a]">Score</dt><dd>{{ "%.3f"|format(job.score) if job.score is not none else "—" }}</dd>
-  <dt class="text-[#8a8a8a]">Reason</dt><dd>{{ job.review_reason.value if job.review_reason else "" }}</dd>
-  <dt class="text-[#8a8a8a]">Source</dt><dd class="truncate font-mono text-xs">{{ job.source_path }}</dd>
-  <dt class="text-[#8a8a8a]">Destination</dt><dd class="truncate font-mono text-xs">{{ job.destination_path or "" }}</dd>
-</dl>
+<div class="flex items-center gap-4 mb-4">
+  <a href="/" class="text-[#5a5a5a] hover:text-white text-sm">&larr; back</a>
+  {% if job.status.value in ("done", "error", "skipped") %}
+  <form method="post" action="/jobs/{{ job.id }}/requeue" class="inline">
+    <button class="text-sm px-3 py-1 border border-[#2a2a2a] bg-[#0c0c0c] text-[#cfcfcf] hover:border-[#3a3a3a]">[ re-queue ]</button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="flex items-center gap-2 mb-4">
+  <span class="text-[#c7f0c7]">&#9656;</span>
+  <h2 class="font-bold text-lg truncate">{{ job.original_name }}</h2>
+</div>
+
+<div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 mb-4">
+  <span class="dt-label">job #{{ job.id }}</span>
+  <dl class="grid grid-cols-[120px_1fr] gap-x-6 gap-y-2 text-sm">
+    <dt class="text-[#8a8a8a]">status</dt>
+    <dd>
+      <span class="
+        {% if job.status.value == 'done' %}text-[#c7f0c7]
+        {% elif job.status.value == 'error' %}text-[#ffb4b4]
+        {% elif job.status.value == 'needs_review' %}text-[#f2e5b5]
+        {% else %}text-[#cfcfcf]{% endif %}">{{ job.status.value }}</span>
+    </dd>
+    <dt class="text-[#8a8a8a]">score</dt><dd class="text-[#cfcfcf]">{{ "%.3f"|format(job.score) if job.score is not none else "—" }}</dd>
+    <dt class="text-[#8a8a8a]">reason</dt><dd class="text-[#cfcfcf]">{{ job.review_reason.value if job.review_reason else "—" }}</dd>
+    <dt class="text-[#8a8a8a]">source</dt><dd class="truncate text-xs text-[#cfcfcf]">{{ job.source_path }}</dd>
+    <dt class="text-[#8a8a8a]">destination</dt><dd class="truncate text-xs text-[#cfcfcf]">{{ job.destination_path or "—" }}</dd>
+  </dl>
+</div>
+
 {% if job.error %}
-<pre class="mt-4 bg-[#ffb4b4]/10 border border-[#ffb4b4]/30 p-3 text-[#ffb4b4] text-xs overflow-auto">{{ job.error }}</pre>
+<pre class="mb-4 bg-[#ffb4b4]/10 border border-[#5a3a3a] p-3 text-[#ffb4b4] text-xs overflow-auto">{{ job.error }}</pre>
 {% endif %}
-<h3 class="mt-6 font-mono font-semibold">Log</h3>
-<pre class="bg-[#0c0c0c] border border-[#4a4a4a] p-3 text-xs whitespace-pre-wrap text-[#cfcfcf]">{{ job.log }}</pre>
+
+<div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 mb-4">
+  <span class="dt-label">log</span>
+  <pre class="text-xs whitespace-pre-wrap text-[#cfcfcf]">{{ job.log }}</pre>
+</div>
+
 {% if job.chosen_tags_json %}
-<h3 class="mt-6 font-mono font-semibold">Chosen tags</h3>
-<pre class="bg-[#0c0c0c] border border-[#4a4a4a] p-3 text-xs overflow-auto text-[#cfcfcf]">{{ job.chosen_tags_json|tojson(indent=2) }}</pre>
+<div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4">
+  <span class="dt-label">chosen tags</span>
+  <pre class="text-xs overflow-auto text-[#cfcfcf]">{{ job.chosen_tags_json|tojson(indent=2) }}</pre>
+</div>
 {% endif %}
+{% endblock %}
+
+{% block statusbar %}
+  <span class="dt-key"><b>r</b> requeue</span>
+  <span class="dt-key"><b>esc</b> back</span>
+  <span class="dt-status-note">job #{{ job.id }} &middot; {{ job.status.value }}</span>
 {% endblock %}

@@ -23,7 +23,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.openapi.docs import get_swagger_ui_html
@@ -56,7 +56,9 @@ from .models import (
 
 
 def _local_tz() -> ZoneInfo:
-    tz = os.environ.get("TZ", "UTC")
+    """Resolve the display timezone: Docker ``TZ`` env (locked, always wins),
+    else the in-app ``settings().timezone`` override, else UTC."""
+    tz = os.environ.get("TZ") or settings().timezone or "UTC"
     try:
         return ZoneInfo(tz)
     except (ZoneInfoNotFoundError, KeyError):
@@ -146,6 +148,12 @@ templates.env.globals["describe_cron"] = scheduler.describe_cron
 @app.on_event("startup")
 def _startup() -> None:
     """Initialize config + DB, start worker, resume in-flight jobs, start watcher."""
+    log.info(r"""
+   ____  ____  ___   __________  _   ___________   ______
+  / __ \/ __ \/   | / ____/ __ \/ | / /_  __/   | / ____/
+ / / / / /_/ / /| |/ / __/ / / /  |/ / / / / /| |/ / __
+/ /_/ / _, _/ ___ / /_/ / /_/ / /|  / / / / ___ / /_/ /
+\____/_/ |_/_/  |_\____/\____/_/ |_/ /_/ /_/  |_\____/  starting up...""")
     store()                       # ensure /config and SQLite are ready
     logsetup.apply(settings().log_verbosity)
     from .tagging.writers._atomic import cleanup_orphaned_temp_files
@@ -802,12 +810,16 @@ def resolve_conflict(
 
 @app.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, _: None = Depends(require_auth), saved: str = ""):
+    tz_env = os.environ.get("TZ")
     return templates.TemplateResponse(
         request, "settings.html", {
             "request": request,
             "settings": settings(),
             "active_page": "settings",
             "saved": bool(saved),
+            "tz_env_locked": bool(tz_env),
+            "tz_current": tz_env or settings().timezone or "UTC",
+            "tz_choices": sorted(available_timezones()),
         }
     )
 
@@ -859,6 +871,7 @@ def settings_update(
     scan_filter_patterns_raw: str = Form(""),
     scan_exclude_dirs_raw: str = Form(""),
     scan_exclude_files_raw: str = Form(""),
+    timezone: str = Form(""),
 ):
     """Persist a settings patch from the UI form.
 
@@ -920,6 +933,10 @@ def settings_update(
         "scan_exclude_files": [
             ln.strip() for ln in scan_exclude_files_raw.splitlines() if ln.strip()
         ],
+        # The Docker TZ env var always wins and locks the field in the UI —
+        # ignore whatever the (disabled/absent) form field sent in that case
+        # rather than persist a value that can never take effect.
+        "timezone": "" if os.environ.get("TZ") else timezone,
     }
     store().update(patch)
     logsetup.apply(settings().log_verbosity)
@@ -1257,16 +1274,42 @@ def library_track_delete(track_id: int, request: Request, _: None = Depends(requ
     return _toast_response(back, f"Removed {name} from the library list (file not touched).")
 
 
+def _existing_albums() -> list[dict[str, Any]]:
+    """Distinct albums already in the library, for the edit-modal album picker."""
+    with session() as s:
+        rows = s.exec(
+            select(
+                Track.album,
+                Track.album_artist,
+                Track.mb_album_id,
+                Track.mb_release_group_id,
+                Track.disc_total,
+                Track.track_total,
+            )
+            .where(Track.album.is_not(None))
+            .distinct()
+            .order_by(Track.album_artist, Track.album)
+        ).all()
+    return [
+        {
+            "album": r[0], "album_artist": r[1], "mb_album_id": r[2],
+            "mb_release_group_id": r[3], "disc_total": r[4], "track_total": r[5],
+        }
+        for r in rows
+    ]
+
+
 @app.get("/library/tracks/{track_id}/edit", response_class=HTMLResponse)
 def library_track_edit_modal(track_id: int, request: Request, _: None = Depends(require_auth)):
     """HTMX partial: the per-track edit menu (manual tags, MB/AcoustID pull,
-    protect-from-overwrite, LRCLIB lyrics) opened by clicking a track title."""
+    protect-from-overwrite, LRCLIB lyrics, link-to-album) opened by clicking
+    a track title."""
     with session() as s:
         track = s.get(Track, track_id)
         if not track:
             raise HTTPException(404)
     return templates.TemplateResponse(request, "_track_edit_modal.html", {
-        "request": request, "t": track,
+        "request": request, "t": track, "albums": _existing_albums(),
     })
 
 
@@ -1327,6 +1370,65 @@ def library_track_edit_save(
     return _toast_response(
         f"/library?folder_id={folder_id or ''}", f"Tags updated for {p.name}."
     )
+
+
+@app.post("/library/tracks/{track_id}/link-album")
+def library_track_link_album(
+    track_id: int,
+    request: Request,
+    _: None = Depends(require_auth),
+    mb_album_id: str = Form(""),
+    album: str = Form(""),
+    album_artist: str = Form(""),
+):
+    """Inherit album-shared fields from an existing library album onto this
+    track — for an orphan/mistagged single that actually belongs to an album
+    the user already has. Looks up a representative track of the chosen
+    album (preferring ``mb_album_id``, else the ``album``/``album_artist``
+    pair) and copies its album-level fields onto both the file and the
+    denormalized Track row. The track's own title/artist/track number are
+    left untouched."""
+    from .tagging.partial import write_album_link_tags
+
+    with session() as s:
+        track = s.get(Track, track_id)
+        if not track:
+            raise HTTPException(404)
+        query = select(Track)
+        if mb_album_id.strip():
+            query = query.where(Track.mb_album_id == mb_album_id.strip())
+        elif album.strip():
+            query = query.where(Track.album == album.strip(), Track.album_artist == (album_artist.strip() or None))
+        else:
+            return _toast_response("/library", "Pick an album first.", "error")
+        rep = s.exec(query).first()
+        if not rep:
+            return _toast_response("/library", "Album not found.", "error")
+        p = Path(track.path)
+        if not p.exists():
+            return _toast_response("/library", f"{p.name}: file not found on disk.", "error")
+        fields = dict(
+            album=rep.album,
+            album_artist=rep.album_artist,
+            disc_total=rep.disc_total,
+            track_total=rep.track_total,
+            mb_album_id=rep.mb_album_id,
+            mb_release_group_id=rep.mb_release_group_id,
+        )
+        try:
+            write_album_link_tags(p, **fields)
+        except Exception as e:
+            return _toast_response("/library", f"{p.name}: tag write failed: {e}", "error")
+        track.album = fields["album"]
+        track.album_artist = fields["album_artist"]
+        track.disc_total = fields["disc_total"]
+        track.track_total = fields["track_total"]
+        track.mb_album_id = fields["mb_album_id"]
+        track.mb_release_group_id = fields["mb_release_group_id"]
+        s.add(track)
+        s.commit()
+        folder_id = track.library_folder_id
+    return _toast_response(f"/library?folder_id={folder_id or ''}", f"Linked {p.name} to album.")
 
 
 @app.post("/library/tracks/{track_id}/protect")

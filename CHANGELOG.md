@@ -4,7 +4,35 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Added
+- **Link a track to an existing library album** from the manual edit form — a searchable album
+  picker writes album, album artist, disc/track totals, and MusicBrainz album IDs from an
+  already-indexed album onto the track via the new `tagging.partial.write_album_link_tags()`
+  helper and `POST /library/tracks/{id}/link-album` route. No MusicBrainz network call; title,
+  artist, and track number are left untouched. (`tagging/partial.py`, `main.py`,
+  `_track_edit_modal.html`)
+- **Global keyboard shortcuts**, wired on every page — a `dtKeys` registry in `base.html`
+  (`/` focus search, `?` key reference overlay, `g`+letter to navigate, plus
+  `dtKeys.register(key, fn)` for page-specific bindings) with matching bindings added to
+  `library.html`, `changes.html`, `queue.html`, `job_detail.html`, and `settings.html` so every
+  key advertised in a page's status bar actually does something.
+- **Display timezone setting** — `UserSettings.timezone`, resolved as Docker `TZ` (locked, always
+  wins) → in-app override → UTC. Settings UI shows the active value and locks the field when `TZ`
+  is set on the container. (`config.py`, `main.py::_local_tz/settings_page/settings_update`,
+  `settings.html`)
+- **New dragon-themed favicon** (`favicon.svg`) and a grander two-tier ASCII dragon/wordmark
+  banner on the dashboard, also echoed to the startup log.
+
 ### Changed
+- **Edit-modal header reorganized** — "fetch lyrics" and "protect" moved into a compact top-right
+  button cluster next to the close button; their explanatory paragraphs became `title=` hover
+  text. Both forms' actions are unchanged. (`_track_edit_modal.html`)
+- **Settings tooltips** switched from a hover-only `tip()` macro to an inline `hint(text)` macro
+  that renders a muted line directly under each field; the 18-item skip-fields grid uses native
+  `title=` tooltips instead of per-item hint blocks. (`settings.html`)
+- **Filename-template live preview** now parses real `str.format()` tokens (including
+  `{track:02d}`-style zero-padding specs) instead of naive string substitution, so the preview
+  matches `library/paths.render_filename` exactly. (`settings.html`)
 - **Full UI restyle into a lazygit-style monochrome terminal vocabulary.** All 18 templates
   (7 nav pages + `login`/`setup` + secondary pages + 5 htmx fragments) reworked with `.dt-*`
   texture primitives (titled panels with corner reticles, notched labels, blinking cursor,

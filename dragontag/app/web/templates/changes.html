@@ -26,6 +26,11 @@ The number of records kept is configurable in Settings.</p>
 <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-3">
   <span class="dt-label">change history</span>
   <span class="dt-label-r">newest first</span>
+  <div class="flex items-center gap-2 mb-3">
+    <span class="text-[#5a5a5a] text-sm">/</span>
+    <input type="text" id="changes-filter" data-dt-search placeholder="filter by file, artist, album…"
+           class="w-full bg-transparent border-0 p-0 text-sm text-white placeholder-[#3a3a3a] focus:outline-none" style="box-shadow:none">
+  </div>
   <table class="w-full text-sm table-fixed">
     <thead>
       <tr class="text-left text-[10px] uppercase tracking-widest text-[#5a5a5a] border-b border-[#1f1f1f]">
@@ -81,11 +86,37 @@ The number of records kept is configurable in Settings.</p>
     </tbody>
   </table>
 </div>
+
+<script>
+  // ── Keybindings: / focuses the filter box, v reverts the hovered row,
+  // b moves the hovered row back to its original directory. ──
+  document.getElementById('changes-filter').addEventListener('input', (e) => {
+    const q = e.target.value.toLowerCase();
+    document.querySelectorAll('table tbody tr').forEach(tr => {
+      tr.style.display = tr.textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+  });
+  let dtFocusedRow = null;
+  document.addEventListener('mouseover', (e) => {
+    const tr = e.target.closest('table tbody tr');
+    if (tr) dtFocusedRow = tr;
+  });
+  dtKeys.register('v', () => {
+    if (!dtFocusedRow) return;
+    const btn = dtFocusedRow.querySelector('form[action$="/revert"] button');
+    if (btn) btn.click();
+  });
+  dtKeys.register('b', () => {
+    if (!dtFocusedRow) return;
+    const btn = dtFocusedRow.querySelector('form[action$="/move-back"] button');
+    if (btn) btn.click();
+  });
+</script>
 {% endblock %}
 
 {% block statusbar %}
-  <span class="dt-key"><b>&#8634;</b> revert</span>
-  <span class="dt-key"><b>&#8617;</b> move back</span>
+  <span class="dt-key"><b>v</b> revert</span>
+  <span class="dt-key"><b>b</b> move back</span>
   <span class="dt-key"><b>/</b> filter</span>
   <span class="dt-status-note">{{ changes|length }} record{% if changes|length != 1 %}s{% endif %} &middot; newest first</span>
 {% endblock %}

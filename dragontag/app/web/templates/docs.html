@@ -20,6 +20,7 @@
   <a href="#start" class="mr-3 hover:text-white">getting started</a>
   <a href="#flow" class="mr-3 hover:text-white">tagging workflow</a>
   <a href="#dashboard" class="mr-3 hover:text-white">dashboard</a>
+  <a href="#keyboard" class="mr-3 hover:text-white">keyboard shortcuts</a>
   <a href="#settings" class="mr-3 hover:text-white">settings</a>
   <a href="#library" class="mr-3 hover:text-white">library</a>
   <a href="#review" class="mr-3 hover:text-white">review</a>
@@ -69,12 +70,27 @@ Drop file  →  Read existing tags + filename clues
   </ul>
 </section>
 
+<section id="keyboard" class="space-y-3">
+  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">4. Keyboard shortcuts</h3>
+  <p class="text-sm text-[#cfcfcf]">Universal keys work on every page; press <code>?</code> any time to bring up this list in-app. Each page's status bar (bottom of the screen) shows the keys specific to that page.</p>
+  <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
+    <li><code>/</code> — focus that page's search/filter box.</li>
+    <li><code>?</code> — toggle the key-reference overlay.</li>
+    <li><code>g</code> then a letter — jump to a page: <code>d</code> dashboard, <code>l</code> library, <code>q</code> queue, <code>c</code> changes, <code>h</code> schedule, <code>s</code> settings, <code>o</code> docs.</li>
+    <li><strong>Library</strong> — hover a row, then <code>space</code> toggles its checkbox, <code>Enter</code> opens its edit modal, <code>r</code> submits the re-tag form.</li>
+    <li><strong>Queue</strong> — hover a row, then <code>space</code> toggles its checkbox, <code>a</code> applies it, <code>x</code> cancels it.</li>
+    <li><strong>Changes</strong> — hover a row, then <code>v</code> reverts it, <code>b</code> moves it back to its original directory.</li>
+    <li><strong>Job detail</strong> — <code>r</code> requeues the job, <code>Esc</code> returns to the dashboard.</li>
+    <li><strong>Settings</strong> — hover a checkbox label, then <code>space</code> toggles it; <code>Alt</code>+<code>s</code> saves the form.</li>
+  </ul>
+</section>
+
 <section id="settings" class="space-y-3">
-  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">4. Settings</h3>
-  <p class="text-sm text-[#cfcfcf]">Hover the <code>?</code> badge beside any field for an inline tooltip. Highlights:</p>
+  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">5. Settings</h3>
+  <p class="text-sm text-[#cfcfcf]">Each field has a short description directly underneath it. Highlights:</p>
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
     <li><strong>Identification</strong> — AcoustID toggle, auto-apply threshold, watcher on/off, global dry-run. The dry-run checkboxes on Library actions are per-run only and never change this global default.</li>
-    <li><strong>Smart formatting</strong> — Title Case, qualifier wrapping, grammar correction (see §11).</li>
+    <li><strong>Smart formatting</strong> — Title Case, qualifier wrapping, grammar correction (see §12).</li>
     <li><strong>Filename templates</strong> — single-disc, multi-disc filename, and multi-disc folder patterns. Use the token chips to insert placeholders; a live preview shows the result.</li>
     <li><strong>Genre options</strong> — cap and casing.</li>
     <li><strong>Multi-value separators</strong> — joiner per tag (default <code>//</code> for ARTIST, <code>;</code> elsewhere).</li>
@@ -88,12 +104,13 @@ Drop file  →  Read existing tags + filename clues
         <li><strong>Excluded files</strong> — one absolute file path per line. Files returned to their original directory via "Move back" are added here automatically so they aren't immediately re-ingested; you can also edit the list by hand.</li>
       </ul>
     </li>
-    <li><strong>Backup &amp; restore</strong> — see §10.</li>
+    <li><strong>Backup &amp; restore</strong> — see §11.</li>
+    <li><strong>Time zone</strong> — controls how timestamps (changes, jobs, dashboard) are displayed. Locked to the container's <code>TZ</code> environment variable when set (always wins); otherwise editable here, defaulting to UTC.</li>
   </ul>
 </section>
 
 <section id="library" class="space-y-3">
-  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">5. Library</h3>
+  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">6. Library</h3>
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
     <li><strong>Scan library</strong> — refresh the DB from on-disk tags. Run after manually editing tags outside dragontag.</li>
     <li><strong>Organize library (batch)</strong> — structural cleanup chain: move files to match templates, fix disc folders, normalize filenames, extract embedded covers, prune junk &amp; empty folders, find duplicates, find missing tracks. <span class="text-[#ffb4b4]">Files are moved/renamed and junk + empty directories deleted; audio files are never deleted.</span></li>
@@ -117,11 +134,12 @@ Drop file  →  Read existing tags + filename clues
     </li>
     <li><strong>Incomplete tab</strong> — albums whose local track count is below the MusicBrainz total, with per-row MB links and dismiss. Repopulated on every "Find missing tracks" run.</li>
     <li><strong>Track table</strong> — click any column header to sort. Use the per-row checkboxes plus "Re-tag selected" to enqueue specific tracks. Choose your page size (10 / 25 / 50 / 100 / 200). The <code>×</code> at the end of a row removes a stuck entry from the DB only — the file is never touched, and a re-scan re-adds it.</li>
+    <li><strong>Edit a track</strong> — opens a modal with every field editable by hand. The header has <strong>protect</strong> (exempts the track from library batch actions overwriting your edit) and <strong>fetch lyrics</strong> (LRCLIB, this track only) buttons. A <strong>link to album</strong> picker lets you attach the track to an album already in your library — it copies that album's album, album artist, disc/track totals, and MusicBrainz album IDs onto the track with no new MusicBrainz lookup; title, artist, and track number are left as you have them.</li>
   </ul>
 </section>
 
 <section id="review" class="space-y-3">
-  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">6. Queue — review section</h3>
+  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">7. Queue — review section</h3>
   <p class="text-sm text-[#cfcfcf]">Review and Jobs now live together on the <strong>Queue</strong> page (the old <code>/review</code> and <code>/jobs</code> URLs redirect there). A file lands in the review section when it scored below the threshold, no candidate was found, the destination already exists, RELEASETYPE was missing, or dry-run mode was on. From there you can:</p>
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
     <li>Search MusicBrainz manually by title / artist / album or a pasted MB URL / ID — click <strong>Search</strong> (or press Enter in any field) to run the query.</li>
@@ -133,7 +151,7 @@ Drop file  →  Read existing tags + filename clues
 </section>
 
 <section id="jobs" class="space-y-3">
-  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">7. Queue — jobs section</h3>
+  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">8. Queue — jobs section</h3>
   <p class="text-sm text-[#cfcfcf]">The jobs section of the Queue page shows every queued / processed file with pagination and per-row cancel/requeue. Background work — library scans, batches, lyrics/cover fetches and scheduled runs — also appears here with a kind badge, a persistent log, and <code>n/total</code> progress. A running task can be stopped from its row (or the <em>stop</em> control on the progress line); work done so far is kept and the job is marked skipped. A thin progress line under the nav (visible on every page) shows the percentage, item counts and the file currently being processed. Bulk controls:</p>
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
     <li><strong>Cancel all queued</strong> — mark every queued (not-yet-started) job as skipped.</li>
@@ -144,7 +162,7 @@ Drop file  →  Read existing tags + filename clues
 </section>
 
 <section id="changes" class="space-y-3">
-  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">8. Changes &amp; revert</h3>
+  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">9. Changes &amp; revert</h3>
   <p class="text-sm text-[#cfcfcf]">Every pipeline tag-write records a full pre-write snapshot. From the Changes page you can:</p>
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
     <li><strong>Revert</strong> — restore the original tags in place and remove the <code>cover.jpg</code> dragontag created. The job can be requeued afterwards to re-tag.</li>
@@ -155,20 +173,20 @@ Drop file  →  Read existing tags + filename clues
 </section>
 
 <section id="schedule" class="space-y-3">
-  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">9. Schedule</h3>
+  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">10. Schedule</h3>
   <p class="text-sm text-[#cfcfcf]">The Schedule tab runs any maintenance task on a standard 5-field cron expression (UTC): scan, organize, the Organize / Re-tag batches, bulk re-tag (with optional dry-run), fetch lyrics, fetch covers, or backup. As you type a cron expression the form shows a plain-English description ("At 06:00, only on Tuesday"), also shown on every schedule row. Each schedule shows its next and last run; <strong>Run now</strong> fires it immediately, and runs appear on the Queue page like any other task. A run is skipped if the previous run of the same kind is still going.</p>
   <p class="text-sm text-[#8a8a8a]">Examples: <code>0 3 * * *</code> daily at 03:00 · <code>0 */6 * * *</code> every 6 hours · <code>0 4 * * 0</code> Sundays at 04:00.</p>
 </section>
 
 <section id="backup" class="space-y-3">
-  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">10. Backup &amp; restore</h3>
-  <p class="text-sm text-[#cfcfcf]"><strong>Settings → Backup</strong> downloads a versioned tarball containing the SQLite database (a consistent snapshot, safe while the app runs), <code>settings.json</code>, the password hash and the AcoustID key, with a manifest and per-file checksums. The last 10 backups are also kept in <code>/config/backups</code>, and backups can be scheduled (§9).</p>
+  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">11. Backup &amp; restore</h3>
+  <p class="text-sm text-[#cfcfcf]"><strong>Settings → Backup</strong> downloads a versioned tarball containing the SQLite database (a consistent snapshot, safe while the app runs), <code>settings.json</code>, the password hash and the AcoustID key, with a manifest and per-file checksums. The last 10 backups are also kept in <code>/config/backups</code>, and backups can be scheduled (§10).</p>
   <p class="text-sm text-[#cfcfcf]">Restoring validates the bundle first (manifest, checksums, database integrity check, settings schema) and refuses while jobs are active; the previous files are kept beside the new ones as <code>*.pre-restore</code>. A container restart afterwards is recommended. If the UI can't boot, restore from the command line:</p>
   <pre class="text-xs bg-black border border-[#242424] p-2 overflow-x-auto text-[#cfcfcf]">python -m dragontag.tools.restore_backup /config/backups/dragontag-backup-XXXX.tar.gz</pre>
 </section>
 
 <section id="formatting" class="space-y-3">
-  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">11. Smart formatting</h3>
+  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">12. Smart formatting</h3>
   <p class="text-sm text-[#cfcfcf]">Three independent toggles under Settings → Smart formatting:</p>
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
     <li><strong>Title Case</strong> — capitalizes the first/last word and any non-article/preposition. Acronyms are preserved.</li>
@@ -178,7 +196,7 @@ Drop file  →  Read existing tags + filename clues
 </section>
 
 <section id="reference" class="space-y-3">
-  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">12. Reference</h3>
+  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">13. Reference</h3>
 
   <h4 class="text-sm text-[#cfcfcf] mt-3 font-bold">Environment variables</h4>
   <table class="w-full text-xs">
@@ -194,7 +212,7 @@ Drop file  →  Read existing tags + filename clues
       <tr class="border-b border-[#141414]"><td class="py-1 pr-4 text-[#c7f0c7]">DRAGONTAG_LIBRARY_PATH</td><td class="py-1 pr-4">/library</td><td class="py-1">Library root directory</td></tr>
       <tr class="border-b border-[#141414]"><td class="py-1 pr-4 text-[#c7f0c7]">DRAGONTAG_DROP_PATH</td><td class="py-1 pr-4">/drop</td><td class="py-1">Watched ingest folder</td></tr>
       <tr class="border-b border-[#141414]"><td class="py-1 pr-4 text-[#c7f0c7]">DRAGONTAG_CONFIG_PATH</td><td class="py-1 pr-4">/config</td><td class="py-1">Config directory (DB + settings.json)</td></tr>
-      <tr><td class="py-1 pr-4 text-[#c7f0c7]">TZ</td><td class="py-1 pr-4">UTC</td><td class="py-1">Timezone for displayed timestamps</td></tr>
+      <tr><td class="py-1 pr-4 text-[#c7f0c7]">TZ</td><td class="py-1 pr-4">UTC</td><td class="py-1">Timezone for displayed timestamps. Locks the Settings → Time zone field when set</td></tr>
     </tbody>
   </table>
 

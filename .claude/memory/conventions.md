@@ -52,7 +52,8 @@ metadata:
 - Extend `base.html`. Set `{% block title %}dragontag | {Page}{% endblock %}` and pass `active_page` from the route.
 - Buttons that mutate state must POST to a route, never GET.
 - Destructive actions need an inline `onsubmit="return confirm(...)"` prompt.
-- Use the `tip(...)` macro in `settings.html` for tooltips; pass plain text only (Jinja escapes attribute content).
+- Use the `hint(text)` macro in `settings.html` to render an inline muted line below a field (replaced the old hover-tooltip `tip()` macro); pass plain text only (Jinja escapes content).
+- Global keyboard shortcuts go through the `dtKeys` registry defined in `base.html` (`dtKeys.register(key, fn)`); per-page bindings live in each template's own `<script>` block. `dtKeys`'s base listener returns early on any `metaKey`/`ctrlKey`/`altKey` combo, so Alt/Ctrl/Meta-modified shortcuts must use an independent `document.addEventListener('keydown', ...)` instead of `dtKeys.register`. Every key advertised in a page's `{% block statusbar %}` must actually be wired — no dangling hints.
 
 ## Routes
 

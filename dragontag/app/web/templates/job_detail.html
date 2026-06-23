@@ -48,6 +48,19 @@
   <pre class="text-xs overflow-auto text-[#cfcfcf]">{{ job.chosen_tags_json|tojson(indent=2) }}</pre>
 </div>
 {% endif %}
+
+<script>
+  // ── Keybindings: r requeues this job (if eligible), esc goes back. ──
+  dtKeys.register('r', () => {
+    const btn = document.querySelector('form[action$="/requeue"] button');
+    if (btn) btn.click();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !e.target.matches('input,textarea,select')) {
+      window.location.href = '/';
+    }
+  });
+</script>
 {% endblock %}
 
 {% block statusbar %}

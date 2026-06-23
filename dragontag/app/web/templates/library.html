@@ -39,6 +39,7 @@
     type="text"
     name="q"
     value="{{ q }}"
+    data-dt-search
     placeholder="search title, artist, album…"
     class="w-full bg-transparent border-0 p-0 text-sm text-white placeholder-[#3a3a3a] focus:outline-none"
     style="box-shadow:none"
@@ -183,6 +184,27 @@
     document.getElementById('select-all-folder').value = '{{ active_id or "all" }}';
     document.getElementById('retag-form').submit();
   }
+
+  // ── Keybindings: space selects the hovered row, enter opens its edit
+  // modal, r re-tags whatever is currently checked. ──
+  let dtFocusedRow = null;
+  document.addEventListener('mouseover', (e) => {
+    const tr = e.target.closest('#library-tracks tbody tr');
+    if (tr) dtFocusedRow = tr;
+  });
+  dtKeys.register(' ', () => {
+    if (!dtFocusedRow) return;
+    const cb = dtFocusedRow.querySelector('[name="track_ids"]');
+    if (cb) cb.checked = !cb.checked;
+  });
+  dtKeys.register('Enter', () => {
+    if (!dtFocusedRow) return;
+    const link = dtFocusedRow.querySelector('a[hx-get]');
+    if (link) link.click();
+  });
+  dtKeys.register('r', () => {
+    document.getElementById('retag-form').requestSubmit();
+  });
 </script>
 {% endblock %}
 

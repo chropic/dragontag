@@ -28,7 +28,7 @@ metadata:
 
 A new user-editable setting touches **four** files:
 1. `dragontag/app/config.py` — field on `UserSettings`.
-2. `dragontag/app/web/templates/settings.html` — form input + `tip()` tooltip.
+2. `dragontag/app/web/templates/settings.html` — form input + `hint(text)` macro line.
 3. `dragontag/app/main.py` — `Form(...)` parameter in `settings_update` and entry in the `patch` dict.
 4. Whatever consumes the setting (usually `ingest/pipeline.py`).
 

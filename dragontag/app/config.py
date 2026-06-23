@@ -200,6 +200,12 @@ class UserSettings(BaseModel):
     webhook_on_done: bool = True
     webhook_on_error: bool = True
 
+    # ----- display -----
+    # IANA zone name for displaying timestamps. Empty = UTC. Ignored (and
+    # cleared) when the container has a TZ environment variable set — that
+    # always wins, since it's the operator's explicit choice.
+    timezone: str = ""
+
     # ----- MusicBrainz client -----
     musicbrainz_user_agent: str = (
         "dragontag/0.1.0 ( https://github.com/chropic/dragontag )"

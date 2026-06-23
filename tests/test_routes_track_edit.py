@@ -150,6 +150,66 @@ def test_apply_match_without_pick_is_error_toast(client, track):
     assert "error" in resp.headers["HX-Trigger"]
 
 
+def test_link_album_copies_fields_from_existing_album(client, track, monkeypatch):
+    tid, p = track
+    with session() as s:
+        f = LibraryFolder(path=str(p.parent), label="other")
+        s.add(f)
+        s.commit()
+        s.refresh(f)
+        fid = f.id
+        rep_path = p.parent / "other.flac"
+        rep_path.write_bytes(b"\x00audio")
+        rep = Track(
+            library_folder_id=fid, path=str(rep_path),
+            title="Rep Title", artist="Rep Artist",
+            album="Shared Album", album_artist="Shared Artist",
+            disc_total=2, track_total=10,
+            mb_album_id="album-mbid", mb_release_group_id="rg-mbid",
+        )
+        s.add(rep)
+        s.commit()
+        s.refresh(rep)
+        rep_id = rep.id
+
+    written = {}
+    monkeypatch.setattr(
+        "dragontag.app.tagging.partial.write_album_link_tags",
+        lambda path, **fields: written.update(path=path, fields=fields),
+    )
+
+    resp = client.post(
+        f"/library/tracks/{tid}/link-album",
+        data={"mb_album_id": "album-mbid"},
+    )
+    assert resp.status_code == 303
+    assert written["path"] == p
+    assert written["fields"]["album"] == "Shared Album"
+    assert written["fields"]["album_artist"] == "Shared Artist"
+    assert written["fields"]["disc_total"] == 2
+    assert written["fields"]["track_total"] == 10
+    assert written["fields"]["mb_album_id"] == "album-mbid"
+    assert written["fields"]["mb_release_group_id"] == "rg-mbid"
+
+    with session() as s:
+        row = s.get(Track, tid)
+        assert row.album == "Shared Album"
+        assert row.album_artist == "Shared Artist"
+        assert row.title == "Old Title"  # title/artist/track# untouched
+
+    with session() as s:
+        s.delete(s.get(Track, rep_id))
+        s.delete(s.get(LibraryFolder, fid))
+        s.commit()
+
+
+def test_link_album_without_selection_is_error_toast(client, track):
+    tid, _ = track
+    resp = client.post(f"/library/tracks/{tid}/link-album", data={})
+    assert resp.status_code == 303
+    assert "error" in resp.headers["HX-Trigger"]
+
+
 def test_fetch_lyrics_writes_and_updates_track(client, track, monkeypatch):
     tid, p = track
 

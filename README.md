@@ -41,6 +41,7 @@ High-confidence matches flow through hands-free. Low-confidence files land in a 
 | **Advisory tagging** | Explicit content auto-classified from lyrics and written as `ITUNESADVISORY` |
 | **Smart formatting** | Title Case, qualifier parenthesization (`Song Live` → `Song (Live)`), grammar fixes (ALL-CAPS, contractions, possessives) |
 | **Genre filter** | MB community tags filtered against a ~1500-entry canonical genre list — kills noise like "billboard top 100"; clean tags survive as a fallback |
+| **Link to existing album** | Manually link a track's edit form to an album already in your library — inherits album, album artist, disc/track totals, and MB album IDs without any new MusicBrainz lookup; title, artist, and track number are left untouched |
 
 ### Library management
 
@@ -61,6 +62,7 @@ High-confidence matches flow through hands-free. Low-confidence files land in a 
 | **Review queue** | Low-confidence matches, missing `RELEASETYPE`, and destination conflicts surface a candidate picker with scores and links, manual MB search, and action buttons |
 | **Dry-run mode** | Preview destination paths and assembled tags without touching any files — global setting plus per-run overrides on Library actions |
 | **Change history** | Every tag-write is recorded; revert a file's tags in place or move it back to its original directory with one click |
+| **Keyboard shortcuts** | `/` focuses search, `?` opens the key reference, `g` then a letter navigates between pages, and every page wires its own keys (shown in the status bar at the bottom) for its primary actions |
 
 ### Automation & notifications
 
@@ -129,7 +131,7 @@ Open **http://localhost:7593** and log in. First boot redirects to `/setup` if n
 | `DRAGONTAG_LIBRARY_PATH` | Override `/library` mount |
 | `DRAGONTAG_DROP_PATH` | Override `/drop` mount |
 | `DRAGONTAG_CONFIG_PATH` | Override `/config` mount |
-| `TZ` | Timezone for displayed timestamps, e.g. `America/New_York` |
+| `TZ` | Timezone for displayed timestamps, e.g. `America/New_York`. Locks the Settings UI's timezone field when set — remove it to enable the in-app override instead |
 
 > **Migration note:** Variables were renamed from the `AIO_` prefix to `DRAGONTAG_`. Update your `docker-compose.yml` accordingly.
 
@@ -149,6 +151,7 @@ The **Settings** page covers everything below — changes are written atomically
 - Dry-run mode, scan filters, change-retention cap, log verbosity (0–4)
 - Backup download and validated restore
 - MusicBrainz user-agent and server (for self-hosted mirrors)
+- Display timezone override — only editable when the container has no `TZ` environment variable set; `TZ` always wins
 
 ---
 
@@ -293,6 +296,9 @@ dragontag/app/
 │   └── scoring.py        Confidence model (title / artist / album / duration)
 ├── tagging/
 │   ├── schema.py         TrackTags dataclass + Vorbis rendering
+│   ├── formatter.py      Smart formatting (Title Case, qualifiers, grammar)
+│   ├── partial.py        Single-field write helpers (lyrics, cover, advisory, album-link)
+│   ├── snapshot.py       Capture/restore a file's tags (powers revert)
 │   ├── coverart.py       Cover Art Archive fetcher
 │   ├── lyrics_fetcher.py LRCLIB client (synced + plain text)
 │   ├── advisory.py       Explicit-content classifier
@@ -306,6 +312,8 @@ dragontag/app/
     ├── filters.py         Scan filter helper (regex patterns + dir/file exclusions)
     └── revert.py          Undo a recorded FileChange / move a file back
 ```
+
+`.claude/memory/` holds Claude's working notes on this repo (architecture, conventions, workflow, project overview, maintainer preferences) — read/update it when making non-trivial changes, but it's not user-facing documentation.
 
 ### Tests
 

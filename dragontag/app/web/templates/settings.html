@@ -1,9 +1,8 @@
 {% extends "base.html" %}
 {% block title %}dragontag | Settings{% endblock %}
 
-{% macro tip(text) -%}
-<span class="ml-1 inline-block w-4 h-4 text-center text-[10px] leading-4 border border-[#2a2a2a] text-[#8a8a8a] cursor-help align-middle"
-      title="{{ text }}">?</span>
+{% macro hint(text) -%}
+<p class="text-[11px] text-[#5a5a5a] mt-0.5 leading-snug">{{ text }}</p>
 {%- endmacro %}
 
 {% block content %}
@@ -29,97 +28,122 @@
 
   <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-3">
     <span class="dt-label">identification</span>
-    <label class="flex items-center gap-2">
-      <input type="checkbox" name="acoustid_enabled" {% if settings.acoustid_enabled %}checked{% endif %}>
-      Enable AcoustID fingerprint fallback
-      {{ tip("If MusicBrainz text search returns no usable match, dragontag falls back to acoustic fingerprinting via AcoustID/fpcalc. Requires an AcoustID API key. Slower but catches mislabeled files.") }}
-    </label>
+    <div>
+      <label class="flex items-center gap-2">
+        <input type="checkbox" name="acoustid_enabled" {% if settings.acoustid_enabled %}checked{% endif %}>
+        Enable AcoustID fingerprint fallback
+      </label>
+      {{ hint("If MusicBrainz text search returns no usable match, dragontag falls back to acoustic fingerprinting via AcoustID/fpcalc. Requires an AcoustID API key. Slower but catches mislabeled files.") }}
+    </div>
     <div>
       <label class="block">
         <span class="text-[#8a8a8a]">Auto-apply threshold</span>
-        {{ tip("Jobs scoring at or above this value are tagged automatically. Below this, files land in the Review queue for manual confirmation. 0.85 is a balanced default — raise toward 0.95 for stricter auto-apply, lower toward 0.7 for faster throughput.") }}
         <input type="number" name="score_threshold" step="0.01" min="0" max="1"
                value="{{ settings.score_threshold }}"
                class="mt-1 p-1.5 bg-black border border-[#2a2a2a] text-white w-32 focus:outline-none">
       </label>
+      {{ hint("Jobs scoring at or above this value are tagged automatically. Below this, files land in the Review queue for manual confirmation. 0.85 is a balanced default — raise toward 0.95 for stricter auto-apply, lower toward 0.7 for faster throughput.") }}
     </div>
     <div>
       <label class="block">
         <span class="text-[#8a8a8a]">Network timeout (seconds)</span>
-        {{ tip("Per-request timeout for outbound MusicBrainz and AcoustID calls. Bounds a half-open connection so a stalled network can't hang the ingest worker indefinitely. 15s is a sensible default; raise it on a slow link.") }}
         <input type="number" name="network_timeout_seconds" step="0.5" min="1"
                value="{{ settings.network_timeout_seconds }}"
                class="mt-1 p-1.5 bg-black border border-[#2a2a2a] text-white w-32 focus:outline-none">
       </label>
+      {{ hint("Per-request timeout for outbound MusicBrainz and AcoustID calls. Bounds a half-open connection so a stalled network can't hang the ingest worker indefinitely. 15s is a sensible default; raise it on a slow link.") }}
     </div>
-    <label class="flex items-center gap-2">
-      <input type="checkbox" name="watcher_enabled" {% if settings.watcher_enabled %}checked{% endif %}>
-      Watch drop folder for new files
-      {{ tip("Automatically enqueue any new audio file that appears in /drop. Disable if you only want manual uploads or scheduled bulk re-tags.") }}
-    </label>
-    <label class="flex items-center gap-2">
-      <input type="checkbox" name="lyrics_enabled" {% if settings.lyrics_enabled %}checked{% endif %}>
-      Fetch lyrics from LRCLIB
-      {{ tip("Fetches synced (LRC) or plain-text lyrics from LRCLIB and embeds them in the file. Also runs the explicit-content classifier to set the advisory flag.") }}
-    </label>
-    <label class="flex items-center gap-2">
-      <input type="checkbox" name="cover_allow_release_group_fallback" {% if settings.cover_allow_release_group_fallback %}checked{% endif %}>
-      Allow release-group cover fallback
-      {{ tip("When a specific release has no cover in the Cover Art Archive, fall back to the release-group cover. That image is shared across every edition in the group, so enabling this can apply the same art to different releases. Off by default to prevent cover bleed.") }}
-    </label>
-    <label class="block">
-      <span class="flex items-center gap-2">ReplayGain tool path
-        {{ tip("Absolute path to the rsgain (or loudgain) binary. Leave blank to auto-discover on PATH and in common install dirs. Set this when the tool is installed somewhere non-standard.") }}
-      </span>
-      <input name="replaygain_tool_path" value="{{ settings.replaygain_tool_path }}"
-             placeholder="(auto-discover)"
-             class="mt-1 w-full p-1.5 bg-black border border-[#2a2a2a] text-white text-sm focus:outline-none">
-    </label>
-    <label class="flex items-center gap-2">
-      <input type="checkbox" name="dry_run" {% if settings.dry_run %}checked{% endif %}>
-      Dry-run mode (global)
-      {{ tip("When on, the pipeline identifies and assembles tags but never writes to disk or moves files. Every job lands in Review so you can inspect changes before applying.") }}
-    </label>
+    <div>
+      <label class="flex items-center gap-2">
+        <input type="checkbox" name="watcher_enabled" {% if settings.watcher_enabled %}checked{% endif %}>
+        Watch drop folder for new files
+      </label>
+      {{ hint("Automatically enqueue any new audio file that appears in /drop. Disable if you only want manual uploads or scheduled bulk re-tags.") }}
+    </div>
+    <div>
+      <label class="flex items-center gap-2">
+        <input type="checkbox" name="lyrics_enabled" {% if settings.lyrics_enabled %}checked{% endif %}>
+        Fetch lyrics from LRCLIB
+      </label>
+      {{ hint("Fetches synced (LRC) or plain-text lyrics from LRCLIB and embeds them in the file. Also runs the explicit-content classifier to set the advisory flag.") }}
+    </div>
+    <div>
+      <label class="flex items-center gap-2">
+        <input type="checkbox" name="cover_allow_release_group_fallback" {% if settings.cover_allow_release_group_fallback %}checked{% endif %}>
+        Allow release-group cover fallback
+      </label>
+      {{ hint("When a specific release has no cover in the Cover Art Archive, fall back to the release-group cover. That image is shared across every edition in the group, so enabling this can apply the same art to different releases. Off by default to prevent cover bleed.") }}
+    </div>
+    <div>
+      <label class="block">
+        <span class="text-[#8a8a8a]">ReplayGain tool path</span>
+        <input name="replaygain_tool_path" value="{{ settings.replaygain_tool_path }}"
+               placeholder="(auto-discover)"
+               class="mt-1 w-full p-1.5 bg-black border border-[#2a2a2a] text-white text-sm focus:outline-none">
+      </label>
+      {{ hint("Absolute path to the rsgain (or loudgain) binary. Leave blank to auto-discover on PATH and in common install dirs. Set this when the tool is installed somewhere non-standard.") }}
+    </div>
+    <div>
+      <label class="flex items-center gap-2">
+        <input type="checkbox" name="dry_run" {% if settings.dry_run %}checked{% endif %}>
+        Dry-run mode (global)
+      </label>
+      {{ hint("When on, the pipeline identifies and assembles tags but never writes to disk or moves files. Every job lands in Review so you can inspect changes before applying.") }}
+    </div>
   </div>
 
   <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-3">
     <span class="dt-label">smart formatting</span>
-    <label class="flex items-center gap-2">
-      <input type="checkbox" name="format_title_case" {% if settings.format_title_case %}checked{% endif %}>
-      Convert title, album, artist to Title Case
-      {{ tip("Applies music-aware Title Case: capitalizes the first and last word and any non-article/preposition. Existing all-caps acronyms (DJ, NYC) are preserved.") }}
-    </label>
-    <label class="flex items-center gap-2">
-      <input type="checkbox" name="format_fix_qualifiers" {% if settings.format_fix_qualifiers %}checked{% endif %}>
-      Wrap trailing qualifiers in parentheses
-      {{ tip("Rewrites bare trailing qualifiers like \"Song Live\" or \"Track - Remix\" into the parenthesized form \"Song (Live)\" / \"Track (Remix)\". Works on Intro, Outro, Acoustic, Demo, Remix, Edit, Version, etc.") }}
-    </label>
-    <label class="flex items-center gap-2">
-      <input type="checkbox" name="format_grammar_correct" {% if settings.format_grammar_correct %}checked{% endif %}>
-      Grammar correction
-      {{ tip("Master switch for grammar correction. The sub-rules below only run when this is on; uncheck individual rules to disable just that fix.") }}
-    </label>
-    <div class="ml-6 mt-1 space-y-1 text-xs text-[#cfcfcf]">
+    <div>
       <label class="flex items-center gap-2">
-        <input type="checkbox" name="format_grammar_fix_allcaps" {% if settings.format_grammar_fix_allcaps %}checked{% endif %}>
-        De-shout ALL-CAPS strings (≥60% upper → Title Case)
-        {{ tip("\"I DONT LIKE PEOPLES SHIT\" → \"I Don't Like People's Shit\". Acronyms in mixed-case strings are preserved.") }}
+        <input type="checkbox" name="format_title_case" {% if settings.format_title_case %}checked{% endif %}>
+        Convert title, album, artist to Title Case
       </label>
+      {{ hint("Applies music-aware Title Case: capitalizes the first and last word and any non-article/preposition. Existing all-caps acronyms (DJ, NYC) are preserved.") }}
+    </div>
+    <div>
       <label class="flex items-center gap-2">
-        <input type="checkbox" name="format_grammar_fix_contractions" {% if settings.format_grammar_fix_contractions %}checked{% endif %}>
-        Insert apostrophes into contractions
-        {{ tip("DONT → don't, CANT → can't, IM → I'm, YOURE → you're, etc. Casing of the source word is preserved.") }}
+        <input type="checkbox" name="format_fix_qualifiers" {% if settings.format_fix_qualifiers %}checked{% endif %}>
+        Wrap trailing qualifiers in parentheses
       </label>
+      {{ hint("Rewrites bare trailing qualifiers like \"Song Live\" or \"Track - Remix\" into the parenthesized form \"Song (Live)\" / \"Track (Remix)\". Works on Intro, Outro, Acoustic, Demo, Remix, Edit, Version, etc.") }}
+    </div>
+    <div>
       <label class="flex items-center gap-2">
-        <input type="checkbox" name="format_grammar_fix_possessives" {% if settings.format_grammar_fix_possessives %}checked{% endif %}>
-        Insert apostrophes into possessives
-        {{ tip("Conservative rewrite for a small allow-list (people, men, women, world, god, …). \"PEOPLES SHIT\" → \"people's shit\". Plurals like CATS are left alone.") }}
+        <input type="checkbox" name="format_grammar_correct" {% if settings.format_grammar_correct %}checked{% endif %}>
+        Grammar correction
       </label>
-      <label class="flex items-center gap-2">
-        <input type="checkbox" name="format_grammar_fix_punct_spacing" {% if settings.format_grammar_fix_punct_spacing %}checked{% endif %}>
-        Normalize spacing around punctuation
-        {{ tip("Strips spaces before .,;:!? and ensures exactly one space after them. Collapses double spaces.") }}
-      </label>
+      {{ hint("Master switch for grammar correction. The sub-rules below only run when this is on; uncheck individual rules to disable just that fix.") }}
+    </div>
+    <div class="ml-6 mt-1 space-y-2 text-xs text-[#cfcfcf]">
+      <div>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" name="format_grammar_fix_allcaps" {% if settings.format_grammar_fix_allcaps %}checked{% endif %}>
+          De-shout ALL-CAPS strings (≥60% upper → Title Case)
+        </label>
+        {{ hint("\"I DONT LIKE PEOPLES SHIT\" → \"I Don't Like People's Shit\". Acronyms in mixed-case strings are preserved.") }}
+      </div>
+      <div>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" name="format_grammar_fix_contractions" {% if settings.format_grammar_fix_contractions %}checked{% endif %}>
+          Insert apostrophes into contractions
+        </label>
+        {{ hint("DONT → don't, CANT → can't, IM → I'm, YOURE → you're, etc. Casing of the source word is preserved.") }}
+      </div>
+      <div>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" name="format_grammar_fix_possessives" {% if settings.format_grammar_fix_possessives %}checked{% endif %}>
+          Insert apostrophes into possessives
+        </label>
+        {{ hint("Conservative rewrite for a small allow-list (people, men, women, world, god, …). \"PEOPLES SHIT\" → \"people's shit\". Plurals like CATS are left alone.") }}
+      </div>
+      <div>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" name="format_grammar_fix_punct_spacing" {% if settings.format_grammar_fix_punct_spacing %}checked{% endif %}>
+          Normalize spacing around punctuation
+        </label>
+        {{ hint("Strips spaces before .,;:!? and ensures exactly one space after them. Collapses double spaces.") }}
+      </div>
     </div>
   </div>
 
@@ -134,31 +158,39 @@
               onclick="insertToken(event, '{{ tok }}')">{{ tok }}</button>
       {% endfor %}
     </div>
-    <label class="block">
-      <span class="text-[#8a8a8a]">Single disc</span>
-      {{ tip("Filename pattern used for albums with only one disc. Available tokens: {track}, {track:02d}, {disc}, {title}, {artist}, {ext}, {tracktotal}, {disctotal}.") }}
-      <input id="tpl_single" name="filename_template_single" value="{{ settings.filename_template_single }}"
-             class="mt-1 w-full p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
-    </label>
-    <label class="block">
-      <span class="text-[#8a8a8a]">Multi-disc (inside Disc N folder)</span>
-      {{ tip("Filename pattern used for tracks on multi-disc releases, written inside the per-disc subfolder.") }}
-      <input id="tpl_multi" name="filename_template_multidisc" value="{{ settings.filename_template_multidisc }}"
-             class="mt-1 w-full p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
-    </label>
-    <label class="block">
-      <span class="text-[#8a8a8a]">Multi-disc folder name</span>
-      {{ tip("Folder name pattern wrapping each disc of a multi-disc release. {disc} expands to the 1-based disc number.") }}
-      <input id="tpl_discfolder" name="multidisc_folder_template" value="{{ settings.multidisc_folder_template }}"
-             class="mt-1 w-full p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
-    </label>
-    <label class="block">
-      <span class="text-[#8a8a8a]">Artist-folder split separators</span>
-      {{ tip("Characters on which a multi-artist album-artist is reduced to its first artist for the folder name (e.g. \"&,;\" files \"A & B\" under \"A\"). Empty (default) keeps the full credit, so \"Tyler, The Creator\" stays intact. \"feat./ft./featuring\" guests are always stripped; slashes are never split, so \"AC/DC\" and \"A//B\" stay combined.") }}
-      <input name="folder_artist_split_separators" value="{{ settings.folder_artist_split_separators }}"
-             placeholder="(empty)"
-             class="mt-1 w-full p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
-    </label>
+    <div>
+      <label class="block">
+        <span class="text-[#8a8a8a]">Single disc</span>
+        <input id="tpl_single" name="filename_template_single" value="{{ settings.filename_template_single }}"
+               class="mt-1 w-full p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
+      </label>
+      {{ hint("Filename pattern used for albums with only one disc. Available tokens: {track}, {track:02d}, {disc}, {title}, {artist}, {ext}, {tracktotal}, {disctotal}.") }}
+    </div>
+    <div>
+      <label class="block">
+        <span class="text-[#8a8a8a]">Multi-disc (inside Disc N folder)</span>
+        <input id="tpl_multi" name="filename_template_multidisc" value="{{ settings.filename_template_multidisc }}"
+               class="mt-1 w-full p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
+      </label>
+      {{ hint("Filename pattern used for tracks on multi-disc releases, written inside the per-disc subfolder.") }}
+    </div>
+    <div>
+      <label class="block">
+        <span class="text-[#8a8a8a]">Multi-disc folder name</span>
+        <input id="tpl_discfolder" name="multidisc_folder_template" value="{{ settings.multidisc_folder_template }}"
+               class="mt-1 w-full p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
+      </label>
+      {{ hint("Folder name pattern wrapping each disc of a multi-disc release. {disc} expands to the 1-based disc number.") }}
+    </div>
+    <div>
+      <label class="block">
+        <span class="text-[#8a8a8a]">Artist-folder split separators</span>
+        <input name="folder_artist_split_separators" value="{{ settings.folder_artist_split_separators }}"
+               placeholder="(empty)"
+               class="mt-1 w-full p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
+      </label>
+      {{ hint("Characters on which a multi-artist album-artist is reduced to its first artist for the folder name (e.g. \"&,;\" files \"A & B\" under \"A\"). Empty (default) keeps the full credit, so \"Tyler, The Creator\" stays intact. \"feat./ft./featuring\" guests are always stripped; slashes are never split, so \"AC/DC\" and \"A//B\" stay combined.") }}
+    </div>
     <!-- Live preview -->
     <div class="text-xs text-[#8a8a8a] space-y-0.5">
       <div>Single disc: <code id="tpl_preview" class="text-[#c7f0c7]"></code></div>
@@ -168,26 +200,32 @@
 
   <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-2">
     <span class="dt-label">genre options</span>
-    <label class="flex items-center gap-2">
-      <input type="checkbox" name="genre_whitelist_enabled" {% if settings.genre_whitelist_enabled %}checked{% endif %}>
-      Filter genres against canonical list
-      {{ tip("MusicBrainz genres are community tags, so junk like \"billboard top 100\" or \"seen live\" can outrank real genres. When on, tags are matched against a vendored list of ~1500 real genres; if none match, non-junk tags are kept as a fallback. Turn off to write raw MB tags.") }}
-    </label>
-    <label class="block">
-      <span class="text-[#8a8a8a]">Max genres (0 = no limit)</span>
-      {{ tip("Caps how many GENRE values are written per track. MusicBrainz often returns long tail genres; 3 keeps things tidy.") }}
-      <input type="number" name="genre_limit" min="0" value="{{ settings.genre_limit }}"
-             class="mt-1 p-1.5 bg-black border border-[#2a2a2a] text-white w-24 focus:outline-none">
-    </label>
-    <label class="block">
-      <span class="text-[#8a8a8a]">Genre casing</span>
-      {{ tip("Title Case = \"Indie Rock\". lowercase = \"indie rock\". as-is = whatever MusicBrainz returns. Most players display Title Case best.") }}
-      <select name="genre_casing" class="mt-1 p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
-        <option value="title" {% if settings.genre_casing == "title" %}selected{% endif %}>Title Case</option>
-        <option value="lower" {% if settings.genre_casing == "lower" %}selected{% endif %}>lowercase</option>
-        <option value="as-is" {% if settings.genre_casing == "as-is" %}selected{% endif %}>as-is (raw MB tags)</option>
-      </select>
-    </label>
+    <div>
+      <label class="flex items-center gap-2">
+        <input type="checkbox" name="genre_whitelist_enabled" {% if settings.genre_whitelist_enabled %}checked{% endif %}>
+        Filter genres against canonical list
+      </label>
+      {{ hint("MusicBrainz genres are community tags, so junk like \"billboard top 100\" or \"seen live\" can outrank real genres. When on, tags are matched against a vendored list of ~1500 real genres; if none match, non-junk tags are kept as a fallback. Turn off to write raw MB tags.") }}
+    </div>
+    <div>
+      <label class="block">
+        <span class="text-[#8a8a8a]">Max genres (0 = no limit)</span>
+        <input type="number" name="genre_limit" min="0" value="{{ settings.genre_limit }}"
+               class="mt-1 p-1.5 bg-black border border-[#2a2a2a] text-white w-24 focus:outline-none">
+      </label>
+      {{ hint("Caps how many GENRE values are written per track. MusicBrainz often returns long tail genres; 3 keeps things tidy.") }}
+    </div>
+    <div>
+      <label class="block">
+        <span class="text-[#8a8a8a]">Genre casing</span>
+        <select name="genre_casing" class="mt-1 p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
+          <option value="title" {% if settings.genre_casing == "title" %}selected{% endif %}>Title Case</option>
+          <option value="lower" {% if settings.genre_casing == "lower" %}selected{% endif %}>lowercase</option>
+          <option value="as-is" {% if settings.genre_casing == "as-is" %}selected{% endif %}>as-is (raw MB tags)</option>
+        </select>
+      </label>
+      {{ hint("Title Case = \"Indie Rock\". lowercase = \"indie rock\". as-is = whatever MusicBrainz returns. Most players display Title Case best.") }}
+    </div>
   </div>
 
   <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-2">
@@ -246,63 +284,95 @@
       "script": "Writing script of the track listing (Latn, Cyrl …).",
       "track_total": "Total number of tracks on this disc."
     } %}
-    <div class="grid grid-cols-2 gap-1">
+    <div class="space-y-2">
       {% for field_name, field_tip in skip_field_tips.items() %}
-      <label class="flex items-center gap-2">
-        <input type="checkbox" name="skip_fields" value="{{ field_name }}"
-               {% if field_name in skipped %}checked{% endif %}>
-        <code class="text-xs text-[#cfcfcf]">{{ field_name }}</code>
-        {{ tip(field_tip) }}
-      </label>
+      <div>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" name="skip_fields" value="{{ field_name }}"
+                 {% if field_name in skipped %}checked{% endif %}>
+          <code class="text-xs text-[#cfcfcf]">{{ field_name }}</code>
+        </label>
+        {{ hint(field_tip) }}
+      </div>
       {% endfor %}
     </div>
   </div>
 
   <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-2">
     <span class="dt-label">webhook notifications</span>
-    <label class="block">
-      <span class="text-[#8a8a8a]">Webhook URL (Discord or generic)</span>
-      {{ tip("HTTP POST endpoint that receives a Discord-compatible embed on job events. Discord webhook URLs work directly; other targets see a generic JSON payload.") }}
-      <div class="flex gap-2 mt-1">
-        <input name="webhook_url" value="{{ settings.webhook_url }}" placeholder="https://discord.com/api/webhooks/..."
-               class="flex-1 p-1.5 bg-black border border-[#2a2a2a] text-white text-xs focus:outline-none">
-        <button type="button"
-                hx-post="/settings/test-webhook"
-                hx-target="#webhook-test-result"
-                hx-swap="innerHTML"
-                class="px-3 py-1 border border-[#2a2a2a] text-xs text-[#cfcfcf] hover:border-[#3a3a3a]">test</button>
-      </div>
-      <span id="webhook-test-result" class="text-xs mt-1 block"></span>
-    </label>
-    <label class="flex items-center gap-2">
-      <input type="checkbox" name="webhook_on_done" {% if settings.webhook_on_done %}checked{% endif %}>
-      Notify on successful job completion
-      {{ tip("Fire the webhook each time a job reaches 'done' (auto-apply or after review).") }}
-    </label>
-    <label class="flex items-center gap-2">
-      <input type="checkbox" name="webhook_on_error" {% if settings.webhook_on_error %}checked{% endif %}>
-      Notify on pipeline errors
-      {{ tip("Fire the webhook each time a job transitions to 'error'. Useful for catching MB or filesystem failures.") }}
-    </label>
+    <div>
+      <label class="block">
+        <span class="text-[#8a8a8a]">Webhook URL (Discord or generic)</span>
+        <div class="flex gap-2 mt-1">
+          <input name="webhook_url" value="{{ settings.webhook_url }}" placeholder="https://discord.com/api/webhooks/..."
+                 class="flex-1 p-1.5 bg-black border border-[#2a2a2a] text-white text-xs focus:outline-none">
+          <button type="button"
+                  hx-post="/settings/test-webhook"
+                  hx-target="#webhook-test-result"
+                  hx-swap="innerHTML"
+                  class="px-3 py-1 border border-[#2a2a2a] text-xs text-[#cfcfcf] hover:border-[#3a3a3a]">test</button>
+        </div>
+        <span id="webhook-test-result" class="text-xs mt-1 block"></span>
+      </label>
+      {{ hint("HTTP POST endpoint that receives a Discord-compatible embed on job events. Discord webhook URLs work directly; other targets see a generic JSON payload.") }}
+    </div>
+    <div>
+      <label class="flex items-center gap-2">
+        <input type="checkbox" name="webhook_on_done" {% if settings.webhook_on_done %}checked{% endif %}>
+        Notify on successful job completion
+      </label>
+      {{ hint("Fire the webhook each time a job reaches 'done' (auto-apply or after review).") }}
+    </div>
+    <div>
+      <label class="flex items-center gap-2">
+        <input type="checkbox" name="webhook_on_error" {% if settings.webhook_on_error %}checked{% endif %}>
+        Notify on pipeline errors
+      </label>
+      {{ hint("Fire the webhook each time a job transitions to 'error'. Useful for catching MB or filesystem failures.") }}
+    </div>
   </div>
 
   <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-3">
     <span class="dt-label">maintenance</span>
-    <label class="block">
-      <span class="text-[#8a8a8a]">Recent changes kept (0 = unlimited)</span>
-      {{ tip("How many entries the Changes page retains. Older audit rows are pruned automatically when new changes are recorded; pruned rows can no longer be reverted. 0 disables pruning entirely.") }}
-      <input type="number" name="max_recent_changes" min="0" value="{{ settings.max_recent_changes }}"
-             class="mt-1 p-1.5 bg-black border border-[#2a2a2a] text-white w-32 focus:outline-none">
-    </label>
+    <div>
+      <label class="block">
+        <span class="text-[#8a8a8a]">Recent changes kept (0 = unlimited)</span>
+        <input type="number" name="max_recent_changes" min="0" value="{{ settings.max_recent_changes }}"
+               class="mt-1 p-1.5 bg-black border border-[#2a2a2a] text-white w-32 focus:outline-none">
+      </label>
+      {{ hint("How many entries the Changes page retains. Older audit rows are pruned automatically when new changes are recorded; pruned rows can no longer be reverted. 0 disables pruning entirely.") }}
+    </div>
     <div x-data="{ v: {{ settings.log_verbosity }} }">
       <span class="text-[#8a8a8a]">Log verbosity</span>
-      {{ tip("Controls how much dragontag writes to the container logs. 0 = silent, 1 = errors only, 2 = warnings, 3 = info (default), 4 = debug. Applied immediately on save.") }}
       <div class="flex items-center gap-3 mt-1">
         <input type="range" name="log_verbosity" min="0" max="4" step="1" x-model="v" class="w-48">
         <span class="text-xs text-[#c7f0c7]"
               x-text="['0 — Silent','1 — Errors','2 — Warnings','3 — Info','4 — Debug'][v]"></span>
       </div>
+      {{ hint("Controls how much dragontag writes to the container logs. 0 = silent, 1 = errors only, 2 = warnings, 3 = info (default), 4 = debug. Applied immediately on save.") }}
     </div>
+  </div>
+
+  <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-3">
+    <span class="dt-label">time zone</span>
+    {% if tz_env_locked %}
+    <p class="text-xs text-[#8a8a8a]">
+      Locked to the container's <code class="text-[#cfcfcf]">TZ</code> environment variable:
+      <code class="text-[#c7f0c7]">{{ tz_current }}</code>.
+    </p>
+    {{ hint("Set via Docker (e.g. environment: TZ=America/New_York in compose.yml). Remove the TZ variable from the container to enable the in-app override below instead.") }}
+    {% else %}
+    <label class="block">
+      <span class="text-[#8a8a8a]">Display time zone</span>
+      <select name="timezone" class="mt-1 p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
+        <option value="" {% if not settings.timezone %}selected{% endif %}>UTC (default)</option>
+        {% for z in tz_choices %}
+        <option value="{{ z }}" {% if settings.timezone == z %}selected{% endif %}>{{ z }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {{ hint("Controls how timestamps (changes, jobs, dashboard) are displayed. No TZ environment variable is set on the container, so this in-app override applies. Setting TZ on the container takes precedence and locks this field.") }}
+    {% endif %}
   </div>
 
   <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-3 text-sm">
@@ -314,31 +384,25 @@
       from the Changes page are added to the excluded files automatically.
     </p>
     <div>
-      <label class="block text-[#8a8a8a] mb-1">
-        File filter patterns (regex, matched against filename)
-        {{ tip("Regex patterns matched against the filename. E.g. \\.ini$ excludes all .ini files, Thumbs\\.db$ excludes Thumbs.db. One pattern per line.") }}
-      </label>
+      <label class="block text-[#8a8a8a] mb-1">File filter patterns (regex, matched against filename)</label>
       <textarea name="scan_filter_patterns_raw" rows="4"
                 class="w-full text-xs p-2 bg-black border border-[#2a2a2a] text-[#cfcfcf] resize-y focus:outline-none"
                 placeholder="\.ini$&#10;Thumbs\.db$&#10;\.DS_Store$">{{ settings.scan_filter_patterns | join('\n') }}</textarea>
+      {{ hint("Regex patterns matched against the filename. E.g. \\.ini$ excludes all .ini files, Thumbs\\.db$ excludes Thumbs.db. One pattern per line.") }}
     </div>
     <div>
-      <label class="block text-[#8a8a8a] mb-1">
-        Excluded directories (absolute paths)
-        {{ tip("Absolute directory paths to skip entirely — files inside are never scanned or ingested. One path per line.") }}
-      </label>
+      <label class="block text-[#8a8a8a] mb-1">Excluded directories (absolute paths)</label>
       <textarea name="scan_exclude_dirs_raw" rows="4"
                 class="w-full text-xs p-2 bg-black border border-[#2a2a2a] text-[#cfcfcf] resize-y focus:outline-none"
                 placeholder="/library/My Private Folder&#10;/library/Non-Music">{{ settings.scan_exclude_dirs | join('\n') }}</textarea>
+      {{ hint("Absolute directory paths to skip entirely — files inside are never scanned or ingested. One path per line.") }}
     </div>
     <div>
-      <label class="block text-[#8a8a8a] mb-1">
-        Excluded files (absolute paths)
-        {{ tip("Individual files to skip. Populated automatically when a file is moved back from the Changes page so it isn't immediately re-ingested; you can also add or remove paths by hand. One path per line.") }}
-      </label>
+      <label class="block text-[#8a8a8a] mb-1">Excluded files (absolute paths)</label>
       <textarea name="scan_exclude_files_raw" rows="4"
                 class="w-full text-xs p-2 bg-black border border-[#2a2a2a] text-[#cfcfcf] resize-y focus:outline-none"
                 placeholder="/drop/keep-me.flac">{{ settings.scan_exclude_files | join('\n') }}</textarea>
+      {{ hint("Individual files to skip. Populated automatically when a file is moved back from the Changes page so it isn't immediately re-ingested; you can also add or remove paths by hand. One path per line.") }}
     </div>
     <button type="submit" form="clear-scan-filters-form"
             class="px-3 py-1 border border-[#2a2a2a] text-xs text-[#cfcfcf] hover:border-[#3a3a3a]">clear all scan filters</button>
@@ -396,20 +460,24 @@
     updatePreview();
   }
 
+  // Format-spec-aware token renderer matching the backend's str.format-based
+  // render_filename(): {name} or {name:spec}, with 0Nd zero-padding support.
   function fillTokens(tpl, vals) {
-    let out = tpl;
-    for (const [k, v] of Object.entries(vals)) out = out.replaceAll(k, v);
-    return out;
+    return tpl.replace(/\{(\w+)(?::([^}]+))?\}/g, (match, key, spec) => {
+      if (!(key in vals)) return match;
+      const v = vals[key];
+      if (spec) {
+        const m = spec.match(/^0(\d+)d$/);
+        if (m && typeof v === 'number') return String(v).padStart(parseInt(m[1], 10), '0');
+      }
+      return String(v);
+    });
   }
 
   function updatePreview() {
-    const vals = {
-      '{track:02d}': '07', '{track}': '7', '{title}': 'Song Title',
-      '{artist}': 'Artist Name', '{ext}': 'flac', '{tracktotal}': '12',
-    };
-    const single = fillTokens(document.getElementById('tpl_single').value,
-                              { ...vals, '{disc}': '1', '{disctotal}': '1' });
-    const discVals = { ...vals, '{disc}': '2', '{disctotal}': '2' };
+    const base = { track: 7, title: 'Song Title', artist: 'Artist Name', ext: 'flac', tracktotal: 12 };
+    const single = fillTokens(document.getElementById('tpl_single').value, { ...base, disc: 1, disctotal: 1 });
+    const discVals = { ...base, disc: 2, disctotal: 2 };
     const discFolder = fillTokens(document.getElementById('tpl_discfolder').value, discVals);
     const multi = discFolder + '/' + fillTokens(document.getElementById('tpl_multi').value, discVals);
     document.getElementById('tpl_preview').textContent = single;
@@ -419,6 +487,23 @@
   ['tpl_single', 'tpl_multi', 'tpl_discfolder'].forEach(id =>
     document.getElementById(id).addEventListener('input', updatePreview));
   updatePreview();
+
+  // ── Keybindings: alt/option+s saves, space toggles the focused checkbox. ──
+  document.addEventListener('keydown', (e) => {
+    if (e.altKey && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      document.querySelector('form[action="/settings"]').requestSubmit();
+    }
+  });
+  let dtFocusedCheckbox = null;
+  document.addEventListener('mouseover', (e) => {
+    const lbl = e.target.closest('label');
+    if (lbl) {
+      const cb = lbl.querySelector('input[type=checkbox]');
+      if (cb) dtFocusedCheckbox = cb;
+    }
+  });
+  dtKeys.register(' ', () => { if (dtFocusedCheckbox) dtFocusedCheckbox.checked = !dtFocusedCheckbox.checked; });
 </script>
 {% endblock %}
 

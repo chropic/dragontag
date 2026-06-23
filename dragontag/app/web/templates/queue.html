@@ -214,7 +214,7 @@
 {% endif %}
 
 {% for j in items %}
-<div class="relative border border-[#242424] bg-[#0a0a0a] px-3 py-2.5 mb-2">
+<div class="relative border border-[#242424] bg-[#0a0a0a] px-3 py-2.5 mb-2 dt-review-item">
   <div class="flex items-center gap-2">
     <input type="checkbox" name="job_ids" value="{{ j.id }}" form="review-bulk-form">
     <a href="/jobs/{{ j.id }}" class="font-medium text-white hover:underline truncate">{{ j.original_name }}</a>
@@ -445,6 +445,29 @@ window.addEventListener('pageshow', function(e) {
       btn.textContent = btn.dataset.label;
     });
   }
+});
+
+// ── Keybindings: space selects the hovered job/review row, a applies the
+// hovered review item, x cancels the hovered job. ──
+let dtFocusedRow = null;
+document.addEventListener('mouseover', (e) => {
+  const el = e.target.closest('table tbody tr, .dt-review-item');
+  if (el) dtFocusedRow = el;
+});
+dtKeys.register(' ', () => {
+  if (!dtFocusedRow) return;
+  const cb = dtFocusedRow.querySelector('input[type=checkbox][name=job_ids]');
+  if (cb) cb.checked = !cb.checked;
+});
+dtKeys.register('a', () => {
+  if (!dtFocusedRow) return;
+  const btn = dtFocusedRow.querySelector('.review-submit-btn');
+  if (btn) btn.click();
+});
+dtKeys.register('x', () => {
+  if (!dtFocusedRow) return;
+  const btn = dtFocusedRow.querySelector('form[action$="/cancel"] button');
+  if (btn) btn.click();
 });
 </script>
 {% endblock %}

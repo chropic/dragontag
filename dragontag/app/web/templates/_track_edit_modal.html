@@ -4,13 +4,25 @@
        style="box-shadow:0 0 50px rgba(0,0,0,.6)">
     <span class="absolute -top-px -left-px w-2.5 h-2.5 border-t border-l border-[#c7f0c7]"></span>
     <span class="absolute -top-px -right-px w-2.5 h-2.5 border-t border-r border-[#c7f0c7]"></span>
-    <div class="flex items-center justify-between">
-      <h3 class="font-bold flex items-center gap-2">
+    <div class="flex items-center justify-between gap-2">
+      <h3 class="font-bold flex items-center gap-2 shrink-0">
         <span class="text-[#c7f0c7]">&#9656;</span> edit track
         {% if t.protected %}<span class="ml-1 text-xs px-1.5 py-0.5 border border-[#4a4326] text-[#f2e5b5]" title="Skipped by library batch actions">protected</span>{% endif %}
       </h3>
-      <button type="button" onclick="document.getElementById('track-modal-root').innerHTML = '';"
-              class="text-[#8a8a8a] hover:text-white text-lg leading-none">&times;</button>
+      <div class="flex items-center gap-1.5 shrink-0">
+        <form method="post" action="/library/tracks/{{ t.id }}/protect">
+          <button class="px-2 py-1 border border-[#2a2a2a] text-[#cfcfcf] hover:border-[#3a3a3a] text-xs"
+                  title="{% if t.protected %}Unprotect — allow library batch actions to overwrite this track again{% else %}Protect this track so library batch actions (fetch lyrics/covers, advisories, ReplayGain, the nuclear option, bulk re-tag) never overwrite your manual edit{% endif %}">
+            {% if t.protected %}unprotect{% else %}protect{% endif %}
+          </button>
+        </form>
+        <form method="post" action="/library/tracks/{{ t.id }}/fetch-lyrics">
+          <button class="px-2 py-1 border border-[#2a2a2a] text-[#cfcfcf] hover:border-[#3a3a3a] text-xs"
+                  title="Fetch synced/plain lyrics from LRCLIB for this track only">fetch lyrics</button>
+        </form>
+        <button type="button" onclick="document.getElementById('track-modal-root').innerHTML = '';"
+                class="text-[#8a8a8a] hover:text-white text-lg leading-none px-1">&times;</button>
+      </div>
     </div>
     <p class="text-xs text-[#5a5a5a] truncate" title="{{ t.path }}">{{ t.path }}</p>
 
@@ -47,15 +59,30 @@
       <button class="px-3 py-1.5 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f] text-xs">[ save tags ]</button>
     </form>
 
-    {# ---- protect from overwrite ---- #}
-    <form method="post" action="/library/tracks/{{ t.id }}/protect" class="border border-[#242424] p-3 flex items-center justify-between">
-      <p class="text-xs text-[#8a8a8a]">
-        {% if t.protected %}This track is protected — library batch actions (fetch lyrics/covers, advisories, ReplayGain, the nuclear option, bulk re-tag) will skip it.
-        {% else %}Protect this track so library batch actions never overwrite your manual edit.{% endif %}
-      </p>
-      <button class="px-3 py-1.5 border border-[#2a2a2a] text-[#cfcfcf] hover:border-[#3a3a3a] text-xs shrink-0 ml-3">
-        {% if t.protected %}unprotect{% else %}protect{% endif %}
-      </button>
+    {# ---- link to existing album ---- #}
+    <form method="post" action="/library/tracks/{{ t.id }}/link-album" class="relative space-y-2 border border-[#242424] pt-5 px-3 pb-3">
+      <span class="dt-label">link to album</span>
+      <p class="text-xs text-[#5a5a5a]">Inherit album, album artist, disc/track totals and MusicBrainz album ids from an album already in your library. Title, artist and track number are left untouched.</p>
+      <select name="__album_idx"
+              @change="
+                const o = $event.target.selectedOptions[0];
+                const f = $event.target.closest('form');
+                f.querySelector('[name=mb_album_id]').value = o.dataset.mbAlbumId || '';
+                f.querySelector('[name=album]').value = o.dataset.album || '';
+                f.querySelector('[name=album_artist]').value = o.dataset.albumArtist || '';
+              "
+              class="bg-black border border-[#2a2a2a] text-white px-2 py-1 w-full focus:outline-none text-xs">
+        <option value="">&mdash; select an album &mdash;</option>
+        {% for a in albums %}
+        <option value="{{ loop.index }}" data-mb-album-id="{{ a.mb_album_id or '' }}" data-album="{{ a.album or '' }}" data-album-artist="{{ a.album_artist or '' }}">
+          {{ a.album_artist or '?' }} &mdash; {{ a.album }}
+        </option>
+        {% endfor %}
+      </select>
+      <input type="hidden" name="mb_album_id" value="">
+      <input type="hidden" name="album" value="">
+      <input type="hidden" name="album_artist" value="">
+      <button class="px-3 py-1.5 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f] text-xs">[ link &amp; sync ]</button>
     </form>
 
     {# ---- pull from MusicBrainz / AcoustID ---- #}
@@ -85,11 +112,5 @@
         <button class="px-3 py-1.5 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f] text-xs">[ apply selected match ]</button>
       </form>
     </div>
-
-    {# ---- lyrics ---- #}
-    <form method="post" action="/library/tracks/{{ t.id }}/fetch-lyrics" class="border border-[#242424] p-3 flex items-center justify-between">
-      <p class="text-xs text-[#8a8a8a]">Fetch synced/plain lyrics from LRCLIB for this track only.</p>
-      <button class="px-3 py-1.5 border border-[#2a2a2a] text-[#cfcfcf] hover:border-[#3a3a3a] text-xs shrink-0 ml-3">fetch lyrics</button>
-    </form>
   </div>
 </div>

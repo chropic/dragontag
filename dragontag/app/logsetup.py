@@ -24,7 +24,11 @@ _NOISY_LIBS = ("musicbrainzngs", "urllib3", "watchdog", "PIL")
 
 def apply(verbosity: int) -> None:
     """Apply a 0–4 verbosity level to all loggers. Safe to call repeatedly."""
-    level = _LEVELS.get(int(verbosity), logging.INFO)
+    try:
+        level = _LEVELS.get(int(verbosity), logging.INFO)
+    except (TypeError, ValueError):
+        # A corrupted/non-numeric stored setting shouldn't break startup.
+        level = logging.INFO
     logging.getLogger().setLevel(level)
     for name in _NOISY_LIBS:
         logging.getLogger(name).setLevel(max(level, logging.WARNING))

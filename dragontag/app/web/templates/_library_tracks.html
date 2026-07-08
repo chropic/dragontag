@@ -1,6 +1,6 @@
 {% macro sort_header(col, label) -%}
   {% set next_dir = "desc" if (sort == col and dir == "asc") else "asc" %}
-  <a href="?folder_id={{ folder_id or '' }}&q={{ q }}&page=1&page_size={{ page_size }}&sort={{ col }}&dir={{ next_dir }}"
+  <a href="?folder_id={{ folder_id or '' }}&q={{ q | urlencode }}&page=1&page_size={{ page_size }}&sort={{ col }}&dir={{ next_dir }}"
      class="hover:text-white">
     {{ label }}{% if sort == col %} {% if dir == "asc" %}↑{% else %}↓{% endif %}{% endif %}
   </a>
@@ -51,7 +51,7 @@
       <td class="py-1.5 pr-2 text-[#8a8a8a] truncate" title="{{ t.album or '' }}">{{ t.album or "—" }}</td>
       <td class="py-1.5 pr-2 text-[#5a5a5a] overflow-hidden">{{ t.disc_num or "—" }}</td>
       <td class="py-1.5 pr-2 text-[#8a8a8a] overflow-hidden">
-        {% if t.duration %}{{ "%-4.0f"|format(t.duration // 60) }}:{{ "%02.0f"|format(t.duration % 60) }}{% else %}—{% endif %}
+        {% if t.duration %}{{ "%.0f"|format(t.duration // 60) }}:{{ "%02.0f"|format(t.duration % 60) }}{% else %}—{% endif %}
       </td>
       <td class="py-1.5 text-[#5a5a5a] text-xs truncate" title="{{ t.path }}">{{ t.path }}</td>
       <td class="py-1.5 text-right">
@@ -85,7 +85,7 @@
     </label>
     {% if total_pages > 1 %}
     <div class="flex items-center gap-1">
-      {% set base = "?folder_id=" ~ (folder_id or '') ~ "&q=" ~ q ~ "&page_size=" ~ page_size ~ "&sort=" ~ sort ~ "&dir=" ~ dir %}
+      {% set base = "?folder_id=" ~ (folder_id or '') ~ "&q=" ~ (q | urlencode) ~ "&page_size=" ~ page_size ~ "&sort=" ~ sort ~ "&dir=" ~ dir %}
       {% if page > 1 %}
       <a href="{{ base }}&page={{ page - 1 }}" class="px-2 py-0.5 border border-[#2a2a2a] hover:text-white">◂ prev</a>
       {% endif %}

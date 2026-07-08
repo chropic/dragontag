@@ -82,10 +82,16 @@ async def save_uploads(files: Iterable[UploadFile]) -> tuple[list[int], list[str
         # Stream chunks rather than loading the whole file into memory —
         # FLACs from a high-bitrate rip can easily be 100MB+.
         written = 0
-        with target.open("wb") as out:
-            while chunk := await upload.read(1 << 20):
-                written += len(chunk)
-                out.write(chunk)
+        try:
+            with target.open("wb") as out:
+                while chunk := await upload.read(1 << 20):
+                    written += len(chunk)
+                    out.write(chunk)
+        except Exception:
+            # Don't leave a truncated file in the watched drop folder — the
+            # watcher would ingest it as a corrupt track.
+            target.unlink(missing_ok=True)
+            raise
 
         if written == 0:
             target.unlink(missing_ok=True)

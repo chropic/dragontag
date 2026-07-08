@@ -161,7 +161,9 @@ class TrackTags:
                 f"{self.track:02d}/{self.track_total:02d}"
                 if self.track_total else f"{self.track:02d}"
             )
-        if self.track_total is not None:
+        # A total of 0 means "unknown" (matching the NN/TT logic above and the
+        # MP4 writer) — don't write a literal "0" total.
+        if self.track_total:
             # Both names are written; different players read different ones.
             d["TRACKTOTAL"] = str(self.track_total)
             d["TOTALTRACKS"] = str(self.track_total)
@@ -170,7 +172,7 @@ class TrackTags:
                 f"{self.disc:02d}/{self.disc_total:02d}"
                 if self.disc_total else f"{self.disc:02d}"
             )
-        if self.disc_total is not None:
+        if self.disc_total:
             d["DISCTOTAL"] = str(self.disc_total)
             d["TOTALDISCS"] = str(self.disc_total)
 

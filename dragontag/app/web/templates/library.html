@@ -18,7 +18,7 @@
 {# Library tabs #}
 <div class="flex gap-2 mb-4 flex-wrap text-xs">
   {% for f in folders %}
-  <a href="/library?folder_id={{ f.id }}{% if q %}&q={{ q }}{% endif %}"
+  <a href="/library?folder_id={{ f.id }}{% if q %}&q={{ q | urlencode }}{% endif %}"
      class="px-3 py-1.5 border
             {% if f.id == active_id %}bg-white text-black border-white font-bold
             {% else %}bg-[#0a0a0a] border-[#2a2a2a] text-[#cfcfcf] hover:text-white hover:border-[#3a3a3a]{% endif %}">

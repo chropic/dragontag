@@ -68,7 +68,7 @@ High-confidence matches flow through hands-free. Low-confidence files land in a 
 
 | Feature | Description |
 |---|---|
-| **Scheduling** | Standard cron expressions for scans, organizes, batches, lyrics/cover fetches, and backups — with run-now, next-run display, and live plain-English descriptions |
+| **Scheduling** | Standard cron expressions for scans, organizes, batches, lyrics/cover fetches, and backups — with run-now, next-run display, and live plain-English descriptions. Expressions are read in your display timezone (`TZ` / in-app setting), so "At 06:00 AM" fires at 6 AM your time |
 | **Webhooks** | Discord-compatible webhook on job completion or error |
 | **Universal progress bar** | Live progress line under the nav on every page: percentage, item counts, and current file |
 
@@ -131,7 +131,7 @@ Open **http://localhost:7593** and log in. First boot redirects to `/setup` if n
 | `DRAGONTAG_LIBRARY_PATH` | Override `/library` mount |
 | `DRAGONTAG_DROP_PATH` | Override `/drop` mount |
 | `DRAGONTAG_CONFIG_PATH` | Override `/config` mount |
-| `TZ` | Timezone for displayed timestamps, e.g. `America/New_York`. Locks the Settings UI's timezone field when set — remove it to enable the in-app override instead |
+| `TZ` | Timezone for displayed timestamps *and* cron schedule interpretation, e.g. `America/New_York`. Locks the Settings UI's timezone field when set — remove it to enable the in-app override instead |
 
 > **Migration note:** Variables were renamed from the `AIO_` prefix to `DRAGONTAG_`. Update your `docker-compose.yml` accordingly.
 
@@ -192,7 +192,8 @@ Files in the review queue show the top 5 MB candidates with scores and links. De
 
 - **Atomic tag writes** — every tag write (full re-tag, single-field updates, and revert) is performed on a temp copy in the same directory and then atomically swapped in. A crash mid-write can only ever damage the throwaway temp, never your original audio file. Cover-art sidecars (`cover.jpg`) are written the same way.
 - **Verified moves** — a file move confirms the destination's byte count matches the source, catching a silently-truncated write over a flaky network volume.
-- **Stalled-task recovery** — a background task with no progress heartbeat for 15 minutes is reaped to `error` so a hung run can't block future scheduled work; bounded network timeouts keep the single worker from hanging in the first place.
+- **Stalled-task recovery** — a background task with no progress heartbeat for 15 minutes *and* no live worker thread is reaped to `error`, so a hung run can't block future scheduled work while a slow-but-healthy one (say, a long backup) is left alone; bounded network timeouts keep the single worker from hanging in the first place.
+- **Honest failure reporting** — if a move has to be rolled back and the rollback itself fails (the original spot is occupied), dragontag reports exactly where the file ended up instead of claiming success, and logs it critically.
 
 ---
 
@@ -214,8 +215,8 @@ The canonical schema lives in [`schema.py`](dragontag/app/tagging/schema.py).
 | `COMPOSER` · `LYRICIST` · `ARRANGER` · `CONDUCTOR` | From MB recording and work relationships |
 | `DATE` | Release date |
 | `ORIGINALDATE` · `ORIGINALYEAR` | First release date of the release group (the original year the album came out, not this specific edition) |
-| `track` | Track number as `NN/TT`; also written as `TRACKTOTAL` and `TOTALTRACKS` |
-| `disc` | Disc number as `N/T`; also written as `DISCTOTAL` and `TOTALDISCS` |
+| `track` | Track number as `NN/TT`; also written as `TRACKTOTAL` and `TOTALTRACKS` (totals omitted when unknown) |
+| `disc` | Disc number as `N/T`; also written as `DISCTOTAL` and `TOTALDISCS` (totals omitted when unknown) |
 | `GENRE` | Top community-voted MB tags, filtered for quality |
 | `LABEL` · `MEDIA` · `BARCODE` · `ISRC` | Label, format, barcode, and recording ISRC from MB |
 | `RELEASECOUNTRY` · `RELEASESTATUS` · `RELEASETYPE` · `SCRIPT` | Release metadata from MB |
@@ -313,7 +314,10 @@ dragontag/app/
     └── revert.py          Undo a recorded FileChange / move a file back
 ```
 
-`.claude/memory/` holds Claude's working notes on this repo (architecture, conventions, workflow, project overview, maintainer preferences) — read/update it when making non-trivial changes, but it's not user-facing documentation.
+For AI agents: [`CLAUDE.md`](CLAUDE.md) at the repo root is the orientation page, and
+`.claude/memory/` holds the deep working notes (architecture, conventions, workflow, gotchas,
+testing, maintainer preferences) — read the index before non-trivial changes and update the
+notes as part of them. Neither is user-facing documentation.
 
 ### Tests
 
@@ -335,6 +339,8 @@ Pure-logic, no-network tests cover the most failure-prone paths:
 | `test_mover_verify.py` | `samefile` survives a vanished source; truncated moves are detected; cover writes are atomic |
 | `test_lyrics_advisory.py` | Lyrics embedded correctly per format; explicit classifier fires on known words, respects word boundaries |
 | `test_scan_filters.py` | Regex patterns, directory exclusions, and file exclusions all filter correctly |
+| `test_bug_sweep_core.py` | Notify never raises into the pipeline; job-log cap is byte-accurate; zero track/disc totals are omitted; cron fires in local time |
+| `test_bug_sweep_rollbacks.py` | Failed rollback moves report divergence instead of success; the reaper spares live worker threads; failed upload streams leave no partial file |
 
 ---
 

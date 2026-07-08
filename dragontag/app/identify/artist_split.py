@@ -36,6 +36,21 @@ def split_multi_artist(name: str | None) -> list[str]:
     pieces = _FEAT_SPLIT_RE.split(name)
     pieces = [p for piece in pieces for p in _AMP_RE.split(piece)]
     pieces = [p for piece in pieces for p in _COMMA_SPLIT_RE.split(piece)]
-    out = [p.strip() for p in pieces]
+    out = [_trim_unmatched_bracket(p.strip()) for p in pieces]
     out = [p for p in out if p]
     return out or [name.strip()]
+
+
+def _trim_unmatched_bracket(piece: str) -> str:
+    """Drop a trailing ``)``/``]`` whose opener was eaten by the feat split.
+
+    ``_FEAT_SPLIT_RE`` consumes the *opening* bracket of ``"A (feat. B)"``, so
+    the featured piece arrives as ``"B)"``. Only an unmatched closer is
+    trimmed — a balanced pair (e.g. an artist named ``"B (UK)"``) is kept.
+    """
+    while piece and piece[-1] in ")]":
+        opener = "(" if piece[-1] == ")" else "["
+        if piece.count(opener) >= piece.count(piece[-1]):
+            break
+        piece = piece[:-1].rstrip()
+    return piece

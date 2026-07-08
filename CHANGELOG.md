@@ -54,6 +54,107 @@
   cover picker, bulk-apply gather, cron-describe, settings token palette + dirty-state guard,
   toast/progress JS, and drag/drop upload wiring all unchanged.
 
+### Changed (dashboard banner — 2026-07-08)
+- **Dashboard banner rebuilt** — the ASCII dragon is removed and the wordmark replaced with an
+  ornate larry3d-style `DRAGONTAG` with a decorative frame and an
+  `« identify · tag · organize »` subtitle. The art is sized with an inline
+  `font-size: clamp(...)` so its 75 monospace columns always fit the viewport — which also kills
+  the horizontal scrollbar (the previous banner's `text-[6px]`/`sm:text-base`/`md:text-lg`
+  classes were never compiled into `app.css`, so it rendered at 16px and overflowed its
+  `overflow-x-auto` container). Pure ASCII/Latin-1 on purpose: the vendored woff2 subsets don't
+  cover block/box-drawing glyphs, and a fallback-font glyph would break the column grid. The
+  startup-log banner uses the same lettering. (`dashboard.html`, `main.py`)
+
+### Fixed (tagging-pipeline bug sweep — 2026-07-08)
+- **Dry-run bypass in the MBID short-circuit (silent library rewrite)** — files identified via
+  existing `MUSICBRAINZ_TRACKID`/`ALBUMID` skipped the dry-run gate *and* the finalize step, so a
+  dry-run bulk re-tag of an already-tagged library actually rewrote and moved every file, without
+  RELEASETYPE inference, `RELEASESTATUS` defaulting, or smart formatting. Both paths now share
+  `_finalize_and_commit`. (`ingest/pipeline.py`)
+- **MB ids were unreadable on MP3/WAV/MP4** — the reader queried bare `MUSICBRAINZ_*` keys, but
+  ID3 stores them as `TXXX:…`/`UFID:http://musicbrainz.org` and MP4 as `----:com.apple.iTunes:…`,
+  so the MBID short-circuit only ever worked for FLAC. Added the prefixed aliases (both dragontag
+  and Picard-style descs), UFID payload and MP4-freeform bytes decoding. (`identify/existing_tags.py`)
+- **MP4 quick-edit destroyed track/disc totals** — `write_basic_tags` wrote `trkn=(track, 0)`
+  when only the number was edited; the untouched half of the tuple is now preserved. Blanked
+  fields in the track-edit modal are also now *cleared on the file* (new opt-in `clear_blanks`
+  mode), so a cleared field no longer resurrects from disk on the next scan. (`tagging/partial.py`,
+  `main.py`)
+- **MP4 revert snapshots silently came back empty** — a gapless/podcast bool atom (`pgap`/`pcst`)
+  made `_capture_mp4` raise mid-iteration, which `capture()` swallowed into an empty snapshot
+  (revert then did nothing); int atoms (`tmpo`, `stik`, …) restored as strings made mutagen raise.
+  Both atom families are now handled explicitly in both directions. (`tagging/snapshot.py`)
+- **Backup restore could destroy the live DB across filesystems** — the staging dir lives in the
+  system temp, so the staging→`/config` `os.replace` raised `EXDEV` on the normal Docker volume
+  layout *after* the live `dragontag.db` had been renamed to `.pre-restore`, and cleanup deleted
+  the staged copy. Files are now re-staged inside the config dir first (`shutil.move` bridges the
+  FS boundary) so every swap is a same-FS atomic rename. (`backup.py`)
+- **A failed staged replace deleted the incoming file** — after `shutil.move(source→tmp)`, a
+  verification failure unlinked the temp, which *was* the only copy of the source; it is now
+  moved back (or left as a recoverable orphan). (`library/mover.py`)
+- **Filename parser truncated numeric titles** — `7 Years.flac` parsed as "Years",
+  `99 Luftballons.flac` as "Luftballons". A bare-space separator is now only trusted after a
+  zero-padded number (`01 Title.flac` still works); punctuation separators are unchanged.
+  (`identify/filename_parse.py`)
+- **`split_multi_artist` left a trailing bracket** — `"A (feat. B)"` split to `["A", "B)"]`; the
+  unmatched closer is now trimmed (balanced brackets in names are kept). (`identify/artist_split.py`)
+- **Album-consistency checker could invent a metadata state** — album and album-artist were
+  majority-voted independently, so anti-correlated groups normalized to an `(album, artist)` pair
+  no track ever had; the pair is now voted jointly. DB updates also commit per track, so an
+  exception mid-run can no longer roll back rows for files already physically moved.
+  (`library/actions.py`)
+- **`fix_disc_folders` broke on `{disctotal}` templates** — the rename `format()` call omitted the
+  placeholder that `build_destination` supplies, so such templates KeyError'd every rename into
+  the silent error counter. (`library/actions.py`)
+- **Review/conflict routes hardened** — re-applying an already-resolved review job no longer flips
+  a `done` job to `error` (missing `needs_review` guard); resolving a destination conflict now
+  moves the `.lrc` sidecar and indexes the moved file as a Track row (replace also refreshes the
+  overwritten path's stale row); a bad MB id in the track-edit "apply match" returns a toast
+  instead of a 500. (`main.py`)
+- **Bulk re-tag no longer silently skips `needs_review` files** — the enqueue dedup returned the
+  stuck job and counted it as queued while the worker refused to process it; explicit bulk/batch
+  re-tags now reset those jobs to `queued` (`enqueue(requeue_reviews=True)`). The watcher keeps
+  the protective dedup. (`ingest/pipeline.py`, `ingest/bulk.py`)
+- **Settings hardened** — pipeline-critical values are validated at save time: filename/disc-folder
+  templates are test-rendered (a `{name}` typo used to fail every subsequent ingest at the move
+  step), `score_threshold` is bounded to [0,1], timeouts must be positive, and an invalid value
+  returns an error toast instead of an unhandled 500. The **watcher toggle now takes effect
+  immediately** (start/stop on save) instead of after a restart, and **Run now** respects the
+  same-kind-running guard the scheduler tick enforces. (`config.py`, `main.py`)
+- **Scanner prunes deleted files** — Track rows whose file vanished from disk are removed after a
+  scan instead of lingering forever (phantom dashboard counts, spurious organizer "missing"
+  errors). (`library/scanner.py`)
+- **Multidisc filename/folder parity** — with `disc_total > 1` but no disc number,
+  `render_filename` chose the multidisc template (constant `{disc}`→1) while `build_destination`
+  skipped the `Disc N` folder, producing colliding names; both now use the same condition.
+  (`library/paths.py`)
+- **Cover-art overwrite gate honors its contract** — a fetched cover that cleared the static
+  pixel floor could still clobber a *larger* hand-curated `cover.jpg`; the existing cover's width
+  is now compared too (explicit user-chosen art still always wins). (`library/mover.py`)
+- **Smaller correctness fixes** — genre dedup is hyphen/space-insensitive (`Hip Hop`/`Hip-Hop` no
+  longer both survive); the grammar punct-spacing rule no longer explodes initialisms
+  (`R.E.M.` → `R. E. M.`); MP4 `rtng` is written on the iTunes scale (clean = 2, not 0, so Apple
+  players show the Clean badge) and legacy `rtng=4` reads as explicit; link-album removes the full
+  writers' underscore-style MB-id frames before writing Picard-style ones (no duplicate
+  conflicting ids); `fetch_bytes` defaults to `allow_redirects=False` so the SSRF guard can't be
+  bounced past by a 30x (trusted CAA/LRCLIB fetches opt in); the fpcalc parser skips
+  informational stdout lines instead of discarding a good fingerprint. (`identify/genres.py`,
+  `tagging/formatter.py`, `tagging/writers/mp4.py`, `tagging/partial.py`,
+  `identify/existing_tags.py`, `net.py`, `tagging/coverart.py`, `tagging/lyrics_fetcher.py`,
+  `identify/acoustid.py`)
+
+### Tests (2026-07-08)
+- New suites covering every fix above: `test_pipeline_dry_run_shortcircuit.py`,
+  `test_existing_tags_mbid_readback.py`, `test_partial_clear_and_mp4_totals.py`,
+  `test_snapshot_mp4_atoms.py`, `test_backup_restore_crossfs.py`,
+  `test_mover_staged_source_preserved.py`, `test_filename_parse_titles.py`,
+  `test_artist_split_brackets.py`, `test_album_consistency_pair_vote.py`,
+  `test_disc_folder_template.py`, `test_routes_sweep_guards.py`,
+  `test_resolve_conflict_indexes_track.py`, `test_scanner_prune.py`,
+  `test_paths_multidisc_parity.py`, `test_cover_overwrite_gate.py`,
+  `test_config_validators.py`, `test_genre_dedup.py`, `test_formatter_initialisms.py`,
+  `test_advisory_rtng.py`. Suite: 291 passing.
+
 ## 0.9.5 — repo housekeeping & UI polish (2026-06-15)
 
 ### Changed

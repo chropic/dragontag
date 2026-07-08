@@ -17,8 +17,12 @@ import re
 import unicodedata
 from pathlib import Path
 
-# Match a leading "01 - " / "01. " / "01 " etc.
-_TRACK_PREFIX = re.compile(r"^\s*\d{1,3}\s*[-.\s]+\s*")
+# Match a leading "01 - " / "01. " / "01 " etc. A bare-space separator is only
+# accepted after a zero-padded number ("01 Title") — a natural number followed
+# by a space is far more likely to open the real title ("7 Years",
+# "99 Luftballons", "100 Years") than to be a track prefix, and stripping it
+# would feed MB a truncated query. Punctuation separators are unambiguous.
+_TRACK_PREFIX = re.compile(r"^\s*(?:\d{1,3}\s*[-.)]+\s*|0\d{1,2}\s+)")
 
 
 def parse(path: Path) -> dict[str, str | None]:

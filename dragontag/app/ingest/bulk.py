@@ -41,7 +41,9 @@ def enqueue_folder(source_path: Path, *, dry_run: bool | None = None) -> list[in
             p, cfg.scan_filter_patterns, cfg.scan_exclude_dirs, cfg.scan_exclude_files
         ):
             continue
-        job = enqueue(p, dry_run=dry_run)
+        # requeue_reviews: an explicit re-tag should reprocess files whose
+        # previous run got stuck in needs_review, not silently skip them.
+        job = enqueue(p, dry_run=dry_run, requeue_reviews=True)
         submit(job.id)
         job_ids.append(job.id)
         log.info("bulk: enqueued %s (job %d)", p.name, job.id)

@@ -161,7 +161,10 @@ def _apply_possessives(s: str) -> str:
 
 def _fix_punctuation_spacing(s: str) -> str:
     s = re.sub(r"\s+([,.;:!?])", r"\1", s)        # no space before punctuation
-    s = re.sub(r"([,.;:!?])([A-Za-z])", r"\1 \2", s)  # single space after
+    # Single space after punctuation — except when the punctuation follows a
+    # single-letter word, which marks an initialism ("R.E.M.", "a.k.a.") that
+    # must not be exploded into "R. E. M.".
+    s = re.sub(r"(?<!\b[A-Za-z])([,.;:!?])([A-Za-z])", r"\1 \2", s)
     s = re.sub(r"  +", " ", s)
     return s
 

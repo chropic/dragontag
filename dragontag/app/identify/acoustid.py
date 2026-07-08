@@ -75,7 +75,9 @@ def _fingerprint_file_with_timeout(path: Path, *, maxlength: int, timeout: float
     for line in output.splitlines():
         parts = line.split(b"=", 1)
         if len(parts) != 2:
-            raise FingerprintGenerationError("malformed fpcalc output")
+            # Skip informational/blank lines like pyacoustid's own parser does —
+            # a chatty fpcalc build must not invalidate a good fingerprint.
+            continue
         if parts[0] == b"DURATION":
             try:
                 duration = float(parts[1])

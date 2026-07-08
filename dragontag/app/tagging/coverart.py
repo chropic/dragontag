@@ -46,6 +46,7 @@ def _get_json(url: str, timeout: float = 10.0):
         timeout=timeout,
         max_bytes=_JSON_MAX_BYTES,
         validate=False,
+        allow_redirects=True,  # trusted host; CAA answers via redirects
         headers={"Accept": "application/json"},
     )
     if r.status_code == 404:
@@ -81,7 +82,8 @@ def _pick_and_download(images: list[dict]) -> CoverArt | None:
             # CAA image URLs redirect to archive.org mirrors, so redirects stay
             # enabled; the size cap still bounds memory use.
             r, data = fetch_bytes(
-                url, timeout=20, max_bytes=_IMAGE_MAX_BYTES, validate=False
+                url, timeout=20, max_bytes=_IMAGE_MAX_BYTES, validate=False,
+                allow_redirects=True,
             )
             if r.status_code != 200:
                 continue

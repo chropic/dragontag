@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import shutil
 import sqlite3
 import tarfile
 import tempfile
@@ -200,16 +201,30 @@ def restore_bundle(tar_path: Path) -> str:
         files: dict = bundle["manifest"].get("files") or {}
         config = env().config_path
 
-        # Close the live DB before replacing the file under it.
-        reset_engine()
+        # Re-stage the validated files *inside* the config dir first. The
+        # validation staging dir lives in the system temp, which in the normal
+        # Docker layout is a different filesystem from the /config volume —
+        # ``Path.replace`` (os.replace) raises EXDEV across filesystems, and
+        # failing there *after* a live file was renamed away would leave the
+        # config dir with no database at all. shutil.move copies across the FS
+        # boundary; every swap below is then a same-FS atomic rename.
+        swap_dir = Path(tempfile.mkdtemp(prefix=".dgrestore-", dir=str(config)))
+        try:
+            for name in files:
+                shutil.move(str(staging / name), str(swap_dir / name))
 
-        restored = []
-        for name in files:
-            live = config / name
-            if live.exists():
-                live.replace(config / f"{name}.pre-restore")
-            (staging / name).replace(live)
-            restored.append(name)
+            # Close the live DB before replacing the file under it.
+            reset_engine()
+
+            restored = []
+            for name in files:
+                live = config / name
+                if live.exists():
+                    live.replace(config / f"{name}.pre-restore")
+                (swap_dir / name).replace(live)
+                restored.append(name)
+        finally:
+            shutil.rmtree(swap_dir, ignore_errors=True)
 
         reset_store()
         log.info("restore complete: %s", ", ".join(restored))

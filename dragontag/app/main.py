@@ -30,6 +30,7 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import func, or_
 from sqlmodel import select
 from starlette.middleware.sessions import SessionMiddleware
@@ -149,11 +150,14 @@ templates.env.globals["describe_cron"] = scheduler.describe_cron
 def _startup() -> None:
     """Initialize config + DB, start worker, resume in-flight jobs, start watcher."""
     log.info(r"""
-   ____  ____  ___   __________  _   ___________   ______
-  / __ \/ __ \/   | / ____/ __ \/ | / /_  __/   | / ____/
- / / / / /_/ / /| |/ / __/ / / /  |/ / / / / /| |/ / __
-/ /_/ / _, _/ ___ / /_/ / /_/ / /|  / / / / ___ / /_/ /
-\____/_/ |_/_/  |_\____/\____/_/ |_/ /_/ /_/  |_\____/  starting up...""")
+ ____    ____    ______  ____    _____   __  __  ______  ______  ____
+/\  _`\ /\  _`\ /\  _  \/\  _`\ /\  __`\/\ \/\ \/\__  _\/\  _  \/\  _`\
+\ \ \/\ \ \ \L\ \ \ \L\ \ \ \L\_\ \ \/\ \ \ `\\ \/_/\ \/\ \ \L\ \ \ \L\_\
+ \ \ \ \ \ \ ,  /\ \  __ \ \ \L_L\ \ \ \ \ \ , ` \ \ \ \ \ \  __ \ \ \L_L
+  \ \ \_\ \ \ \\ \\ \ \/\ \ \ \/, \ \ \_\ \ \ \`\ \ \ \ \ \ \ \/\ \ \ \/, \
+   \ \____/\ \_\ \_\ \_\ \_\ \____/\ \_____\ \_\ \_\ \ \_\ \ \_\ \_\ \____/
+    \/___/  \/_/\/ /\/_/\/_/\/___/  \/_____/\/_/\/_/  \/_/  \/_/\/_/\/___/
+                                                        starting up...""")
     store()                       # ensure /config and SQLite are ready
     logsetup.apply(settings().log_verbosity)
     from .tagging.writers._atomic import cleanup_orphaned_temp_files
@@ -730,6 +734,13 @@ async def review_apply(
         job = s.get(Job, job_id)
         if not job:
             raise HTTPException(404)
+        if job.status != JobStatus.needs_review:
+            # A stale form / double-submit on an already-resolved job must not
+            # re-run the commit path — the source has moved, so a second run
+            # would fail and flip a done job to error.
+            return _toast_response(
+                "/queue", f"Job {job_id} is not awaiting review.", "error"
+            )
         try:
             tags = mbq.assemble_tags(release_id=rel, recording_id=rec)
         except Exception as e:
@@ -796,8 +807,27 @@ def resolve_conflict(
             res = move(src, dest, overwrite=False)
 
         if res.moved:
+            from .ingest.pipeline import _pick_library_folder
+            from .library.mover import move_lyric_sidecar
+            from .library.scanner import _upsert_from_disk
+
+            move_lyric_sidecar(src, dest)
             job.status = JobStatus.done
             job.destination_path = str(dest)
+            # The tags were already written before the conflict was detected —
+            # index the moved file now so it shows up in the library without a
+            # manual rescan. For "replace" this also refreshes the row that
+            # still described the overwritten file's old metadata.
+            lib_root = _pick_library_folder()
+            folder_row = s.exec(
+                select(LibraryFolder).where(LibraryFolder.path == str(lib_root))
+            ).first()
+            try:
+                track = _upsert_from_disk(s, dest, folder_row.id if folder_row else None)
+                s.flush()
+                job.track_id = track.id
+            except Exception:
+                log.exception("resolve_conflict: failed to index %s", dest)
         s.add(job)
         s.commit()
     return RedirectResponse("/queue", status_code=303)
@@ -938,8 +968,23 @@ def settings_update(
         # rather than persist a value that can never take effect.
         "timezone": "" if os.environ.get("TZ") else timezone,
     }
-    store().update(patch)
+    try:
+        store().update(patch)
+    except PydanticValidationError as e:
+        # Out-of-range / invalid values (crafted POST or a value the HTML
+        # min/max didn't guard) must come back as a toast, not a raw 500.
+        first = e.errors()[0] if e.errors() else {}
+        field = ".".join(str(x) for x in first.get("loc", ())) or "settings"
+        return _toast_response(
+            "/settings", f"Settings not saved — invalid {field}: {first.get('msg', e)}", "error"
+        )
     logsetup.apply(settings().log_verbosity)
+    # Apply the watcher toggle immediately — it used to be read only at
+    # startup, leaving the observer silently running (or off) until restart.
+    if settings().watcher_enabled:
+        watcher.start()
+    else:
+        watcher.stop()
     back = request.headers.get("referer", "/settings")
     sep = "&" if "?" in back else "?"
     resp = RedirectResponse(f"{back}{sep}saved=1", status_code=303)
@@ -1363,7 +1408,10 @@ def library_track_edit_save(
             disc_total=_int(disc_total),
         )
         try:
-            write_basic_tags(p, **fields)
+            # clear_blanks: the modal pre-fills every field, so a blank is a
+            # deliberate clear — the file tag must go too, or the next scan
+            # would resurrect it and silently undo the edit.
+            write_basic_tags(p, **fields, clear_blanks=True)
         except Exception as e:
             return _toast_response("/library", f"{p.name}: tag write failed: {e}", "error")
         track.title = fields["title"]
@@ -1577,7 +1625,12 @@ def library_track_apply_match(
     from .tagging.writers import write_tags
     from .ingest.pipeline import _upsert_track
 
-    tags = mbq.assemble_tags(release_id=rel, recording_id=rec)
+    try:
+        tags = mbq.assemble_tags(release_id=rel, recording_id=rec)
+    except Exception as e:
+        # A deleted/redirected MB id must land as a toast, not a raw 500
+        # (parity with review_apply's handling).
+        return _toast_response("/library", f"MusicBrainz lookup failed: {e}", "error")
     cover = fetch_for_release(tags.mb_album_id) if tags.mb_album_id else None
     if cover:
         tags.cover_bytes = cover.data
@@ -2170,6 +2223,20 @@ def schedule_run_now(task_id: int, request: Request, _: None = Depends(require_a
         t = s.get(ScheduledTask, task_id)
         if not t:
             raise HTTPException(404)
+        # Same guard the scheduler tick applies: two concurrent same-kind
+        # file-moving batches racing over one folder is exactly what it exists
+        # to prevent, and "Run now" must not be a bypass.
+        already_running = s.exec(
+            select(Job).where(
+                Job.kind == t.task_type, Job.status == JobStatus.running
+            )
+        ).first()
+        if already_running is not None:
+            return _toast_response(
+                "/schedule",
+                f"A {t.task_type} task is still running — not starting another.",
+                "error",
+            )
     try:
         scheduler.run_task_by_type(t)
     except Exception as e:

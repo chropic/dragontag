@@ -72,7 +72,11 @@ def sanitize_segment(name: str) -> str:
 def render_filename(tags: TrackTags, ext: str) -> str:
     """Render the filename half of the destination using the user template."""
     s = settings()
-    multidisc = (tags.disc_total or 1) > 1
+    # Must mirror build_destination's Disc-folder condition exactly: with
+    # disc_total > 1 but no disc number, choosing the multidisc template here
+    # (which renders {disc} as a constant 1) while build_destination skips the
+    # Disc N folder would give every disc's tracks colliding filenames.
+    multidisc = (tags.disc_total or 1) > 1 and tags.disc is not None
     tmpl = s.filename_template_multidisc if multidisc else s.filename_template_single
     return sanitize_segment(
         tmpl.format(

@@ -94,7 +94,7 @@ def fetch_bytes(
     timeout: float,
     max_bytes: int = DEFAULT_MAX_BYTES,
     validate: bool = True,
-    allow_redirects: bool = True,
+    allow_redirects: bool = False,
     headers: dict | None = None,
     params: dict | None = None,
 ) -> tuple[requests.Response, bytes]:
@@ -102,8 +102,13 @@ def fetch_bytes(
 
     Pass ``validate=True`` (default) for user-supplied URLs to enforce the
     SSRF guard; pass ``validate=False`` for fetches to trusted, hard-coded API
-    hosts. ``raise_for_status`` is intentionally *not* called — callers inspect
-    ``response.status_code`` themselves (several upstreams use 404 as a soft miss).
+    hosts. Redirects are disabled by default so the safe configuration is the
+    zero-argument one — ``validate_public_url`` only checks the *initial* host,
+    and a followed 30x would bounce straight past it onto an internal address.
+    Trusted-host callers that genuinely need redirects (e.g. Cover Art Archive
+    → archive.org mirrors) opt in explicitly. ``raise_for_status`` is
+    intentionally *not* called — callers inspect ``response.status_code``
+    themselves (several upstreams use 404 as a soft miss).
     """
     if validate:
         validate_public_url(url)

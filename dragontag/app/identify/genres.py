@@ -73,10 +73,13 @@ def filter_genres(raw: list[str]) -> list[str]:
     seen: set[str] = set()
     for name in raw:
         n = _norm(name)
-        if not n or n in seen:
+        # Dedup on the hyphen-collapsed key: matching is hyphen/space-agnostic,
+        # so "Hip Hop" and "Hip-Hop" are the same genre and must not both survive.
+        dk = n.replace("-", " ")
+        if not n or dk in seen:
             continue
         if n in wl or n.replace("-", " ") in wl or n.replace(" ", "-") in wl:
-            seen.add(n)
+            seen.add(dk)
             matched.append(name)
     if matched:
         return matched
@@ -85,7 +88,8 @@ def filter_genres(raw: list[str]) -> list[str]:
     seen = set()
     for name in raw:
         n = _norm(name)
-        if n and n not in seen and not _is_junk(n):
-            seen.add(n)
+        dk = n.replace("-", " ")
+        if n and dk not in seen and not _is_junk(n):
+            seen.add(dk)
             out.append(name)
     return out

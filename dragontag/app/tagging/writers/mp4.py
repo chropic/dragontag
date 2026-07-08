@@ -129,6 +129,9 @@ def write(path: Path, tags: TrackTags, sep) -> None:
         if tags.lyrics:
             t["\xa9lyr"] = [tags.lyrics]
         if tags.advisory is not None:
-            t["rtng"] = [tags.advisory]
+            # iTunes rtng scale: 1 = explicit, 2 = clean (0 would mean "no
+            # advisory" and hide the Clean badge in Apple players).
+            from ..partial import advisory_to_rtng
+            t["rtng"] = [advisory_to_rtng(tags.advisory)]
 
         audio.save()

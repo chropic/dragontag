@@ -82,7 +82,7 @@ _PROCESSABLE_STATUSES = {
 _enqueue_lock = threading.Lock()
 
 
-def enqueue(path: Path, *, dry_run: bool | None = None) -> Job:
+def enqueue(path: Path, *, dry_run: bool | None = None, requeue_reviews: bool = False) -> Job:
     """Persist a new ``Job`` and return it. Doesn't submit to the worker —
     callers call :func:`submit` after committing so the worker can see the row.
 
@@ -93,6 +93,13 @@ def enqueue(path: Path, *, dry_run: bool | None = None) -> Job:
     Deduplicates by source path: if an active job already exists for this path
     it is returned as-is, preventing double-processing when the watcher fires
     on a file that was just saved by the upload handler.
+
+    ``requeue_reviews`` controls what a dedup hit on a ``needs_review`` job
+    means. Explicit re-tag callers (bulk/batch) pass ``True`` so the stuck job
+    is reset to ``queued`` and actually reprocessed — otherwise it would be
+    counted as "queued" but silently skipped by ``process()``. The watcher and
+    upload paths keep the default ``False``: a re-fired filesystem event must
+    not discard a review the user hasn't resolved yet.
     """
     with _enqueue_lock, session() as s:
         existing = s.exec(
@@ -102,6 +109,17 @@ def enqueue(path: Path, *, dry_run: bool | None = None) -> Job:
             )
         ).first()
         if existing:
+            if requeue_reviews and existing.status == JobStatus.needs_review:
+                _set(
+                    existing,
+                    status=JobStatus.queued,
+                    review_reason=None,
+                    error=None,
+                    dry_run_override=dry_run,
+                )
+                s.add(existing)
+                s.commit()
+                s.refresh(existing)
             return existing
         job = Job(
             source_path=str(path),
@@ -195,19 +213,24 @@ def _process_inner(s: Session, job: Job) -> None:
 
     # ----- step 1: short-circuit on existing MBIDs -----
     # If the file was already tagged by Picard (or by us), the MB IDs are the
-    # most reliable identifier we can have — skip the search entirely.
+    # most reliable identifier we can have — skip the search entirely. The
+    # finalize step (not a direct _commit_tag_path call) keeps this path under
+    # the same dry-run gate and RELEASETYPE/formatting rules as the search
+    # path — a dry-run bulk re-tag of an already-tagged library must stay a
+    # preview here too.
     if existing.get("mb_track_id") and existing.get("mb_album_id"):
         try:
             tags = mbq.assemble_tags(
                 release_id=existing["mb_album_id"],
                 recording_id=existing["mb_track_id"],
             )
-            _commit_tag_path(s, job, src, tags, score=1.0)
-            return
         except Exception as e:
             # Pre-existing MBIDs occasionally point at deleted/redirected MB
             # entries. Fall through to the regular search path.
             _append_log(job, f"MBID short-circuit failed: {e}")
+        else:
+            _finalize_and_commit(s, job, src, tags, score=1.0)
+            return
 
     # ----- step 2: MB text search -----
     cands = mbq.search_candidates(
@@ -307,6 +330,18 @@ def _process_inner(s: Session, job: Job) -> None:
         s.commit()
         return
 
+    _finalize_and_commit(s, job, src, tags, score=best_total)
+
+
+def _finalize_and_commit(s: Session, job: Job, src: Path, tags: TrackTags, *, score: float) -> None:
+    """Shared tail of every identification path (MB search, MBID short-circuit).
+
+    Applies the optional smart formatting, enforces the mandatory
+    RELEASETYPE/RELEASESTATUS defaults, and routes through the dry-run gate
+    before anything destructive happens — the gate must sit here rather than
+    in the search path only, or a dry-run over an already-tagged library
+    (where every file short-circuits on its MBIDs) would silently write.
+    """
     # ----- optional smart formatting -----
     cfg = settings()
     if cfg.format_title_case or cfg.format_fix_qualifiers or cfg.format_grammar_correct:
@@ -347,7 +382,7 @@ def _process_inner(s: Session, job: Job) -> None:
         _set(
             job,
             destination_path=str(dest),
-            score=best_total,
+            score=score,
             status=JobStatus.needs_review,
             review_reason=ReviewReason.dry_run,
         )
@@ -355,7 +390,7 @@ def _process_inner(s: Session, job: Job) -> None:
         s.commit()
         return
 
-    _commit_tag_path(s, job, src, tags, score=best_total)
+    _commit_tag_path(s, job, src, tags, score=score)
 
 
 def _commit_tag_path(s: Session, job: Job, src: Path, tags: TrackTags, *, score: float) -> None:

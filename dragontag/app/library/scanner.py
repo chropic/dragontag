@@ -62,11 +62,33 @@ def scan_folder(folder_path: Path, folder_id: int, ctx=None) -> int:
     if batch:
         _flush_batch(batch, folder_id)
         count += len(batch)
+    removed = _prune_missing(folder_id)
     if ctx:
         ctx.progress(count, len(files))
-        ctx.log(f"Finished — {count} file(s) indexed")
-    log.info("scanner: finished %s — %d files", folder_path, count)
+        ctx.log(f"Finished — {count} file(s) indexed" + (f", {removed} stale row(s) pruned" if removed else ""))
+    log.info("scanner: finished %s — %d files, %d stale rows pruned", folder_path, count, removed)
     return count
+
+
+def _prune_missing(folder_id: int) -> int:
+    """Delete Track rows in this folder whose file no longer exists on disk.
+
+    The scan only upserts rows for files it finds, so without this a deleted
+    file lingers as a phantom row forever — inflating the dashboard
+    explicit/lyrics counters and producing spurious "missing" errors in the
+    organizer. Existence is checked per row (not via ``last_seen``) so rows
+    for files the scan filters skip are still kept.
+    """
+    removed = 0
+    with session() as s:
+        rows = s.exec(select(Track).where(Track.library_folder_id == folder_id)).all()
+        for t in rows:
+            if not Path(t.path).exists():
+                s.delete(t)
+                removed += 1
+        if removed:
+            s.commit()
+    return removed
 
 
 def _flush_batch(paths: list[Path], folder_id: int) -> None:

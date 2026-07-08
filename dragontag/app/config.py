@@ -27,8 +27,21 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _check_template(tmpl: str, **placeholders: Any) -> None:
+    """Reject a path template with broken syntax or unknown placeholders.
+
+    A bad template (e.g. a ``{name}`` typo) would otherwise save fine and then
+    fail *every* ingest at the move step until corrected — a self-inflicted
+    pipeline outage with no hint that the setting is the cause.
+    """
+    try:
+        tmpl.format(**placeholders)
+    except (KeyError, IndexError, ValueError) as e:
+        raise ValueError(f"invalid template {tmpl!r}: {e}") from None
 
 
 def _read_secret(path: str | None) -> str | None:
@@ -80,17 +93,20 @@ class UserSettings(BaseModel):
 
     # ----- identification -----
     acoustid_enabled: bool = True
-    score_threshold: float = 0.85  # below this the file is routed to /review
+    # Below this the file is routed to /review. Bounded to the score model's
+    # actual [0, 1] range.
+    score_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
     # Network timeout (seconds) for outbound API calls (MusicBrainz, AcoustID).
     # Without it a half-open connection can hang the single ingest worker
-    # thread indefinitely, wedging all further processing.
-    network_timeout_seconds: float = 15.0
+    # thread indefinitely, wedging all further processing. Must be positive —
+    # 0 would become socket.setdefaulttimeout(0), failing every MB call.
+    network_timeout_seconds: float = Field(default=15.0, gt=0)
 
     # Hard wall-clock timeout (seconds) for the local fpcalc fingerprinting
     # subprocess. fpcalc occasionally hangs on corrupt/unusual audio; without
     # this bound the single ingest worker thread would block forever and
     # every subsequently queued file would silently stop being processed.
-    fingerprint_timeout_seconds: float = 30.0
+    fingerprint_timeout_seconds: float = Field(default=30.0, gt=0)
 
     # ----- tag rendering -----
     separators: Separators = Field(default_factory=Separators)
@@ -111,6 +127,23 @@ class UserSettings(BaseModel):
     filename_template_single: str = "{track:02d}. {title}.{ext}"
     filename_template_multidisc: str = "{track:02d}. {title}.{ext}"
     multidisc_folder_template: str = "Disc {disc}"
+
+    @field_validator("filename_template_single", "filename_template_multidisc")
+    @classmethod
+    def _validate_filename_template(cls, v: str) -> str:
+        # Must render with exactly the keyword set paths.render_filename passes.
+        _check_template(
+            v, track=1, disc=1, title="t", artist="a", ext="flac",
+            disctotal=1, tracktotal=1,
+        )
+        return v
+
+    @field_validator("multidisc_folder_template")
+    @classmethod
+    def _validate_disc_folder_template(cls, v: str) -> str:
+        # Must render with the keyword set paths.build_destination passes.
+        _check_template(v, disc=1, disctotal=1)
+        return v
 
     # ----- watcher -----
     watcher_enabled: bool = True

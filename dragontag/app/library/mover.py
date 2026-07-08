@@ -83,9 +83,11 @@ def _staged_replace(source: Path, destination: Path) -> Path:
     verify its size, then atomically swap it over ``destination``.
 
     On any failure before the final ``os.replace`` the original destination
-    is left completely untouched; at worst an orphan ``.dgmove-*`` temp is
-    left in the directory (harmless, and swept up like the tag-writer's own
-    ``.dgtag-*`` temps).
+    is left completely untouched. If the failure happens *after* ``source``
+    was moved into the temp slot, the temp **is** the incoming file — it is
+    moved back to ``source`` (or, failing that, left behind as an orphan
+    ``.dgmove-*`` temp) rather than deleted, so a verification failure can
+    never destroy the only copy of the incoming file.
     """
     try:
         src_size = source.stat().st_size
@@ -98,8 +100,10 @@ def _staged_replace(source: Path, destination: Path) -> Path:
     os.close(fd)
     tmp_path = Path(tmp_name)
     tmp_path.unlink()  # mkstemp's placeholder; shutil.move needs the name free
+    source_in_tmp = False
     try:
         shutil.move(str(source), str(tmp_path))
+        source_in_tmp = True
         if src_size is not None:
             dst_size = tmp_path.stat().st_size
             if dst_size != src_size:
@@ -109,7 +113,14 @@ def _staged_replace(source: Path, destination: Path) -> Path:
                 )
         os.replace(tmp_path, destination)
     except BaseException:
-        tmp_path.unlink(missing_ok=True)
+        if source_in_tmp:
+            try:
+                shutil.move(str(tmp_path), str(source))
+            except OSError:
+                # Leave the orphan temp — recoverable, unlike an unlink.
+                pass
+        else:
+            tmp_path.unlink(missing_ok=True)
         raise
     return destination
 
@@ -133,6 +144,16 @@ def move_lyric_sidecar(old_audio: Path, new_audio: Path) -> bool:
         return False
 
 
+def _image_width(path: Path) -> int | None:
+    """Header-only width read of an existing image; None if unreadable."""
+    try:
+        from PIL import Image
+        with Image.open(str(path)) as im:
+            return im.size[0]
+    except Exception:
+        return None
+
+
 def write_cover_jpg(
     folder: Path,
     data: bytes,
@@ -143,15 +164,21 @@ def write_cover_jpg(
     """Save the album cover as ``cover.jpg`` next to the audio files.
 
     If a cover already exists we only overwrite when the new image's width
-    is at least ``min_overwrite_pixels`` — that protects a hand-curated
-    high-res cover from being clobbered by a small fingerprint-fallback one.
+    clears ``min_overwrite_pixels`` *and* is at least the existing cover's
+    own width — that protects a hand-curated high-res cover from being
+    clobbered by a smaller fetched one. Callers that pass ``new_width=0``
+    (explicit user-chosen art) bypass the comparison and always write.
 
     Returns the written path, or ``None`` if we skipped (existing cover OK).
     """
     folder.mkdir(parents=True, exist_ok=True)
     target = folder / "cover.jpg"
-    if target.exists() and new_width < min_overwrite_pixels:
-        return None
+    if target.exists() and new_width:
+        if new_width < min_overwrite_pixels:
+            return None
+        existing_width = _image_width(target)
+        if existing_width and new_width < existing_width:
+            return None
     # Write to a temp file in the same dir and atomically swap it in, so a crash
     # mid-write can't truncate an existing cover.jpg.
     fd, tmp = tempfile.mkstemp(dir=str(folder), prefix=".dgcover-", suffix=".jpg")

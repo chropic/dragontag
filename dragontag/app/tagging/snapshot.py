@@ -155,6 +155,19 @@ def _restore_id3(path: Path, tags: dict[str, list[str]], ext: str) -> None:
 
 
 # ----- MP4 / M4A -----
+
+# Atoms mutagen materializes as a bare bool / a list of ints rather than a
+# list of strings. Both directions must special-case them: iterating a bare
+# bool raises (which would silently produce an *empty* snapshot via capture()'s
+# catch-all), and restoring an int atom from strings makes mutagen's atom
+# renderer raise on save.
+_MP4_BOOL_ATOMS = ("cpil", "pgap", "pcst")
+_MP4_INT_ATOMS = (
+    "rtng", "tmpo", "stik", "tvsn", "tves", "hdvd", "shwm",
+    "cnID", "atID", "plID", "geID", "sfID", "cmID", "akID",
+)
+
+
 def _capture_mp4(path: Path) -> dict[str, list[str]]:
     from mutagen.mp4 import MP4
 
@@ -165,11 +178,11 @@ def _capture_mp4(path: Path) -> dict[str, list[str]]:
     for key, val in audio.tags.items():
         if key == "covr":
             continue  # binary cover — not snapshotted
-        if key == "cpil":
+        if key in _MP4_BOOL_ATOMS:
             out[key] = ["1" if val else "0"]
         elif key in ("trkn", "disk"):
             out[key] = ["{}/{}".format(*pair) for pair in val]
-        elif key == "rtng":
+        elif key in _MP4_INT_ATOMS:
             out[key] = [str(x) for x in val]
         else:
             vals = []
@@ -192,15 +205,15 @@ def _restore_mp4(path: Path, tags: dict[str, list[str]]) -> None:
         if covr is not None:
             t["covr"] = covr
         for key, vals in tags.items():
-            if key == "cpil":
-                t["cpil"] = bool(vals) and vals[0] == "1"
+            if key in _MP4_BOOL_ATOMS:
+                t[key] = bool(vals) and vals[0] == "1"
             elif key in ("trkn", "disk"):
                 pairs = []
                 for s in vals:
                     a, _, b = str(s).partition("/")
                     pairs.append((int(a or 0), int(b or 0)))
                 t[key] = pairs
-            elif key == "rtng":
+            elif key in _MP4_INT_ATOMS:
                 t[key] = [int(x) for x in vals]
             elif key.startswith("----"):
                 t[key] = [MP4FreeForm(str(s).encode("utf-8")) for s in vals]

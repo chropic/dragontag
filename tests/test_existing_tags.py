@@ -3,16 +3,18 @@ from dragontag.app.identify.existing_tags import _norm_advisory, _has_lyrics
 
 
 def test_norm_advisory_maps_conventions():
-    # dragontag writes 1=explicit / 0=clean; iTunes writes 2=clean.
+    # dragontag writes 1=explicit / 0=clean; iTunes writes 2=clean and
+    # historically used 4 for explicit.
     assert _norm_advisory("1") == 1
     assert _norm_advisory("0") == 0
     assert _norm_advisory("2") == 0
     assert _norm_advisory(1) == 1
+    assert _norm_advisory("4") == 1
     # Unknown / unparseable ratings -> None.
     assert _norm_advisory(None) is None
     assert _norm_advisory("") is None
     assert _norm_advisory("explicit") is None
-    assert _norm_advisory("4") is None
+    assert _norm_advisory("3") is None
 
 
 class _FrameTags(dict):

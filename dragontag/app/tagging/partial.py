@@ -20,6 +20,13 @@ def _suffix(path: Path) -> str:
     return path.suffix.lower()
 
 
+def advisory_to_rtng(advisory: int) -> int:
+    """Map dragontag's advisory (0=clean, 1=explicit) to the iTunes ``rtng``
+    scale, where 2 means clean and 0 means "no advisory" — writing our raw 0
+    would make iTunes/Apple Music drop the Clean badge entirely."""
+    return 1 if advisory else 2
+
+
 def write_lyrics(path: Path, lyrics: str, advisory: int | None = None) -> None:
     """Embed ``lyrics`` (and optionally ``advisory``) into ``path`` in-place."""
     s = _suffix(path)
@@ -52,7 +59,7 @@ def write_lyrics(path: Path, lyrics: str, advisory: int | None = None) -> None:
                 f.add_tags()
             f.tags["\xa9lyr"] = [lyrics]
             if advisory is not None:
-                f.tags["rtng"] = [advisory]
+                f.tags["rtng"] = [advisory_to_rtng(advisory)]
             f.save()
 
 
@@ -67,6 +74,7 @@ def write_basic_tags(
     track_total: int | None,
     disc: int | None,
     disc_total: int | None,
+    clear_blanks: bool = False,
 ) -> None:
     """Update only title/artist/album/album_artist/track/disc numbering.
 
@@ -74,7 +82,13 @@ def write_basic_tags(
     touches just these fields and leaves genres, dates, MusicBrainz ids,
     lyrics, etc. untouched — used by the library track-edit menu for quick
     manual corrections where the form doesn't expose the rest of the schema.
-    Blank/``None`` fields are left as-is on the file (not cleared).
+
+    By default blank/``None`` fields are left as-is on the file (not cleared)
+    — partial callers like the album-consistency patch pass only the fields
+    they mean to change. ``clear_blanks=True`` inverts that for callers whose
+    form always posts every field pre-filled (the track-edit modal): a blank
+    there is a deliberate deletion, and the file tag must be removed too or
+    the next scan silently resurrects the value into the DB.
     """
     s = _suffix(path)
     track_str = (
@@ -89,24 +103,37 @@ def write_basic_tags(
         if s == ".flac":
             from mutagen.flac import FLAC
             f = FLAC(str(tmp))
-            if title:
-                f["TITLE"] = [title]
-            if artist:
-                f["ARTIST"] = split_multi_artist(artist)
-            if album:
-                f["ALBUM"] = [album]
-            if album_artist:
-                f["album_artist"] = split_multi_artist(album_artist)
-            if track_str:
-                f["track"] = [track_str]
+
+            def _set(values: list[str] | None, *keys: str) -> None:
+                # First key is the canonical one we write; on clear, every
+                # alias is dropped so no stale variant survives.
+                if values:
+                    f[keys[0]] = values
+                elif clear_blanks:
+                    for k in keys:
+                        f.pop(k, None)
+
+            _set([title] if title else None, "TITLE")
+            _set(split_multi_artist(artist) if artist else None, "ARTIST")
+            _set([album] if album else None, "ALBUM")
+            _set(
+                split_multi_artist(album_artist) if album_artist else None,
+                "album_artist", "ALBUMARTIST",
+            )
+            _set([track_str] if track_str else None, "track", "TRACKNUMBER")
             if track_total:
                 f["TRACKTOTAL"] = [str(track_total)]
                 f["TOTALTRACKS"] = [str(track_total)]
-            if disc_str:
-                f["disc"] = [disc_str]
+            elif clear_blanks:
+                f.pop("TRACKTOTAL", None)
+                f.pop("TOTALTRACKS", None)
+            _set([disc_str] if disc_str else None, "disc", "DISCNUMBER")
             if disc_total:
                 f["DISCTOTAL"] = [str(disc_total)]
                 f["TOTALDISCS"] = [str(disc_total)]
+            elif clear_blanks:
+                f.pop("DISCTOTAL", None)
+                f.pop("TOTALDISCS", None)
             f.save()
         elif s in (".mp3", ".wav"):
             import mutagen.id3 as _id3
@@ -116,36 +143,57 @@ def write_basic_tags(
             f = cls(str(tmp))
             if f.tags is None:
                 f.add_tags()
-            if title:
-                f.tags.setall("TIT2", [_id3.TIT2(encoding=3, text=[title])])
-            if artist:
-                f.tags.setall("TPE1", [_id3.TPE1(encoding=3, text=split_multi_artist(artist))])
-            if album:
-                f.tags.setall("TALB", [_id3.TALB(encoding=3, text=[album])])
-            if album_artist:
-                f.tags.setall("TPE2", [_id3.TPE2(encoding=3, text=split_multi_artist(album_artist))])
-            if track_str:
-                f.tags.setall("TRCK", [_id3.TRCK(encoding=3, text=[track_str])])
-            if disc_str:
-                f.tags.setall("TPOS", [_id3.TPOS(encoding=3, text=[disc_str])])
+
+            def _set_frame(frame: str, values: list[str] | None, frame_cls) -> None:
+                if values:
+                    f.tags.setall(frame, [frame_cls(encoding=3, text=values)])
+                elif clear_blanks:
+                    f.tags.delall(frame)
+
+            _set_frame("TIT2", [title] if title else None, _id3.TIT2)
+            _set_frame("TPE1", split_multi_artist(artist) if artist else None, _id3.TPE1)
+            _set_frame("TALB", [album] if album else None, _id3.TALB)
+            _set_frame("TPE2", split_multi_artist(album_artist) if album_artist else None, _id3.TPE2)
+            _set_frame("TRCK", [track_str] if track_str else None, _id3.TRCK)
+            _set_frame("TPOS", [disc_str] if disc_str else None, _id3.TPOS)
             f.save()
         elif s in (".m4a", ".mp4"):
             from mutagen.mp4 import MP4
             f = MP4(str(tmp))
             if f.tags is None:
                 f.add_tags()
-            if title:
-                f.tags["\xa9nam"] = [title]
-            if artist:
-                f.tags["\xa9ART"] = split_multi_artist(artist)
-            if album:
-                f.tags["\xa9alb"] = [album]
-            if album_artist:
-                f.tags["aART"] = split_multi_artist(album_artist)
-            if track:
-                f.tags["trkn"] = [(track, track_total or 0)]
-            if disc:
-                f.tags["disk"] = [(disc, disc_total or 0)]
+
+            def _set_atom(atom: str, values: list | None) -> None:
+                if values:
+                    f.tags[atom] = values
+                elif clear_blanks:
+                    f.tags.pop(atom, None)
+
+            _set_atom("\xa9nam", [title] if title else None)
+            _set_atom("\xa9ART", split_multi_artist(artist) if artist else None)
+            _set_atom("\xa9alb", [album] if album else None)
+            _set_atom("aART", split_multi_artist(album_artist) if album_artist else None)
+
+            def _set_pair(atom: str, num: int | None, total: int | None) -> None:
+                # trkn/disk are a single (number, total) tuple, so an edit to
+                # one half must preserve the other — writing (num, 0) here
+                # used to silently destroy an existing total.
+                if clear_blanks:
+                    if num is None and total is None:
+                        f.tags.pop(atom, None)
+                    else:
+                        f.tags[atom] = [(num or 0, total or 0)]
+                elif num is not None or total is not None:
+                    current = (f.tags.get(atom) or [(0, 0)])[0]
+                    f.tags[atom] = [
+                        (
+                            num if num is not None else current[0],
+                            total if total is not None else current[1],
+                        )
+                    ]
+
+            _set_pair("trkn", track, track_total)
+            _set_pair("disk", disc, disc_total)
             f.save()
 
 
@@ -206,11 +254,16 @@ def write_album_link_tags(
                 cur_tpos = f.tags.getall("TPOS")
                 cur_disc = cur_tpos[0].text[0].split("/")[0] if cur_tpos else "0"
                 f.tags.setall("TPOS", [_id3.TPOS(encoding=3, text=[f"{cur_disc}/{disc_total}"])])
+            # Drop the full writers' underscore-style frames too — otherwise a
+            # previously pipeline-tagged file ends up carrying two conflicting
+            # album ids under different TXXX descriptions.
             if mb_album_id:
                 f.tags.delall("TXXX:MusicBrainz Album Id")
+                f.tags.delall("TXXX:MUSICBRAINZ_ALBUMID")
                 f.tags.add(_id3.TXXX(encoding=3, desc="MusicBrainz Album Id", text=[mb_album_id]))
             if mb_release_group_id:
                 f.tags.delall("TXXX:MusicBrainz Release Group Id")
+                f.tags.delall("TXXX:MUSICBRAINZ_RELEASEGROUPID")
                 f.tags.add(_id3.TXXX(encoding=3, desc="MusicBrainz Release Group Id", text=[mb_release_group_id]))
             f.save()
         elif s in (".m4a", ".mp4"):
@@ -228,9 +281,13 @@ def write_album_link_tags(
             if disc_total is not None:
                 cur_disk = f.tags.get("disk", [(0, 0)])
                 f.tags["disk"] = [(cur_disk[0][0], disc_total)]
+            # Same duplicate-id guard as the ID3 branch, for the full writers'
+            # underscore-style freeform atoms.
             if mb_album_id:
+                f.tags.pop("----:com.apple.iTunes:MUSICBRAINZ_ALBUMID", None)
                 f.tags["----:com.apple.iTunes:MusicBrainz Album Id"] = [mb_album_id.encode("utf-8")]
             if mb_release_group_id:
+                f.tags.pop("----:com.apple.iTunes:MUSICBRAINZ_RELEASEGROUPID", None)
                 f.tags["----:com.apple.iTunes:MusicBrainz Release Group Id"] = [mb_release_group_id.encode("utf-8")]
             f.save()
 
@@ -260,7 +317,7 @@ def write_advisory(path: Path, advisory: int) -> None:
             f = MP4(str(tmp))
             if f.tags is None:
                 f.add_tags()
-            f.tags["rtng"] = [advisory]
+            f.tags["rtng"] = [advisory_to_rtng(advisory)]
             f.save()
 
 

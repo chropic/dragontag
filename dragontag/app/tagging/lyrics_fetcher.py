@@ -53,6 +53,7 @@ def _fetch_inner(artist, title, album, duration) -> str | None:
     resp, body = fetch_bytes(
         f"{_BASE}/get", params=params, headers=_HEADERS,
         timeout=settings().network_timeout_seconds, max_bytes=_MAX_BYTES, validate=False,
+        allow_redirects=True,  # trusted host
     )
     if resp.status_code == 200:
         result = _parse(_json.loads(body))
@@ -67,6 +68,7 @@ def _fetch_inner(artist, title, album, duration) -> str | None:
     resp, body = fetch_bytes(
         f"{_BASE}/search", params=search_params, headers=_HEADERS,
         timeout=settings().network_timeout_seconds, max_bytes=_MAX_BYTES, validate=False,
+        allow_redirects=True,  # trusted host
     )
     if resp.status_code == 200:
         hits = _json.loads(body)

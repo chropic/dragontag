@@ -31,10 +31,15 @@ def _coerce(v: Any) -> str | None:
     """
     if hasattr(v, "text"):  # ID3 Frame
         return str(v.text[0]) if v.text else None
+    if hasattr(v, "data"):  # ID3 UFID frame — payload is raw bytes, no .text
+        raw = v.data
+        return raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw)
     if isinstance(v, list) and v:  # Vorbis / MP4
         item = v[0]
         if isinstance(item, tuple):
             return "/".join(str(x) for x in item)
+        if isinstance(item, bytes):  # MP4 freeform atoms are bytes (MP4FreeForm)
+            return item.decode("utf-8", "replace")
         return str(item)
     return str(v)
 
@@ -71,10 +76,28 @@ def read(path: Path) -> dict[str, Any]:
     out["album_artist"] = first(
         "album_artist", "ALBUMARTIST", "albumartist", "TPE2", "aART"
     )
-    out["mb_track_id"] = first("MUSICBRAINZ_TRACKID", "musicbrainz_trackid")
-    out["mb_album_id"] = first("MUSICBRAINZ_ALBUMID", "musicbrainz_albumid")
+    # MB ids live under format-specific keys: bare Vorbis names (FLAC), our
+    # writers' TXXX:/----: prefixed names plus the UFID recording-id frame
+    # (MP3/WAV/MP4), and Picard's space-separated descriptions. Without the
+    # prefixed aliases the MBID short-circuit only ever fires for FLAC.
+    out["mb_track_id"] = first(
+        "MUSICBRAINZ_TRACKID", "musicbrainz_trackid",
+        "TXXX:MUSICBRAINZ_TRACKID", "TXXX:MusicBrainz Track Id",
+        "UFID:http://musicbrainz.org",
+        "----:com.apple.iTunes:MUSICBRAINZ_TRACKID",
+        "----:com.apple.iTunes:MusicBrainz Track Id",
+    )
+    out["mb_album_id"] = first(
+        "MUSICBRAINZ_ALBUMID", "musicbrainz_albumid",
+        "TXXX:MUSICBRAINZ_ALBUMID", "TXXX:MusicBrainz Album Id",
+        "----:com.apple.iTunes:MUSICBRAINZ_ALBUMID",
+        "----:com.apple.iTunes:MusicBrainz Album Id",
+    )
     out["mb_release_group_id"] = first(
-        "MUSICBRAINZ_RELEASEGROUPID", "musicbrainz_releasegroupid"
+        "MUSICBRAINZ_RELEASEGROUPID", "musicbrainz_releasegroupid",
+        "TXXX:MUSICBRAINZ_RELEASEGROUPID", "TXXX:MusicBrainz Release Group Id",
+        "----:com.apple.iTunes:MUSICBRAINZ_RELEASEGROUPID",
+        "----:com.apple.iTunes:MusicBrainz Release Group Id",
     )
     out["track"] = first("TRACKNUMBER", "tracknumber", "track", "TRCK", "trkn")
     out["disc"] = first("DISCNUMBER", "discnumber", "disc", "TPOS", "disk")
@@ -95,8 +118,9 @@ def _norm_advisory(raw: str | None) -> int | None:
     """Normalize an advisory tag value to 1 (explicit), 0 (clean) or None.
 
     dragontag writes ``0`` for clean and ``1`` for explicit; iTunes-tagged
-    files use ``2`` for clean (and ``1`` for explicit), so both map to 0/1.
-    Anything else (e.g. an empty or unrecognized rating) is treated as unknown.
+    files use ``2`` for clean and ``1`` for explicit (``4`` is the legacy
+    iTunes explicit code), so all of those map onto 0/1. Anything else (e.g.
+    an empty or unrecognized rating) is treated as unknown.
     """
     if raw is None:
         return None
@@ -104,7 +128,7 @@ def _norm_advisory(raw: str | None) -> int | None:
         v = int(str(raw).strip())
     except (ValueError, TypeError):
         return None
-    if v == 1:
+    if v in (1, 4):
         return 1
     if v in (0, 2):
         return 0

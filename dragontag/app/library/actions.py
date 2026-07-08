@@ -419,12 +419,16 @@ def fix_disc_folders(folder_id: int, ctx=None) -> dict:
                     pass
                 continue
             # Multi-disc: normalize names
+            disc_nums = [int(m.group(1)) for m in (_DISC_RE.match(d.name) for d in disc_children) if m]
+            disc_total = max(disc_nums) if disc_nums else len(disc_children)
             for d in disc_children:
                 m = _DISC_RE.match(d.name)
                 if not m:
                     continue
                 n = int(m.group(1))
-                want = template.format(disc=n)
+                # Supply every placeholder build_destination supports — a
+                # "Disc {disc} of {disctotal}" template must not KeyError here.
+                want = template.format(disc=n, disctotal=disc_total)
                 if d.name == want:
                     continue
                 try:
@@ -597,21 +601,28 @@ def _build_album_groups(tracks: list[Track]) -> list[list[Track]]:
     return list(by_mbid.values()) + list(by_normalized.values())
 
 
-def _majority(tracks: list[Track], field_name: str) -> str:
-    """Majority value of ``field_name`` across ``tracks``, tie-broken by the
-    most-recently-indexed track's value (a fresher MB identification is a
-    slightly better signal than arbitrary alphabetical order), and finally
-    by alphabetical order if that's tied too."""
+def _majority_pair(tracks: list[Track]) -> tuple[str, str]:
+    """Majority ``(album, album_artist)`` pair across ``tracks``.
+
+    The two fields are voted *jointly* — voting them independently could
+    combine one track's album with another track's artist into a pair no
+    track ever carried, and the whole group would then be rewritten/moved to
+    that invented state. Ties are broken by the most-recently-indexed track
+    carrying a tied pair (a fresher MB identification is a slightly better
+    signal), then alphabetically for determinism."""
     from collections import Counter
 
-    counts = Counter(getattr(t, field_name) or "" for t in tracks)
+    def pair(t: Track) -> tuple[str, str]:
+        return (t.album or "", t.album_artist or "")
+
+    counts = Counter(pair(t) for t in tracks)
     best_count = max(counts.values())
-    tied = sorted(v for v, c in counts.items() if c == best_count)
+    tied = sorted(p for p, c in counts.items() if c == best_count)
     if len(tied) == 1:
         return tied[0]
-    candidates = [t for t in tracks if (getattr(t, field_name) or "") in tied]
-    candidates.sort(key=lambda t: (t.indexed_at, getattr(t, field_name) or ""), reverse=True)
-    return getattr(candidates[0], field_name) or ""
+    candidates = [t for t in tracks if pair(t) in tied]
+    candidates.sort(key=lambda t: (t.indexed_at, pair(t)), reverse=True)
+    return pair(candidates[0])
 
 
 def check_album_consistency(folder_id: int, ctx=None) -> dict:
@@ -654,8 +665,7 @@ def check_album_consistency(folder_id: int, ctx=None) -> dict:
             if len(eligible) < 2:
                 continue
             groups_checked += 1
-            winning_album = _majority(eligible, "album")
-            winning_artist = _majority(eligible, "album_artist")
+            winning_album, winning_artist = _majority_pair(eligible)
             if all(t.album == winning_album and t.album_artist == winning_artist for t in eligible):
                 continue  # already consistent, nothing to do
 
@@ -691,9 +701,21 @@ def check_album_consistency(folder_id: int, ctx=None) -> dict:
                         db_t.album, db_t.album_artist = winning_album, winning_artist
                         s.add(db_t)
                     tracks_fixed += 1
+                    s.commit()
                     continue
 
-                result = _safe_move(p, dest, overwrite=False)
+                try:
+                    result = _safe_move(p, dest, overwrite=False)
+                except OSError:
+                    # The tag patch is already on the file — keep the matching
+                    # DB update and carry on with the rest of the group.
+                    log.exception("album-consistency: move failed for %s", p)
+                    if db_t:
+                        db_t.album, db_t.album_artist = winning_album, winning_artist
+                        s.add(db_t)
+                    tracks_fixed += 1
+                    s.commit()
+                    continue
                 if not result.moved:
                     if ctx:
                         ctx.log(f"album-consistency: destination conflict, tags patched but not moved: {p} -> {dest}")
@@ -701,6 +723,7 @@ def check_album_consistency(folder_id: int, ctx=None) -> dict:
                         db_t.album, db_t.album_artist = winning_album, winning_artist
                         s.add(db_t)
                     tracks_fixed += 1
+                    s.commit()
                     continue
 
                 _move_lyric_sidecar(p, dest)
@@ -711,6 +734,10 @@ def check_album_consistency(folder_id: int, ctx=None) -> dict:
                     s.add(moved_t)
                 source_dirs.add(p.parent)
                 tracks_fixed += 1
+                # Commit per track: the file was already physically moved, so a
+                # failure later in the loop must not roll this row back to a
+                # path that no longer exists on disk.
+                s.commit()
                 if ctx:
                     ctx.log(f"moved {p.name}: {p.parent} -> {dest.parent}")
         s.commit()

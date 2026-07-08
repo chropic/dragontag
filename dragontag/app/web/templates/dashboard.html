@@ -3,26 +3,25 @@
 {% block content %}
 <section class="space-y-5">
 
-  <!-- ASCII boot banner -->
+  <!-- ASCII boot banner. Sizing note: the art is 75 monospace columns and the
+       vendored fonts advance 0.6em per glyph, so the banner is 45em wide; the
+       inline clamp() keeps 45 × font-size within the viewport at every width,
+       which is why this <pre> needs no overflow scrolling. Pure ASCII/Latin-1
+       only — the vendored woff2 subsets don't cover block/box-drawing glyphs,
+       and a fallback-font glyph would break the column grid. -->
   <div class="flex flex-col items-center select-none">
-    <pre class="text-[#c7f0c7] text-[6px] sm:text-[8px] leading-none mb-1 overflow-x-auto" style="text-shadow:0 0 7px rgba(199,240,199,.55)">                    ___====-_  _-====___
-              _--^^^#####//      \\#####^^^--_
-           _-^##########// (    ) \\##########^-_
-          -############//  |\^^/|  \\############-
-        _/############//   (@::@)   \\############\_
-       /#############((     \\//     ))#############\
-      -###############\\    (oo)    //###############-
-     -#################\\  / VV \  //#################-
-    -###################\\/      \//###################-
-   _#/|##########/\######(   /\   )######/\##########|\#_
-   |/ |#/\#/\#/\/  \#/\##/    \/    \##/\#/  \/\#/\#/\| \|
-   `  |/  V  V  `   V  \V       V  V/   '   V  V  \|  V
-      `   `  `      `   `         `   `      '  '   '</pre>
-    <pre class="text-white text-[10px] sm:text-base md:text-lg leading-tight overflow-x-auto font-bold tracking-tight" style="text-shadow:0 0 8px rgba(255,255,255,.4)">    ____  ____  ___   __________  _   ___________   ______
-   / __ \/ __ \/   | / ____/ __ \/ | / /_  __/   | / ____/
-  / / / / /_/ / /| |/ / __/ / / /  |/ / / / / /| |/ / __
- / /_/ / _, _/ ___ / /_/ / /_/ / /|  / / / / ___ / /_/ /
-/_____/_/ |_/_/  |_\____/\____/_/ |_/ /_/ /_/  |_\____/</pre>
+    <pre class="text-[#5a5a5a] leading-none font-bold" style="font-size:clamp(5px, calc((100vw - 80px) / 45), 14px)">       .===========================&middot; &curren; &middot;===========================.
+
+<span class="text-[#c7f0c7]" style="text-shadow:0 0 9px rgba(199,240,199,.6), 0 0 26px rgba(199,240,199,.28)"> ____    ____    ______  ____    _____   __  __  ______  ______  ____
+/\  _`\ /\  _`\ /\  _  \/\  _`\ /\  __`\/\ \/\ \/\__  _\/\  _  \/\  _`\
+\ \ \/\ \ \ \L\ \ \ \L\ \ \ \L\_\ \ \/\ \ \ `\\ \/_/\ \/\ \ \L\ \ \ \L\_\
+ \ \ \ \ \ \ ,  /\ \  __ \ \ \L_L\ \ \ \ \ \ , ` \ \ \ \ \ \  __ \ \ \L_L
+  \ \ \_\ \ \ \\ \\ \ \/\ \ \ \/, \ \ \_\ \ \ \`\ \ \ \ \ \ \ \/\ \ \ \/, \
+   \ \____/\ \_\ \_\ \_\ \_\ \____/\ \_____\ \_\ \_\ \ \_\ \ \_\ \_\ \____/
+    \/___/  \/_/\/ /\/_/\/_/\/___/  \/_____/\/_/\/_/  \/_/  \/_/\/_/\/___/</span>
+
+<span class="text-[#8a8a8a]">          &laquo;  i d e n t i f y   &middot;   t a g   &middot;   o r g a n i z e  &raquo;</span>
+      `-------------------------------------------------------------'</pre>
   </div>
 
   <!-- Stats row -->

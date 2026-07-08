@@ -21,6 +21,7 @@ from pathlib import Path
 from sqlmodel import select
 
 from ..db import session
+from ..library import filelock
 from ..library.mover import move, move_lyric_sidecar
 from ..library.paths import build_destination
 from ..models import LibraryFolder, Track
@@ -67,39 +68,47 @@ def organize_folder(folder_id: int, ctx=None) -> dict:
             if dest == src:
                 skipped += 1
                 continue
-            result = move(src, dest, overwrite=False)
-            if result.conflict:
-                errors.append(f"conflict: {src} -> {dest}")
-                continue
-            # The file has already moved on disk. ``Track.path`` is the only
-            # record of where it now lives, so if the DB update fails we must
-            # move the file back rather than leave the library pointing at a
-            # path that no longer holds the file.
-            try:
-                with session() as s2:
-                    t = s2.get(Track, track.id)
-                    if t:
-                        t.path = str(dest)
-                        s2.add(t)
-                        s2.commit()
-            except Exception:
-                log.exception("organize: DB update failed; rolling %s back to %s", dest, src)
+            # Serialize against the ingest worker and revert/move-back: all
+            # three mutate the same physical files and must not interleave.
+            with filelock.path_lock(src):
+                result = move(src, dest, overwrite=False)
+                if result.conflict:
+                    errors.append(f"conflict: {src} -> {dest}")
+                    continue
+                # The file has already moved on disk. ``Track.path`` is the
+                # only record of where it now lives, so if the DB update fails
+                # we must move the file back rather than leave the library
+                # pointing at a path that no longer holds the file.
                 try:
-                    move(dest, src, overwrite=False)
-                    errors.append(f"db-failed (rolled back): {src}")
+                    with session() as s2:
+                        t = s2.get(Track, track.id)
+                        if t:
+                            t.path = str(dest)
+                            s2.add(t)
+                            s2.commit()
                 except Exception:
-                    # Both the DB write and the rollback move failed: the file
-                    # is physically at ``dest`` while the DB still says ``src``.
-                    # No safe automatic recovery exists — make it loud so the
-                    # user can fix it manually.
-                    log.critical(
-                        "organize: DIVERGED — file at %s but DB has %s; "
-                        "manual intervention required", dest, src,
-                    )
-                    diverged.append(f"{src} -> {dest}")
-                    errors.append(f"DIVERGED: file at {dest} but DB has {src}")
-                continue
-            move_lyric_sidecar(src, dest)
+                    log.exception("organize: DB update failed; rolling %s back to %s", dest, src)
+                    rolled_back = False
+                    try:
+                        rolled_back = move(dest, src, overwrite=False).moved
+                    except Exception:
+                        pass
+                    if rolled_back:
+                        errors.append(f"db-failed (rolled back): {src}")
+                    else:
+                        # The DB write failed and the file could not be moved
+                        # back (rollback raised, or ``src`` is now occupied):
+                        # the file is physically at ``dest`` while the DB still
+                        # says ``src``. No safe automatic recovery exists —
+                        # make it loud so the user can fix it manually.
+                        log.critical(
+                            "organize: DIVERGED — file at %s but DB has %s; "
+                            "manual intervention required", dest, src,
+                        )
+                        diverged.append(f"{src} -> {dest}")
+                        errors.append(f"DIVERGED: file at {dest} but DB has {src}")
+                    continue
+                move_lyric_sidecar(src, dest)
             moved += 1
             log.info("organize: %s -> %s", src.name, dest)
         except Exception as e:

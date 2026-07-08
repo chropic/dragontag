@@ -538,7 +538,7 @@ def _credit_phrase(credits: list[Any]) -> str | None:
         if isinstance(c, str):
             out.append(c)
         elif isinstance(c, dict):
-            name = c.get("name") or c.get("artist", {}).get("name")
+            name = c.get("name") or (c.get("artist") or {}).get("name")
             if name:
                 out.append(name)
             jp = c.get("joinphrase")

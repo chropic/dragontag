@@ -65,6 +65,47 @@
   cover block/box-drawing glyphs, and a fallback-font glyph would break the column grid. The
   startup-log banner uses the same lettering. (`dashboard.html`, `main.py`)
 
+### Fixed (core/library/web bug sweep — 2026-07-08)
+- **Organize ran without the per-path file lock** — `organize_folder` moved files while the
+  ingest worker or a revert could be mid-write on the same path; each track's move + DB update
+  is now serialized under `filelock.path_lock`. (`library/organizer.py`)
+- **Failed rollback moves were reported as success** — `move(..., overwrite=False)` returns a
+  conflict result instead of raising, so when the original path was re-occupied, the organizer
+  logged "rolled back" and `move_back` claimed "file restored" while the file actually stayed at
+  the new location. Both now check `MoveResult.moved` and report DIVERGED / "could not be
+  restored" accurately. (`library/organizer.py`, `library/revert.py`)
+- **Slow-but-alive tasks were reaped to `error`** — a task in one long non-heartbeating step
+  (e.g. zipping a large backup) never bumps `updated_at`, so `reap_stale_jobs` killed it at the
+  15-minute mark, broke its Stop button, and raced its completion write. The reaper now skips
+  jobs whose worker thread is still alive. (`tasks.py`)
+- **Cron schedules fired in UTC while the UI described them unqualified** — `0 6 * * *` now
+  means 6 AM in the display timezone (Docker `TZ` → in-app setting → UTC), converted to naive
+  UTC for storage/compare. (`scheduler.py`)
+- **Webhook notify could raise into the pipeline thread** — payload construction (settings load,
+  tag attribute access) ran outside the fire-and-forget guard; the whole body is now wrapped, so
+  errors are logged, never raised, as the module contract states. (`notify.py`)
+- **Artist-credit with an explicit `"artist": null` crashed tag assembly** — `_credit_phrase`
+  used `c.get("artist", {})`, which doesn't guard an explicit `None`; now matches the sibling
+  helpers' `(c.get("artist") or {})`. (`identify/musicbrainz.py`)
+- **Failed upload streams left truncated files in the drop folder** — a mid-stream disconnect
+  now unlinks the partial file instead of letting the watcher ingest a corrupt track.
+  (`ingest/uploads.py`)
+- **`TRACKTOTAL`/`DISCTOTAL` of `0` written as a literal "0"** — a zero total means "unknown"
+  (matching the `NN/TT` logic and the MP4 writer) and is no longer written. (`tagging/schema.py`)
+- **Search queries corrupted sort/pagination links** — `q` was interpolated into hrefs without
+  percent-encoding, so `rock & roll` or `drum#bass` silently truncated the filter when sorting
+  or paging; now piped through `urlencode`. Also fixed the ragged `3   :05` duration column
+  (`%-4.0f` left-justify). (`library.html`, `_library_tracks.html`)
+- **Job-log cap measured characters, not bytes** — non-ASCII logs could grow the row to ~4× the
+  intended 256 KiB ceiling; truncation now operates on encoded bytes and accounts for the
+  marker. (`models.py`)
+- **Schema migration ALTERs shared one transaction** — contrary to the comment, a failed ALTER
+  could skip the rest on non-SQLite backends; each now runs in its own transaction. (`db.py`)
+- **Corrupted `log_verbosity` setting crashed `logsetup.apply`** — non-numeric values now fall
+  back to INFO. (`logsetup.py`)
+- **Dead `ID3NoHeaderError` branch removed** — mutagen never raises it from `MP3()`; the branch
+  would also have double-added tags if reached. (`tagging/writers/mp3.py`)
+
 ### Fixed (tagging-pipeline bug sweep — 2026-07-08)
 - **Dry-run bypass in the MBID short-circuit (silent library rewrite)** — files identified via
   existing `MUSICBRAINZ_TRACKID`/`ALBUMID` skipped the dry-run gate *and* the finalize step, so a

@@ -111,11 +111,22 @@ def move_back(change_id: int) -> tuple[bool, str]:
             s.commit()
         except Exception as e:  # noqa: BLE001
             log.exception("move-back: DB commit failed; restoring %s to %s", dest, file)
+            restored = False
             try:
-                move(dest, file, overwrite=False)
+                with filelock.path_lock(dest):
+                    restored = move(dest, file, overwrite=False).moved
             except Exception:
                 log.exception("move-back: rollback move failed for %s", dest)
-            return False, f"Move back failed (DB); file restored to its previous location: {e}"
+            if restored:
+                return False, f"Move back failed (DB); file restored to its previous location: {e}"
+            log.critical(
+                "move-back: DIVERGED — file at %s but DB has %s; "
+                "manual intervention required", dest, file,
+            )
+            return False, (
+                f"Move back failed (DB) and the file could not be restored: "
+                f"it is at {dest} but the database still records {file}. {e}"
+            )
 
         # Only after the DB is durable do we exclude the restored path from
         # future automatic scans/ingests (the original location is often the

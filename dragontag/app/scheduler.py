@@ -14,8 +14,9 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from croniter import croniter
 from sqlmodel import select
@@ -58,9 +59,32 @@ def describe_cron(expr: str) -> str | None:
         return None
 
 
-def next_run(expr: str, base: datetime | None = None) -> datetime | None:
+def _cron_tz() -> ZoneInfo:
+    """Timezone cron expressions are interpreted in — the same resolution as
+    the UI's display timezone (``main._local_tz``): Docker ``TZ`` env wins,
+    else the in-app ``settings().timezone`` override, else UTC."""
+    import os
+
+    from .config import settings
+    tz = os.environ.get("TZ") or settings().timezone or "UTC"
     try:
-        return croniter(expr, base or now_utc()).get_next(datetime)
+        return ZoneInfo(tz)
+    except Exception:
+        return ZoneInfo("UTC")
+
+
+def next_run(expr: str, base: datetime | None = None) -> datetime | None:
+    """Next fire time as naive UTC (the app's storage convention).
+
+    The cron expression itself is interpreted in the user's display timezone:
+    ``describe_cron`` shows "At 06:00 AM" with no qualifier, so ``0 6 * * *``
+    must mean 6 AM in the timezone the UI renders times in, not UTC.
+    ``base`` is naive UTC, matching stored ``last_run_at``/``created_at``.
+    """
+    try:
+        base_utc = (base or now_utc()).replace(tzinfo=timezone.utc)
+        nxt = croniter(expr, base_utc.astimezone(_cron_tz())).get_next(datetime)
+        return nxt.astimezone(timezone.utc).replace(tzinfo=None)
     except Exception:
         return None
 

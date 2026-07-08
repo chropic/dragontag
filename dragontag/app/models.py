@@ -26,8 +26,14 @@ MAX_JOB_LOG_BYTES = 256 * 1024
 def append_job_log(existing: str | None, addition: str) -> str:
     """Append ``addition`` to a job log, retaining only the last MAX_JOB_LOG_BYTES."""
     text = (existing or "") + addition
-    if len(text) > MAX_JOB_LOG_BYTES:
-        text = "…[earlier log truncated]…\n" + text[-MAX_JOB_LOG_BYTES:]
+    marker = "…[earlier log truncated]…\n"
+    # Measure and truncate in encoded bytes, not characters — non-ASCII track
+    # names would otherwise let the row grow up to ~4x the intended cap.
+    raw = text.encode("utf-8")
+    if len(raw) > MAX_JOB_LOG_BYTES:
+        keep = MAX_JOB_LOG_BYTES - len(marker.encode("utf-8"))
+        # errors="ignore" drops a partial multi-byte sequence at the cut point.
+        text = marker + raw[-keep:].decode("utf-8", errors="ignore")
     return text
 
 

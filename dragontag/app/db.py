@@ -87,25 +87,25 @@ def reset_engine() -> None:
 
 
 def _migrate(engine):
-    with engine.begin() as conn:
-        # Each ALTER runs independently so a duplicate-column error on one
-        # (already-migrated) column doesn't skip the others.
-        for ddl in (
-            "ALTER TABLE track ADD COLUMN advisory INTEGER",
-            "ALTER TABLE track ADD COLUMN has_lyrics INTEGER DEFAULT 0",
-            "ALTER TABLE job ADD COLUMN kind VARCHAR DEFAULT 'ingest'",
-            "ALTER TABLE job ADD COLUMN progress_current INTEGER",
-            "ALTER TABLE job ADD COLUMN progress_total INTEGER",
-            "ALTER TABLE job ADD COLUMN dry_run_override INTEGER",
-            "ALTER TABLE job ADD COLUMN progress_item VARCHAR",
-            "ALTER TABLE track ADD COLUMN protected INTEGER DEFAULT 0",
-            "ALTER TABLE track ADD COLUMN mb_release_group_id VARCHAR",
-        ):
-            try:
+    # Each ALTER runs in its own transaction so a duplicate-column error on
+    # one (already-migrated) column doesn't skip the others.
+    for ddl in (
+        "ALTER TABLE track ADD COLUMN advisory INTEGER",
+        "ALTER TABLE track ADD COLUMN has_lyrics INTEGER DEFAULT 0",
+        "ALTER TABLE job ADD COLUMN kind VARCHAR DEFAULT 'ingest'",
+        "ALTER TABLE job ADD COLUMN progress_current INTEGER",
+        "ALTER TABLE job ADD COLUMN progress_total INTEGER",
+        "ALTER TABLE job ADD COLUMN dry_run_override INTEGER",
+        "ALTER TABLE job ADD COLUMN progress_item VARCHAR",
+        "ALTER TABLE track ADD COLUMN protected INTEGER DEFAULT 0",
+        "ALTER TABLE track ADD COLUMN mb_release_group_id VARCHAR",
+    ):
+        try:
+            with engine.begin() as conn:
                 conn.execute(text(ddl))
-            except OperationalError:
-                # Catches both "no such table" and "duplicate column name".
-                pass
+        except OperationalError:
+            # Catches both "no such table" and "duplicate column name".
+            pass
 
 
 def _seed_library_folder(eng) -> None:

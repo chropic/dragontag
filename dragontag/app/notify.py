@@ -17,32 +17,40 @@ def _send(url: str, payload: dict) -> None:
 
 
 def post_done(job, tags) -> None:
-    from .config import settings
-    s = settings()
-    if not s.webhook_url or not s.webhook_on_done:
-        return
-    payload = {
-        "embeds": [{
-            "title": tags.title or job.original_name,
-            "description": f"{tags.artist_display} — {tags.album}",
-            "color": 0x44FF44,
-            "footer": {"text": f"dragontag · job #{job.id}"},
-        }]
-    }
-    threading.Thread(target=_send, args=(s.webhook_url, payload), daemon=True).start()
+    # Payload construction runs in the caller's (pipeline) thread — it must
+    # honor the module contract too, so any failure here is logged, not raised.
+    try:
+        from .config import settings
+        s = settings()
+        if not s.webhook_url or not s.webhook_on_done:
+            return
+        payload = {
+            "embeds": [{
+                "title": tags.title or job.original_name,
+                "description": f"{tags.artist_display} — {tags.album}",
+                "color": 0x44FF44,
+                "footer": {"text": f"dragontag · job #{job.id}"},
+            }]
+        }
+        threading.Thread(target=_send, args=(s.webhook_url, payload), daemon=True).start()
+    except Exception as e:
+        log.warning("webhook (done) failed: %s", e)
 
 
 def post_error(job) -> None:
-    from .config import settings
-    s = settings()
-    if not s.webhook_url or not s.webhook_on_error:
-        return
-    payload = {
-        "embeds": [{
-            "title": f"Error: {job.original_name}",
-            "description": job.error or "(no message)",
-            "color": 0xFF4444,
-            "footer": {"text": f"dragontag · job #{job.id}"},
-        }]
-    }
-    threading.Thread(target=_send, args=(s.webhook_url, payload), daemon=True).start()
+    try:
+        from .config import settings
+        s = settings()
+        if not s.webhook_url or not s.webhook_on_error:
+            return
+        payload = {
+            "embeds": [{
+                "title": f"Error: {job.original_name}",
+                "description": job.error or "(no message)",
+                "color": 0xFF4444,
+                "footer": {"text": f"dragontag · job #{job.id}"},
+            }]
+        }
+        threading.Thread(target=_send, args=(s.webhook_url, payload), daemon=True).start()
+    except Exception as e:
+        log.warning("webhook (error) failed: %s", e)

@@ -42,27 +42,43 @@ def reap_stale_jobs() -> int:
     forever and leave a perpetual progress bar in the UI.
     """
     cutoff = now_utc() - STALE_RUNNING_AFTER
+    reaped = 0
     with session() as s:
         rows = s.exec(
             select(Job).where(Job.status == JobStatus.running, Job.updated_at < cutoff)
         ).all()
         for j in rows:
+            # A quiet heartbeat is not proof of death: a task in one long
+            # non-reporting step (e.g. zipping a big backup) never calls
+            # progress()/log(). If its worker thread is still alive, leave it
+            # be — reaping it would race the thread's own completion write and
+            # break the Stop button by popping its cancel event.
+            with _threads_lock:
+                t = _live_threads.get(j.id)
+            if t is not None and t.is_alive():
+                continue
+            reaped += 1
             j.status = JobStatus.error
             j.error = (j.error or "") + "\nReaped: no progress heartbeat (stalled task)"
             j.updated_at = now_utc()
             s.add(j)
             with _cancel_lock:
                 _cancel_events.pop(j.id, None)
-        if rows:
+        if reaped:
             s.commit()
-            log.warning("reaped %d stalled running job(s)", len(rows))
-        return len(rows)
+            log.warning("reaped %d stalled running job(s)", reaped)
+        return reaped
 
 # Cancel events for currently running tasks, keyed by job id. Set via
 # request_cancel() (the "Stop" button); task callables notice through
 # TaskCtx.cancelled / check_cancelled() at their next loop iteration.
 _cancel_events: dict[int, threading.Event] = {}
 _cancel_lock = threading.Lock()
+
+# Worker threads for currently running tasks, keyed by job id, so the reaper
+# can tell "quiet but alive" apart from "dead without a status write".
+_live_threads: dict[int, threading.Thread] = {}
+_threads_lock = threading.Lock()
 
 
 class TaskCancelled(Exception):
@@ -191,8 +207,13 @@ def run_task(kind: str, name: str, fn: Callable[[TaskCtx], Any]) -> int:
         finally:
             with _cancel_lock:
                 _cancel_events.pop(job_id, None)
+            with _threads_lock:
+                _live_threads.pop(job_id, None)
 
-    threading.Thread(target=_run, daemon=True, name=f"dragontag-task-{kind}").start()
+    thread = threading.Thread(target=_run, daemon=True, name=f"dragontag-task-{kind}")
+    with _threads_lock:
+        _live_threads[job_id] = thread
+    thread.start()
     return job_id
 
 

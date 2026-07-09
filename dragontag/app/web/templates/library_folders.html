@@ -69,6 +69,15 @@
     <button class="px-3 py-1.5 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f] text-sm">[ add folder ]</button>
   </form>
 </div>
+
+<script>
+  // ── Keybinding: esc goes back to the library (matches the statusbar hint). ──
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !e.target.matches('input,textarea,select')) {
+      window.location.href = '/library';
+    }
+  });
+</script>
 {% endblock %}
 
 {% block statusbar %}

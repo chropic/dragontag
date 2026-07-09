@@ -29,11 +29,14 @@
   <form method="post" action="/login"
         class="relative bg-[#0a0d0a] p-7 w-[420px] space-y-4 border border-[#335533]"
         style="box-shadow:0 0 40px rgba(199,240,199,.04)">
-    <!-- corner reticles -->
-    <span class="absolute -top-px -left-px w-2.5 h-2.5 border-t border-l border-[#c7f0c7]"></span>
-    <span class="absolute -top-px -right-px w-2.5 h-2.5 border-t border-r border-[#c7f0c7]"></span>
-    <span class="absolute -bottom-px -left-px w-2.5 h-2.5 border-b border-l border-[#c7f0c7]"></span>
-    <span class="absolute -bottom-px -right-px w-2.5 h-2.5 border-b border-r border-[#c7f0c7]"></span>
+    <!-- corner reticles. !mt-0 shields them from the form's space-y-4, which
+         otherwise adds margin-top to every child after the first — margins
+         offset absolutely-positioned boxes, so the top-right reticle (the
+         only top-anchored non-first child) sat 16px below the corner. -->
+    <span class="absolute !mt-0 -top-px -left-px w-2.5 h-2.5 border-t border-l border-[#c7f0c7]"></span>
+    <span class="absolute !mt-0 -top-px -right-px w-2.5 h-2.5 border-t border-r border-[#c7f0c7]"></span>
+    <span class="absolute !mt-0 -bottom-px -left-px w-2.5 h-2.5 border-b border-l border-[#c7f0c7]"></span>
+    <span class="absolute !mt-0 -bottom-px -right-px w-2.5 h-2.5 border-b border-r border-[#c7f0c7]"></span>
 
     <div class="flex items-center gap-2.5 font-bold text-lg">
       <span class="text-[#c7f0c7]" style="text-shadow:0 0 12px rgba(199,240,199,.7)">&#9608;</span>dragontag

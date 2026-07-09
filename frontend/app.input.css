@@ -63,9 +63,12 @@
   .dt-statusbar {
     @apply fixed bottom-0 left-0 right-0 z-40 flex items-center h-[30px] border-t border-[#242424] bg-[#060606] text-[11px] font-mono;
   }
+  /* Chips are clickable — base.html synthesizes the advertised keydown on
+     click — so they get pointer + hover affordance. */
   .dt-key {
-    @apply inline-flex items-center gap-1.5 px-3 h-[30px] border-r border-[#161616] text-[#777];
+    @apply inline-flex items-center gap-1.5 px-3 h-[30px] border-r border-[#161616] text-[#777] cursor-pointer select-none;
   }
+  .dt-key:hover { @apply bg-[#0c0e0c] text-[#cfcfcf]; }
   .dt-key b { @apply text-[#c7f0c7] font-normal; }
   .dt-status-note { @apply ml-auto px-3.5 text-[#5a5a5a]; }
 

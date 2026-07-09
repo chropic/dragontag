@@ -116,6 +116,25 @@
         }
       });
 
+      // Statusbar chips are clickable: clicking one synthesizes the keydown
+      // it advertises, so the mouse path and the keyboard path stay one code
+      // path. Multi-char labels map to their KeyboardEvent.key names; a
+      // leading "⌥" means the page listens for an Alt-modified key.
+      const labelMap = { space: ' ', enter: 'Enter', esc: 'Escape' };
+      document.addEventListener('click', (e) => {
+        const chip = e.target.closest('.dt-statusbar .dt-key');
+        if (!chip) return;
+        const b = chip.querySelector('b');
+        if (!b) return;
+        let label = b.textContent.trim();
+        let alt = false;
+        if (label.startsWith('⌥')) { alt = true; label = label.slice(1).trim(); }
+        const key = labelMap[label.toLowerCase()] || label;
+        document.dispatchEvent(new KeyboardEvent('keydown', {
+          key, altKey: alt, bubbles: true, cancelable: true,
+        }));
+      });
+
       return {
         // Register a single-key shortcut for the current page. Ignored while
         // the user is typing in a field or mid-"g" go-to prefix.

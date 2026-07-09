@@ -76,7 +76,7 @@ Queue page like any other task. Times are UTC.</p>
     </thead>
     <tbody>
     {% for t in schedules %}
-      <tr class="border-b border-[#141414] hover:bg-[#0d0d0d] {% if not t.enabled %}opacity-50{% endif %}">
+      <tr data-sched-row class="border-b border-[#141414] hover:bg-[#0d0d0d] {% if not t.enabled %}opacity-50{% endif %}">
         <td class="py-2 pr-3 text-[#e6e6e6]">
           <span class="{% if t.enabled %}text-[#7fbf7f]{% else %}text-[#3a3a3a]{% endif %}">{% if t.enabled %}&#9679;{% else %}&#9675;{% endif %}</span>
           {{ t.name }}
@@ -146,6 +146,28 @@ Queue page like any other task. Times are UTC.</p>
       }
     }
   }
+
+  // ── Keybindings: n focuses the new-task form; space/enter act on the
+  // hovered schedule row (same hover-focus pattern as the library table). ──
+  let dtFocusedRow = null;
+  document.addEventListener('mouseover', (e) => {
+    const tr = e.target.closest('tr[data-sched-row]');
+    if (tr) dtFocusedRow = tr;
+  });
+  dtKeys.register('n', () => {
+    const name = document.querySelector('input[name="name"]');
+    if (name) { name.scrollIntoView({ block: 'center' }); name.focus(); }
+  });
+  dtKeys.register(' ', () => {
+    if (!dtFocusedRow) return;
+    const btn = dtFocusedRow.querySelector('form[action$="/toggle"] button');
+    if (btn) btn.click();
+  });
+  dtKeys.register('Enter', () => {
+    if (!dtFocusedRow) return;
+    const btn = dtFocusedRow.querySelector('form[action$="/run-now"] button');
+    if (btn) btn.click();
+  });
 </script>
 {% endblock %}
 

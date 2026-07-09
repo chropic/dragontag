@@ -20,7 +20,6 @@
    \ \____/\ \_\ \_\ \_\ \_\ \____/\ \_____\ \_\ \_\ \ \_\ \ \_\ \_\ \____/
     \/___/  \/_/\/ /\/_/\/_/\/___/  \/_____/\/_/\/_/  \/_/  \/_/\/_/\/___/</span>
 
-<span class="text-[#8a8a8a]">          &laquo;  i d e n t i f y   &middot;   t a g   &middot;   o r g a n i z e  &raquo;</span>
       `-------------------------------------------------------------'</pre>
   </div>
 
@@ -187,13 +186,17 @@
         }
       });
     }
+
+    // ── Keybindings to match the statusbar hints ──
+    dtKeys.register('u', () => fileInput.click());
+    dtKeys.register('r', () => { if (pathInput) { pathInput.focus(); pathInput.select(); } });
+    dtKeys.register('j', () => { window.location.href = '/queue'; });
   })();
 </script>
 {% endblock %}
 
 {% block statusbar %}
   <span class="dt-key"><b>u</b> upload</span>
-  <span class="dt-key"><b>/</b> search</span>
   <span class="dt-key"><b>r</b> retag</span>
   <span class="dt-key"><b>j</b> jobs</span>
   <span class="dt-status-note">watcher idle &middot; NORMAL</span>

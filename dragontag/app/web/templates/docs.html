@@ -15,6 +15,12 @@
 </div>
 <p class="text-[#8a8a8a] text-sm">Everything you need to know to drive dragontag day-to-day. Reference material (env vars, tokens, payloads) is at the bottom.</p>
 
+<div class="relative border border-[#242424] bg-[#0a0a0a] p-3 flex items-center gap-2">
+  <span class="text-[#5a5a5a] text-sm">/</span>
+  <input type="text" id="docs-search" data-dt-search placeholder="filter sections…"
+         class="w-full bg-transparent border-0 p-0 text-sm text-white placeholder-[#3a3a3a] focus:outline-none" style="box-shadow:none">
+</div>
+
 <nav class="relative border border-[#242424] bg-[#0a0a0a] p-3 text-xs text-[#cfcfcf]">
   <span class="text-[#5a5a5a] uppercase tracking-widest mr-2">jump to</span>
   <a href="#start" class="mr-3 hover:text-white">getting started</a>
@@ -250,10 +256,26 @@ Drop file  →  Read existing tags + filename clues
 </section>
 
 </div>
+
+<script>
+  // ── "/" focuses the filter above (global data-dt-search hook); typing in it
+  // hides sections that don't contain the query. "a" opens the API reference. ──
+  (() => {
+    const input = document.getElementById('docs-search');
+    const sections = Array.from(document.querySelectorAll('section[id]'));
+    input.addEventListener('input', () => {
+      const q = input.value.trim().toLowerCase();
+      sections.forEach(s => {
+        s.style.display = !q || s.textContent.toLowerCase().includes(q) ? '' : 'none';
+      });
+    });
+    dtKeys.register('a', () => { window.location.href = '/api-docs'; });
+  })();
+</script>
 {% endblock %}
 
 {% block statusbar %}
   <span class="dt-key"><b>/</b> search docs</span>
-  <span class="dt-key"><b>g</b> api-docs</span>
+  <span class="dt-key"><b>a</b> api-docs</span>
   <span class="dt-status-note">man dragontag &middot; /openapi.json</span>
 {% endblock %}

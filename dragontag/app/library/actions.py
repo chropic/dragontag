@@ -12,11 +12,13 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Any
 
 from sqlmodel import select
 
 from ..db import session
 from ..models import LibraryFolder, Track
+from . import filelock
 from .mover import move as _safe_move
 from .mover import move_lyric_sidecar as _move_lyric_sidecar
 
@@ -54,7 +56,10 @@ def fetch_lyrics_for_folder(folder_id: int, ctx=None) -> dict:
             fetched = lyrics_fetcher.fetch(artist=artist, title=title, album=album)
             if fetched:
                 advisory = 1 if is_explicit(fetched) else 0
-                write_lyrics(p, fetched, advisory)
+                # path_lock: in-place mutator — serialize against the ingest
+                # worker / organizer / revert on the same physical file.
+                with filelock.path_lock(p):
+                    write_lyrics(p, fetched, advisory)
                 fetched_count += 1
                 # Keep the DB in sync so the dashboard counters update without
                 # requiring a full re-scan. The lyrics are already on disk, so a
@@ -108,7 +113,8 @@ def fetch_covers_for_folder(folder_id: int, ctx=None) -> dict:
         try:
             cover = fetch_for_release(mb_album_id)
             if cover:
-                write_cover(p, cover.data, cover.mime)
+                with filelock.path_lock(p):
+                    write_cover(p, cover.data, cover.mime)
                 write_cover_jpg(
                     p.parent, cover.data,
                     min_overwrite_pixels=settings().cover_min_overwrite_pixels,
@@ -404,8 +410,10 @@ def fix_disc_folders(folder_id: int, ctx=None) -> dict:
                         # Conflict-safe move: refuses to overwrite a file that
                         # appears at the target during the race window, and only
                         # then do we update the DB path — so the DB never points
-                        # somewhere the file didn't actually land.
-                        result = _safe_move(f, target, overwrite=False)
+                        # somewhere the file didn't actually land. path_lock
+                        # serializes with the other file mutators on this path.
+                        with filelock.path_lock(f):
+                            result = _safe_move(f, target, overwrite=False)
                         if not result.moved:
                             continue
                         _update_track_path(s, str(f), str(target))
@@ -674,11 +682,14 @@ def check_album_consistency(folder_id: int, ctx=None) -> dict:
                     continue
                 p = Path(t.path)
                 try:
-                    write_basic_tags(
-                        p, title=None, artist=None,
-                        album=winning_album, album_artist=winning_artist,
-                        track=None, track_total=None, disc=None, disc_total=None,
-                    )
+                    # path_lock: in-place mutator, same rule as the pipeline /
+                    # organizer / revert.
+                    with filelock.path_lock(p):
+                        write_basic_tags(
+                            p, title=None, artist=None,
+                            album=winning_album, album_artist=winning_artist,
+                            track=None, track_total=None, disc=None, disc_total=None,
+                        )
                 except Exception:
                     log.exception("album-consistency: tag patch failed for %s", p)
                     continue
@@ -705,7 +716,10 @@ def check_album_consistency(folder_id: int, ctx=None) -> dict:
                     continue
 
                 try:
-                    result = _safe_move(p, dest, overwrite=False)
+                    with filelock.path_lock(p):
+                        result = _safe_move(p, dest, overwrite=False)
+                        if result.moved:
+                            _move_lyric_sidecar(p, dest)
                 except OSError:
                     # The tag patch is already on the file — keep the matching
                     # DB update and carry on with the rest of the group.
@@ -726,7 +740,6 @@ def check_album_consistency(folder_id: int, ctx=None) -> dict:
                     s.commit()
                     continue
 
-                _move_lyric_sidecar(p, dest)
                 _update_track_path(s, str(p), str(dest))
                 moved_t = s.exec(select(Track).where(Track.path == str(dest))).first()
                 if moved_t:
@@ -774,11 +787,15 @@ def tag_advisories_for_folder(folder_id: int, ctx=None) -> dict:
             ctx.check_cancelled()
             ctx.progress(i, len(items), item=p.name)
         try:
-            lyrics = read_lyrics(p)
-            if not lyrics:
-                continue
-            advisory = 1 if is_explicit(lyrics) else 0
-            write_advisory(p, advisory)
+            # path_lock around the read-then-write pair: the advisory is
+            # derived from the lyrics read moments earlier, so nothing may
+            # rewrite the file in between.
+            with filelock.path_lock(p):
+                lyrics = read_lyrics(p)
+                if not lyrics:
+                    continue
+                advisory = 1 if is_explicit(lyrics) else 0
+                write_advisory(p, advisory)
             tagged += 1
             # Reflect the re-evaluated rating (and the fact that lyrics are
             # present) in the DB so the dashboard stays accurate. The advisory
@@ -946,27 +963,30 @@ def normalize_filenames(folder_id: int, ctx=None) -> dict:
                 continue
             target = p.with_name(new_name)
             try:
-                if target.exists() and target != p:
-                    # Case-only renames collide on case-insensitive filesystems;
-                    # go through a temp name.
-                    if str(target).lower() == str(p).lower():
-                        tmp = p.with_name(new_name + ".dgtmp")
-                        p.rename(tmp)
-                        tmp.rename(target)
+                # path_lock: renames are file moves — serialize with the other
+                # mutators (worker / organizer / revert) on this path.
+                with filelock.path_lock(p):
+                    if target.exists() and target != p:
+                        # Case-only renames collide on case-insensitive filesystems;
+                        # go through a temp name.
+                        if str(target).lower() == str(p).lower():
+                            tmp = p.with_name(new_name + ".dgtmp")
+                            p.rename(tmp)
+                            tmp.rename(target)
+                        else:
+                            if ctx:
+                                ctx.log(f"skip (target exists): {p.name} -> {new_name}")
+                            continue
                     else:
-                        if ctx:
-                            ctx.log(f"skip (target exists): {p.name} -> {new_name}")
-                        continue
-                else:
-                    # Conflict-safe move: a plain rename() overwrites the target
-                    # on POSIX, so a file racing into ``target`` after our
-                    # exists() check above would be silently destroyed. Refuse
-                    # to overwrite and skip instead.
-                    result = _safe_move(p, target, overwrite=False)
-                    if not result.moved:
-                        if ctx:
-                            ctx.log(f"skip (target appeared): {p.name} -> {new_name}")
-                        continue
+                        # Conflict-safe move: a plain rename() overwrites the target
+                        # on POSIX, so a file racing into ``target`` after our
+                        # exists() check above would be silently destroyed. Refuse
+                        # to overwrite and skip instead.
+                        result = _safe_move(p, target, overwrite=False)
+                        if not result.moved:
+                            if ctx:
+                                ctx.log(f"skip (target appeared): {p.name} -> {new_name}")
+                            continue
                 _update_track_path(s, str(p), str(target))
                 if _move_lyric_sidecar(p, target) and ctx:
                     ctx.log(f"renamed lyric sidecar for {new_name}")

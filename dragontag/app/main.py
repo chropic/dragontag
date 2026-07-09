@@ -597,7 +597,11 @@ def job_log(job_id: int, request: Request, _: None = Depends(require_auth)):
         job = s.get(Job, job_id)
         if not job:
             raise HTTPException(404)
-    text = job.log or job.error or "(no log)"
+    # html.escape: this response is built outside Jinja, so nothing else
+    # escapes it — log lines embed MB-sourced metadata and tracebacks, which
+    # must never be interpreted as markup.
+    import html as _html
+    text = _html.escape(job.log or job.error or "(no log)")
     return HTMLResponse(
         f'<pre class="text-xs text-[#8a8a8a] whitespace-pre-wrap p-2 m-0">{text}</pre>'
     )
@@ -787,10 +791,19 @@ def resolve_conflict(
     action: str = Form(...),  # "replace" | "rename" | "skip"
 ):
     """Handle a destination-exists conflict per user choice."""
+    from .library.filelock import path_lock
+
     with session() as s:
         job = s.get(Job, job_id)
         if not job or not job.destination_path:
             raise HTTPException(400, "no destination recorded")
+        if job.status != JobStatus.needs_review:
+            # A stale form / double-submit after the conflict was already
+            # resolved must not re-run the move — the source has moved on, so
+            # a second attempt would 500 or clobber the resolved file.
+            return _toast_response(
+                "/queue", f"Job {job_id} is not awaiting review.", "error"
+            )
         src = Path(job.source_path)
         dest = Path(job.destination_path)
 
@@ -800,34 +813,58 @@ def resolve_conflict(
             s.commit()
             return RedirectResponse("/queue", status_code=303)
 
-        if action == "replace":
-            res = move(src, dest, overwrite=True)
-        else:  # "rename" — append "-1", "-2", … until a free slot is found
-            dest = unique_path(dest)
-            res = move(src, dest, overwrite=False)
+        # This handler mutates a physical file just like the pipeline /
+        # organizer / revert — hold the per-path lock so it can't interleave
+        # with the worker or a concurrent revert touching the same file.
+        with path_lock(src):
+            if action == "replace":
+                res = move(src, dest, overwrite=True)
+            else:  # "rename" — append "-1", "-2", … until a free slot is found
+                dest = unique_path(dest)
+                res = move(src, dest, overwrite=False)
 
-        if res.moved:
-            from .ingest.pipeline import _pick_library_folder
-            from .library.mover import move_lyric_sidecar
-            from .library.scanner import _upsert_from_disk
+            if res.moved:
+                from .library.mover import move_lyric_sidecar
+                move_lyric_sidecar(src, dest)
 
-            move_lyric_sidecar(src, dest)
-            job.status = JobStatus.done
-            job.destination_path = str(dest)
-            # The tags were already written before the conflict was detected —
-            # index the moved file now so it shows up in the library without a
-            # manual rescan. For "replace" this also refreshes the row that
-            # still described the overwritten file's old metadata.
-            lib_root = _pick_library_folder()
-            folder_row = s.exec(
-                select(LibraryFolder).where(LibraryFolder.path == str(lib_root))
-            ).first()
-            try:
-                track = _upsert_from_disk(s, dest, folder_row.id if folder_row else None)
-                s.flush()
-                job.track_id = track.id
-            except Exception:
-                log.exception("resolve_conflict: failed to index %s", dest)
+        if not res.moved:
+            # A rename slot raced away / replace refused — the file is still
+            # at ``src``. Say so instead of silently leaving the job in review.
+            return _toast_response(
+                "/queue",
+                f"Could not move {src.name}: {dest} is occupied. Try again.",
+                "error",
+            )
+
+        from .ingest.pipeline import _pick_library_folder
+        from .library.scanner import _upsert_from_disk
+
+        job.status = JobStatus.done
+        job.destination_path = str(dest)
+        # The tags were already written before the conflict was detected —
+        # index the moved file now so it shows up in the library without a
+        # manual rescan. For "replace" this also refreshes the row that
+        # still described the overwritten file's old metadata.
+        lib_root = _pick_library_folder()
+        folder_row = s.exec(
+            select(LibraryFolder).where(LibraryFolder.path == str(lib_root))
+        ).first()
+        try:
+            track = _upsert_from_disk(s, dest, folder_row.id if folder_row else None)
+            s.flush()
+            job.track_id = track.id
+        except Exception:
+            log.exception("resolve_conflict: failed to index %s", dest)
+        # Re-point this job's conflict-time FileChange audit row (recorded by
+        # the pipeline with file_path = the blocked source) at the file's
+        # final location so revert / move-back keep working after the move.
+        for change in s.exec(
+            select(FileChange).where(
+                FileChange.job_id == job.id, FileChange.file_path == str(src)
+            )
+        ).all():
+            change.file_path = str(dest)
+            s.add(change)
         s.add(job)
         s.commit()
     return RedirectResponse("/queue", status_code=303)
@@ -1225,6 +1262,10 @@ def library_scan(request: Request, _: None = Depends(require_auth), folder_id: i
 
 @app.post("/library/organize")
 def library_organize(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
+    # Same guard as the batches: organize moves files, and two file-moving
+    # background tasks racing over one folder is what the guard prevents.
+    if msg := _batch_guard():
+        return _toast_response("/library", msg, "error")
     with session() as s:
         f = s.get(LibraryFolder, folder_id)
         if not f:
@@ -1291,7 +1332,11 @@ def library_retag_selected(
             if not p.exists():
                 continue
             # Per-request dry-run only — never mutates the global setting.
-            job = pipeline.enqueue(p, dry_run=bool(dry_run))
+            # requeue_reviews: this is an explicit re-tag (like bulk/batch),
+            # so a track whose previous run is stuck in needs_review must be
+            # reset to queued and actually reprocessed — without it the dedup
+            # hit is counted as "queued" but silently skipped by process().
+            job = pipeline.enqueue(p, dry_run=bool(dry_run), requeue_reviews=True)
             pipeline.submit(job.id)
             queued += 1
     return _toast_response("/library", f"Queued {queued} track(s) for re-tagging.")
@@ -1411,7 +1456,11 @@ def library_track_edit_save(
             # clear_blanks: the modal pre-fills every field, so a blank is a
             # deliberate clear — the file tag must go too, or the next scan
             # would resurrect it and silently undo the edit.
-            write_basic_tags(p, **fields, clear_blanks=True)
+            # path_lock: this is an in-place file mutation, serialized against
+            # the ingest worker / organizer / revert like every other mutator.
+            from .library.filelock import path_lock
+            with path_lock(p):
+                write_basic_tags(p, **fields, clear_blanks=True)
         except Exception as e:
             return _toast_response("/library", f"{p.name}: tag write failed: {e}", "error")
         track.title = fields["title"]
@@ -1474,7 +1523,9 @@ def library_track_link_album(
             mb_release_group_id=rep.mb_release_group_id,
         )
         try:
-            write_album_link_tags(p, **fields)
+            from .library.filelock import path_lock
+            with path_lock(p):
+                write_album_link_tags(p, **fields)
         except Exception as e:
             return _toast_response("/library", f"{p.name}: tag write failed: {e}", "error")
         track.album = fields["album"]
@@ -1636,7 +1687,9 @@ def library_track_apply_match(
         tags.cover_bytes = cover.data
         tags.cover_mime = cover.mime
     try:
-        write_tags(p, tags)
+        from .library.filelock import path_lock
+        with path_lock(p):
+            write_tags(p, tags)
     except Exception as e:
         return _toast_response("/library", f"{p.name}: tag write failed: {e}", "error")
 
@@ -1668,7 +1721,9 @@ def library_track_fetch_lyrics(track_id: int, request: Request, _: None = Depend
     if not fetched:
         return _toast_response(f"/library?folder_id={folder_id or ''}", "No lyrics found on LRCLIB.", "error")
     advisory = 1 if is_explicit(fetched) else 0
-    write_lyrics(p, fetched, advisory)
+    from .library.filelock import path_lock
+    with path_lock(p):
+        write_lyrics(p, fetched, advisory)
     with session() as s:
         track = s.get(Track, track_id)
         if track:
@@ -2149,6 +2204,9 @@ def schedule_page(request: Request, _: None = Depends(require_auth)):
         "schedules": rows,
         "folders": folders,
         "task_types": scheduler.TASK_TYPES,
+        # Cron expressions fire in the display timezone (scheduler._cron_tz),
+        # not UTC — tell the user which one so "0 6 * * *" means what it says.
+        "tz_name": getattr(_local_tz(), "key", None) or "UTC",
         "active_page": "schedule",
     })
 

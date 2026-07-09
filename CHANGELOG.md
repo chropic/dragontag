@@ -4,6 +4,60 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Fixed (repo bug sweep — 2026-07-09)
+- **Explicit `"artist": null` in an MB credit crashed candidate scoring** — `score_candidate`
+  still used `credits[0].get("artist", {})`, which passes a stored `None` through to
+  `.get("name")` and errors the whole job; now guarded with `or {}` like the four
+  `musicbrainz.py` credit helpers. (`identify/scoring.py`)
+- **Conflict-blocked ingests were unrevertable** — `_commit_tag_path` rewrites the file's tags
+  *before* the move, but on a destination conflict it returned without persisting the captured
+  snapshot, so /changes showed nothing and the destructive write could never be undone. The
+  conflict branch now records a `FileChange` at the file's real (unmoved) location, and
+  `resolve_conflict` re-points that row at the final destination after a replace/rename so
+  revert and move-back keep working. (`ingest/pipeline.py`, `main.py`)
+- **`resolve_conflict` was an unlocked fourth file mutator with silent failures** — it moved
+  files without `filelock.path_lock` (racing the ingest worker / organizer / revert on the same
+  path), had no `needs_review` status guard (a stale double-submit re-ran the move after the
+  source was gone → raw 500), and a `moved=False` result fell through to a success-looking
+  redirect. Now: status guard with an error toast, the move + lyric-sidecar move run under
+  `path_lock(src)`, and a failed move reports the file's true location. (`main.py`)
+- **Library actions and per-track edit routes mutated files without `path_lock`** — the
+  album-consistency fixer (tag patch + move), disc-folder flattening, filename normalization,
+  and the in-place writers (fetch lyrics/covers, advisory re-tag, manual tag edit, link-album,
+  apply-match, single-track lyrics) all violated the "every mutator holds the per-path lock"
+  invariant; each per-file mutate/move section now takes `filelock.path_lock`.
+  (`library/actions.py`, `main.py`)
+- **"Re-tag selected" silently skipped needs-review tracks** — the route called
+  `pipeline.enqueue` without `requeue_reviews=True`, so the dedup hit returned the stuck
+  `needs_review` job, `process()` refused it, and the toast still claimed "Queued N track(s)";
+  it now resets stuck reviews to queued like the bulk/batch callers. (`main.py`)
+- **Revert left the Track row half-stale** — `_refresh_track` re-synced titles and MB ids but
+  not track/disc numbering, advisory, or lyrics presence, so the organizer computed
+  destinations from pre-revert numbering and the dashboard counters drifted; it now refreshes
+  every field the snapshot restore can change. (`library/revert.py`)
+- **`GET /jobs/{id}/log` rendered the log as raw HTML** — the response is built outside Jinja's
+  autoescape and job logs embed MusicBrainz-sourced metadata and tracebacks, so markup in a
+  title was interpreted, not displayed; the text is now `html.escape`d. (`main.py`)
+- **Incomplete-albums pagination dropped the search filter** — the prev/next hrefs interpolated
+  `q` without `| urlencode`, so an `&`/`#`/`+` in the query (e.g. "R&B") silently cleared the
+  filter when paging. (`library_incomplete.html`)
+- **Schedule page claimed cron times were UTC** — expressions are deliberately interpreted in
+  the display timezone (`scheduler._cron_tz`), so the copy and statusbar told users the wrong
+  firing time whenever TZ was set; both now show the resolved zone name. (`main.py`,
+  `schedule.html`)
+- **One failed upload stream aborted the whole batch** — a mid-stream read error in
+  `save_uploads` raised out of the loop (500) instead of the documented skip-and-continue; the
+  partial file is still unlinked, the error is collected, and the remaining files upload.
+  (`ingest/uploads.py`)
+- **`POST /library/organize` bypassed the batch guard** — unlike every batch route, two quick
+  organize clicks started two concurrent file-moving tasks; the route now refuses while another
+  background task is running. (`main.py`)
+- **Watcher toggle leaked a settle thread per cycle** — `watcher.stop()` stopped the observer
+  but the settle loop ran forever, and each re-enable spawned a fresh one; the handler now
+  carries a stop event that `stop()` sets. (`ingest/watcher.py`)
+- **`library/actions.py` annotated with `Any` without importing it** — harmless under
+  PEP 563 but a latent `NameError` for any `get_type_hints()` caller. (`library/actions.py`)
+
 ### Changed (UI polish — 2026-07-09)
 - **Dashboard banner subtitle removed** — the `« identify · tag · organize »` line is gone; the
   closing rule now sits one blank line under the wordmark. (`dashboard.html`)

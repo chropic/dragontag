@@ -41,6 +41,9 @@ class _Handler(FileSystemEventHandler):
         self._pending: dict[Path, tuple[float, int, int]] = {}
         self._lock = threading.Lock()
         self._has_pending = threading.Event()
+        # Set by watcher.stop(): ends this handler's settle thread. Without it
+        # every watcher toggle in Settings leaked one settle thread forever.
+        self._stopped = threading.Event()
 
     def _is_ignored(self, p: Path) -> bool:
         cfg = settings()
@@ -121,9 +124,11 @@ class _Handler(FileSystemEventHandler):
 
     def settle_loop(self) -> None:
         """Background loop: wait for file events, then drain after settle window."""
-        while True:
+        while not self._stopped.is_set():
             signalled = self._has_pending.wait(timeout=5.0)
             self._has_pending.clear()
+            if self._stopped.is_set():
+                return
             if not signalled:
                 continue
             time.sleep(settings().watcher_settle_seconds)
@@ -140,26 +145,32 @@ class _Handler(FileSystemEventHandler):
 
 
 _observer: Observer | None = None
+_handler: _Handler | None = None
 
 
 def start() -> None:
     """Idempotently start the observer + settle thread."""
-    global _observer
+    global _observer, _handler
     if _observer is not None:
         return
     drop = env().drop_path
     drop.mkdir(parents=True, exist_ok=True)
-    handler = _Handler()
+    _handler = _Handler()
     _observer = Observer()
-    _observer.schedule(handler, str(drop), recursive=True)
+    _observer.schedule(_handler, str(drop), recursive=True)
     _observer.start()
-    threading.Thread(target=handler.settle_loop, name="dragontag-watcher-settle", daemon=True).start()
+    threading.Thread(target=_handler.settle_loop, name="dragontag-watcher-settle", daemon=True).start()
     log.info("Watcher started on %s", drop)
 
 
 def stop() -> None:
-    global _observer
+    global _observer, _handler
     if _observer is not None:
         _observer.stop()
         _observer.join(timeout=5)
         _observer = None
+    if _handler is not None:
+        # End the settle thread too — the wait() wakes it so it exits promptly.
+        _handler._stopped.set()
+        _handler._has_pending.set()
+        _handler = None

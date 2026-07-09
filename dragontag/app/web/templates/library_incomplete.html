@@ -102,7 +102,9 @@
         </select>
       </label>
       {% if total_pages > 1 %}
-      {% set base = "?q=" ~ q ~ "&page_size=" ~ page_size %}
+      {# urlencode: autoescape doesn't cover URL contexts — a bare &/#/+ in
+         the search would silently drop the filter when paging. #}
+      {% set base = "?q=" ~ (q | urlencode) ~ "&page_size=" ~ page_size %}
       <div class="flex items-center gap-1">
         {% if page > 1 %}
         <a href="{{ base }}&page={{ page - 1 }}" class="px-2 py-0.5 border border-[#2a2a2a] hover:text-white">◂ prev</a>

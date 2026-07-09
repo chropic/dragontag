@@ -485,6 +485,20 @@ def _commit_tag_path(s: Session, job: Job, src: Path, tags: TrackTags, *, score:
             )
             s.add(job)
             s.commit()
+            # The tags were already rewritten in place above — that write is
+            # just as destructive as the happy path's, so it must be auditable
+            # and revertible even though the move was blocked. file_path is
+            # ``src`` (where the file actually still lives); resolve_conflict
+            # re-points the row when the user later moves the file.
+            _record_change(
+                s,
+                job,
+                original_path=original_path,
+                original_snapshot=original_snapshot,
+                dest=src,
+                new_tags=job.chosen_tags_json,
+                cover_jpg_created=False,
+            )
             return
 
         move_lyric_sidecar(src, dest)

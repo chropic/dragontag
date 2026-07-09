@@ -72,7 +72,9 @@ def score_candidate(
     credits = candidate_recording.get("artist-credit") or []
     if credits:
         if isinstance(credits[0], dict):
-            cand_artist = credits[0].get("artist", {}).get("name") or credits[0].get("name")
+            # (x or {}) — not .get("artist", {}) — because MB can send an
+            # explicit "artist": null, which the default would pass through.
+            cand_artist = (credits[0].get("artist") or {}).get("name") or credits[0].get("name")
         else:
             cand_artist = str(credits[0])
     artist_sim = _sim(cand_artist, clues.get("artist"))

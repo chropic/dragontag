@@ -7,7 +7,7 @@
   <span class="text-[#5a5a5a] text-xs">cron tasks</span>
 </div>
 <p class="text-[#8a8a8a] text-xs mb-4 max-w-3xl">Run library tasks automatically on a cron schedule. Scheduled runs appear on the
-Queue page like any other task. Times are UTC.</p>
+Queue page like any other task. Times are interpreted in the display timezone ({{ tz_name }}).</p>
 
 <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 mb-4">
   <span class="dt-label">new schedule</span>
@@ -175,5 +175,5 @@ Queue page like any other task. Times are UTC.</p>
   <span class="dt-key"><b>n</b> new task</span>
   <span class="dt-key"><b>space</b> toggle</span>
   <span class="dt-key"><b>enter</b> run now</span>
-  <span class="dt-status-note">{{ schedules|length }} task{% if schedules|length != 1 %}s{% endif %} &middot; TZ UTC</span>
+  <span class="dt-status-note">{{ schedules|length }} task{% if schedules|length != 1 %}s{% endif %} &middot; TZ {{ tz_name }}</span>
 {% endblock %}

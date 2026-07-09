@@ -157,7 +157,14 @@ def _repair_job(s: Session, job_id: int | None, file: Path) -> None:
 
 
 def _refresh_track(s: Session, file: Path) -> None:
-    """Re-sync a Track row's denormalized tags after a revert (best-effort)."""
+    """Re-sync a Track row's denormalized tags after a revert (best-effort).
+
+    Every field the restore can change must be refreshed: the organizer builds
+    destinations from the numbering fields, and the dashboard counters read
+    advisory/has_lyrics — a half-stale row misfiles or miscounts the track.
+    """
+    from .scanner import _parse_num, _parse_total
+
     track = s.exec(select(Track).where(Track.path == str(file))).first()
     if track is None:
         return
@@ -166,6 +173,13 @@ def _refresh_track(s: Session, file: Path) -> None:
     track.artist = info.get("artist")
     track.album = info.get("album")
     track.album_artist = info.get("album_artist")
+    track.track_num = _parse_num(info.get("track"))
+    track.track_total = _parse_total(info.get("track"))
+    track.disc_num = _parse_num(info.get("disc"))
+    track.disc_total = _parse_total(info.get("disc")) or _parse_num(info.get("disc_total"))
+    track.advisory = info.get("advisory")
+    track.has_lyrics = bool(info.get("has_lyrics"))
     track.mb_track_id = info.get("mb_track_id")
     track.mb_album_id = info.get("mb_album_id")
+    track.mb_release_group_id = info.get("mb_release_group_id")
     s.add(track)

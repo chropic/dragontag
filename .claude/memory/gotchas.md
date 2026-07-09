@@ -5,10 +5,11 @@ metadata:
   type: project
 ---
 
-# Gotchas — distilled from two full bug sweeps
+# Gotchas — distilled from three full bug sweeps
 
 PR #39 (2026-07-08) fixed 28 bugs in the tagging pipeline; PR #40 (same day) fixed 15 more in
-core/library/web. The *patterns* below are what keeps recurring. When writing new code in one of
+core/library/web; the 2026-07-09 repo sweep fixed 14 more (several of them re-occurrences of
+the patterns below). The *patterns* are what keeps recurring. When writing new code in one of
 these areas, check the pattern first.
 
 ## File moves & rollbacks
@@ -21,8 +22,18 @@ these areas, check the pattern first.
   user the true file location — never claim recovery that didn't happen.
 - **Every mutator of a physical file must hold `filelock.path_lock(path)`.** The organizer ran
   for months without it and could interleave with the ingest worker or a revert on the same
-  file. Known mutators: pipeline `_commit_tag_path`, revert/move-back (both directions,
-  including rollbacks), organizer. New rename/retag/move features join this list.
+  file — and the 2026-07-09 sweep found six more unlocked mutators that had accreted since
+  (`resolve_conflict`, the album-consistency fixer, disc-folder flatten, filename normalize,
+  the fetch-lyrics/covers/advisory actions, and the per-track edit routes in `main.py`).
+  Known mutators now: pipeline `_commit_tag_path`, revert/move-back, organizer,
+  `resolve_conflict`, every file-touching function in `library/actions.py`, and the per-track
+  edit/link/apply/lyrics routes. **Any new rename/retag/move feature joins this list — audit
+  for the lock in review, it is the single most re-occurring bug class in this repo.**
+- **A destructive tag write and its audit row must not be separable.** `_commit_tag_path`
+  rewrote tags *before* the move; the destination-conflict branch returned without recording a
+  `FileChange`, so the write was invisible in /changes and unrevertable. Any early-exit added
+  after a write must still persist the snapshot (and anything that later moves the file must
+  re-point the audit row's `file_path`, as `resolve_conflict` now does).
 - Files moved on disk before the DB commit: if the commit then fails you MUST move the file
   back (and verify the move-back worked). `Track.path` is the only record of where a file lives.
 
@@ -78,7 +89,12 @@ these areas, check the pattern first.
 
 - Jinja autoescape protects HTML contexts but **not URL contexts** — interpolating a user string
   into an `href` query needs `| urlencode` or `&`/`#`/`+` in a search query corrupts the link
-  (filter silently dropped when sorting/paging). Check every `href="...{{ q }}..."`.
+  (filter silently dropped when sorting/paging). Check every `href="...{{ q }}..."` — this
+  recurred in `library_incomplete.html` a day after being fixed in `_library_tracks.html`.
+- **Responses built outside Jinja get no autoescape.** `GET /jobs/{id}/log` f-string-built its
+  `<pre>` around raw `job.log` — which embeds MusicBrainz-sourced titles and tracebacks.
+  Any handler returning hand-assembled `HTMLResponse` markup must `html.escape` interpolated
+  text.
 - printf-style format specs in templates: `%-4.0f` left-justifies (renders `3   :05`); widths in
   a proportional context are almost never what you want.
 - Byte caps vs character caps: `len(str)` counts characters; non-ASCII content (ubiquitous in
@@ -95,6 +111,10 @@ these areas, check the pattern first.
   raise.
 - Scoring weights sum to 1.0 deliberately: a candidate missing album+duration cannot reach the
   0.85 auto-apply threshold. Don't "fix" this.
+- **`pipeline.enqueue` dedups on active jobs, and `needs_review` counts as active.** Any
+  caller that means "explicitly re-tag this file" must pass `requeue_reviews=True`, or a track
+  stuck in review is returned as the "queued" job and then silently refused by `process()`
+  (`_PROCESSABLE_STATUSES`). This bit `bulk.enqueue_folder` first and `retag-selected` second.
 - Watcher: `_collect_ready` re-sets the pending event when items remain — the clear-before-sleep
   pattern is correct as written; don't refactor it without reading the loop.
 - Uploads/stream writes into the watched drop folder must clean up partial files on failure —

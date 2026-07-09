@@ -87,11 +87,14 @@ async def save_uploads(files: Iterable[UploadFile]) -> tuple[list[int], list[str
                 while chunk := await upload.read(1 << 20):
                     written += len(chunk)
                     out.write(chunk)
-        except Exception:
+        except Exception as e:
             # Don't leave a truncated file in the watched drop folder — the
-            # watcher would ingest it as a corrupt track.
+            # watcher would ingest it as a corrupt track. Collect the error
+            # and keep going: one failed stream must not drop the rest of the
+            # batch (the same isolation the validation rejections get).
             target.unlink(missing_ok=True)
-            raise
+            errors.append(f"'{name}': upload failed mid-stream ({e})")
+            continue
 
         if written == 0:
             target.unlink(missing_ok=True)

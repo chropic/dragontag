@@ -151,9 +151,17 @@ read-then-write on a file's tags or location must hold it. Current holders:
 1. **Ingest worker** — `pipeline._commit_tag_path` (snapshot → write_tags → move).
 2. **Revert / move-back** — `library/revert.py` (both directions, including the rollback move).
 3. **Organizer** — `library/organizer.organize_folder` (move + Track.path update + rollback).
+4. **Conflict resolver** — `main.resolve_conflict` (replace/rename move + lyric sidecar).
+5. **Library actions** — every file-touching function in `library/actions.py`
+   (album-consistency tag patch + move, disc-folder flatten, filename normalize, fetch
+   lyrics/covers, advisory re-tag) locks each per-file mutate/move section.
+6. **Per-track edit routes** — `main.py` manual tag edit, link-album, apply-match, and
+   single-track lyrics fetch lock around their in-place writes.
 
-If you add a fourth mutator (a new action that renames/moves/retags), take the lock. The dict of
-locks grows unbounded by design (single-user, bounded library) — do not "fix" that.
+If you add another mutator (a new action that renames/moves/retags), take the lock — the lock
+is caller-held (do NOT move it into `atomic_inplace`; the pipeline already holds the
+non-reentrant lock when it calls `write_tags`). The dict of locks grows unbounded by design
+(single-user, bounded library) — do not "fix" that.
 
 Related invariant: `mover.move(..., overwrite=False)` **returns** `MoveResult(moved=False,
 conflict=True)` on a conflict instead of raising. Every caller must branch on `.moved`/
@@ -194,6 +202,10 @@ conflict=True)` on a conflict instead of raising. Every caller must branch on `.
 - **Rollback honesty**: organizer/move-back DB-failure rollbacks check `MoveResult.moved`; if the
   file can't be returned, they log CRITICAL "DIVERGED" and say so in the UI message instead of
   claiming success.
+- **Conflict writes stay auditable**: when the pipeline's move hits a destination conflict, the
+  in-place tag write has already happened — the conflict branch records a `FileChange` with
+  `file_path` = the (unmoved) source, and `resolve_conflict` re-points it at the final
+  destination after replace/rename, so revert/move-back work across the conflict flow.
 - **Network timeouts**: `settings().network_timeout_seconds` (default 15s) set as urllib socket
   default in `musicbrainz._ensure_configured` and passed to `acoustid.lookup`; a half-open
   connection can't wedge the single worker.

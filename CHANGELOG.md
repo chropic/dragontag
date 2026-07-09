@@ -4,6 +4,28 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Changed (UI polish — 2026-07-09)
+- **Dashboard banner subtitle removed** — the `« identify · tag · organize »` line is gone; the
+  closing rule now sits one blank line under the wordmark. (`dashboard.html`)
+
+### Fixed (statusbar hotkeys + login corner — 2026-07-09)
+- **Statusbar key chips are now clickable everywhere** — clicking a `.dt-key` chip synthesizes
+  the keydown it advertises (multi-char labels `space`/`enter`/`esc` map to their key names, a
+  `⌥` prefix sets `altKey`), so the mouse path and keyboard path share one code path; chips get
+  `cursor-pointer` + hover styling. (`base.html`, `frontend/app.input.css`, `app.css`)
+- **Every advertised hotkey is actually wired** — dashboard `u` (open file picker), `r` (focus
+  the folder-tag input), `j` (jobs) were dead and its `/` chip had no search target (chip
+  removed); schedule `n`/`space`/`enter` now act on the new-task form and the hovered row
+  (library's hover-focus pattern); `esc` works on the manage-libraries and incomplete-albums
+  pages; incomplete-albums `/` focuses its search box; docs gained a working section filter for
+  `/` and its mislabeled `g api-docs` chip became `a api-docs` with a real binding.
+  (`dashboard.html`, `schedule.html`, `library_folders.html`, `library_incomplete.html`,
+  `docs.html`)
+- **Login panel's top-right corner reticle sat 16px below the corner** — the form's `space-y-4`
+  adds `margin-top` to every child after the first, and margins offset absolutely-positioned
+  boxes, so the only top-anchored non-first reticle drooped onto the right border. All four
+  reticles now carry `!mt-0`. (`login.html`)
+
 ### Added
 - **Link a track to an existing library album** from the manual edit form — a searchable album
   picker writes album, album artist, disc/track totals, and MusicBrainz album IDs from an

@@ -30,7 +30,7 @@
   <input type="hidden" name="page_size" value="{{ page_size }}">
   <div class="relative border border-[#242424] bg-[#0a0a0a] p-3 flex items-center gap-2">
     <span class="text-[#5a5a5a] text-sm">/</span>
-    <input type="text" name="q" value="{{ q }}" placeholder="search album or artist…"
+    <input type="text" name="q" value="{{ q }}" data-dt-search placeholder="search album or artist…"
            class="w-full bg-transparent border-0 p-0 text-sm text-white placeholder-[#3a3a3a] focus:outline-none" style="box-shadow:none">
   </div>
 </form>
@@ -116,6 +116,16 @@
     </div>
   </div>
 </div>
+
+<script>
+  // ── Keybinding: esc goes back to the library (matches the statusbar hint;
+  // "/" is handled globally via the data-dt-search input above). ──
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !e.target.matches('input,textarea,select')) {
+      window.location.href = '/library';
+    }
+  });
+</script>
 {% endblock %}
 
 {% block statusbar %}

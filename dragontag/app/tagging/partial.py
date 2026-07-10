@@ -275,10 +275,13 @@ def write_album_link_tags(
                 f.tags["\xa9alb"] = [album]
             if album_artist:
                 f.tags["aART"] = split_multi_artist(album_artist)
-            if track_total is not None:
+            # Truthiness, not ``is not None``: a total of 0 means "unknown"
+            # (same convention as the FLAC/ID3 branches above and the MP4
+            # writer) — writing it would destroy the file's existing total.
+            if track_total:
                 cur_trkn = f.tags.get("trkn", [(0, 0)])
                 f.tags["trkn"] = [(cur_trkn[0][0], track_total)]
-            if disc_total is not None:
+            if disc_total:
                 cur_disk = f.tags.get("disk", [(0, 0)])
                 f.tags["disk"] = [(cur_disk[0][0], disc_total)]
             # Same duplicate-id guard as the ID3 branch, for the full writers'

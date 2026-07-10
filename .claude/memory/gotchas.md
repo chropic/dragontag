@@ -5,12 +5,12 @@ metadata:
   type: project
 ---
 
-# Gotchas — distilled from three full bug sweeps
+# Gotchas — distilled from four full bug sweeps
 
 PR #39 (2026-07-08) fixed 28 bugs in the tagging pipeline; PR #40 (same day) fixed 15 more in
-core/library/web; the 2026-07-09 repo sweep fixed 14 more (several of them re-occurrences of
-the patterns below). The *patterns* are what keeps recurring. When writing new code in one of
-these areas, check the pattern first.
+core/library/web; the 2026-07-09 repo sweep fixed 14 more, and the 2026-07-10 sweep 9 more
+(several of them re-occurrences of the patterns below). The *patterns* are what keeps
+recurring. When writing new code in one of these areas, check the pattern first.
 
 ## File moves & rollbacks
 
@@ -36,6 +36,27 @@ these areas, check the pattern first.
   re-point the audit row's `file_path`, as `resolve_conflict` now does).
 - Files moved on disk before the DB commit: if the commit then fails you MUST move the file
   back (and verify the move-back worked). `Track.path` is the only record of where a file lives.
+- **Loops that move files must commit `Track.path` per move, never once after the loop.** A
+  Stop request (`ctx.check_cancelled` raising `TaskCancelled`) or any unguarded exception exits
+  the `with session()` block before an end-of-loop commit, silently rolling back the path
+  updates for files already physically moved. Bit `fix_disc_folders` and `normalize_filenames`
+  (2026-07-10); the organizer and album-consistency fixer already committed per track for this
+  reason — copy them.
+- **Anything that moves an audio file also moves its `.lrc` sidecar** (`mover.move_lyric_sidecar`).
+  `move_back` forgot; note the disc-folder flatten does NOT need an explicit call because its
+  loop already iterates every file in the disc dir.
+- **Schema guarantees for manual apply paths live in `pipeline.prepare_tags`.** Any route that
+  calls `_commit_tag_path` directly (review apply, bulk apply, apply-match) must call
+  `prepare_tags` first or files get written without RELEASETYPE (the one mandatory field),
+  without the `RELEASESTATUS=Official` default, and without the smart-formatting pass. The
+  dry-run gate stays in `_finalize_and_commit` only — an explicit user apply must not re-enter it.
+- **A full `write_tags` outside the pipeline is still a destructive write**: snapshot first,
+  record a `FileChange` (nullable `job_id` is fine), and carry the file's embedded
+  lyrics/advisory across the canonical clear if you aren't re-fetching them — `assemble_tags`
+  brings no lyrics, so a bare rewrite silently deletes them (bit apply-match, 2026-07-10).
+- **`_upsert_track` needs the pre-move path** (`original_path=`) when the file moved, or a
+  re-tag that changes the canonical destination leaves a phantom Track row (and loses
+  `protected`) at the old path until the next scan prunes it.
 
 ## mutagen / tag-writing traps
 

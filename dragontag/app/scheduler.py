@@ -94,6 +94,13 @@ def _folder(folder_id: int) -> LibraryFolder | None:
         return s.get(LibraryFolder, folder_id)
 
 
+def _scan_step(f: LibraryFolder) -> list[tuple[str, object]]:
+    """A chain step that re-scans ``f`` before a scheduled batch runs."""
+    from .library.scanner import scan_folder
+    path, fid = Path(f.path), f.id
+    return [(f"Scan {f.label or f.path}", lambda ctx: scan_folder(path, fid, ctx=ctx))]
+
+
 def run_task_by_type(task: ScheduledTask) -> int | None:
     """Dispatch one scheduled task as a tracked Job. Returns the job id."""
     params = task.params_json or {}
@@ -123,7 +130,11 @@ def run_task_by_type(task: ScheduledTask) -> int | None:
         from .library.actions import BATCH_ORGANIZE, build_chain_steps
         from .library.organizer import organize_folder
         fid = f.id
-        steps = [("Organize files", lambda ctx: organize_folder(fid, ctx=ctx))]
+        # Scan first, mirroring the route layer's unconditional prepend — the
+        # organizer moves files based on the Track table, so a scheduled run
+        # against stale rows would misfile anything edited since the last scan.
+        steps = _scan_step(f)
+        steps += [("Organize files", lambda ctx: organize_folder(fid, ctx=ctx))]
         steps += build_chain_steps(BATCH_ORGANIZE, fid)
         return tasks.run_chain("batch_organize", name, steps)
 
@@ -141,7 +152,8 @@ def run_task_by_type(task: ScheduledTask) -> int | None:
             ctx.log(f"Enqueued {len(ids)} file(s) for identify → tag → move")
             return {"enqueued": len(ids)}
 
-        steps = build_chain_steps(BATCH_RETAG, fid) + [("Re-tag pipeline", _enqueue)]
+        # Scan first for the same stale-Track-data reason as batch_organize.
+        steps = _scan_step(f) + build_chain_steps(BATCH_RETAG, fid) + [("Re-tag pipeline", _enqueue)]
         return tasks.run_chain("batch_retag", name, steps)
 
     if kind == "bulk_retag":

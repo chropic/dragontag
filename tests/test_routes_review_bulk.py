@@ -34,7 +34,10 @@ def stub_apply(monkeypatch):
     def fake_assemble_tags(*, release_id, recording_id):
         return types.SimpleNamespace(
             recording_id=recording_id, release_id=release_id,
-            cover_bytes=None, cover_mime=None, release_type=None,
+            cover_bytes=None, cover_mime=None,
+            # Fields the shared schema guarantees (pipeline.prepare_tags)
+            # read/set before _commit_tag_path.
+            release_type=None, release_status=None, track_total=None,
         )
 
     def fake_commit(s, job, src, tags, *, score):

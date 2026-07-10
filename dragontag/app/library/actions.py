@@ -418,6 +418,10 @@ def fix_disc_folders(folder_id: int, ctx=None) -> dict:
                             continue
                         _update_track_path(s, str(f), str(target))
                         flattened += 1
+                        # Commit per move: the file is already on disk at the
+                        # new path, so a later cancel/exception must not roll
+                        # this row back to a path that no longer exists.
+                        s.commit()
                     except Exception:
                         errors += 1
                 try:
@@ -453,6 +457,10 @@ def fix_disc_folders(folder_id: int, ctx=None) -> dict:
                                 db_t.path = new_track_path
                                 s.add(db_t)
                     renamed += 1
+                    # Commit per rename: the directory already moved on disk,
+                    # so a later cancel/exception must not discard these
+                    # path updates and leave the DB pointing into the old dir.
+                    s.commit()
                 except Exception:
                     errors += 1
         s.commit()
@@ -988,6 +996,10 @@ def normalize_filenames(folder_id: int, ctx=None) -> dict:
                                 ctx.log(f"skip (target appeared): {p.name} -> {new_name}")
                             continue
                 _update_track_path(s, str(p), str(target))
+                # Commit per rename: the file already moved on disk, so a
+                # later cancel/exception must not roll this row back to a
+                # path that no longer exists.
+                s.commit()
                 if _move_lyric_sidecar(p, target) and ctx:
                     ctx.log(f"renamed lyric sidecar for {new_name}")
                 renamed += 1

@@ -631,6 +631,11 @@ def _apply_review_match(job_id: int, rec: str, rel: str, cover_url: str):
             if not job or job.status != JobStatus.needs_review:
                 return
             tags = mbq.assemble_tags(release_id=rel, recording_id=rec)
+            # Same schema guarantees as the auto-apply path (formatting,
+            # RELEASETYPE inference, RELEASESTATUS default) — calling
+            # _commit_tag_path directly would otherwise skip them.
+            from .ingest.pipeline import prepare_tags
+            prepare_tags(job, tags)
             if cover_url:
                 from .net import fetch_bytes
                 try:
@@ -751,6 +756,11 @@ async def review_apply(
             raise HTTPException(500, str(e))
         if release_type_override:
             tags.release_type = release_type_override
+        # Shared schema guarantees (formatting, RELEASETYPE inference,
+        # RELEASESTATUS default). Runs after the override so an explicit user
+        # choice wins; prepare_tags only fills release_type when it's empty.
+        from .ingest.pipeline import prepare_tags
+        prepare_tags(job, tags)
 
         # Cover art override: custom upload takes priority over URL selection.
         if cover_art_file and cover_art_file.filename:
@@ -1672,9 +1682,12 @@ def library_track_apply_match(
             return _toast_response("/library", f"{p.name}: file not found on disk.", "error")
         folder_id = track.library_folder_id
 
+    from .identify import existing_tags as _existing
+    from .tagging import snapshot as _snapshot
     from .tagging.coverart import fetch_for_release
+    from .tagging.partial import read_lyrics
     from .tagging.writers import write_tags
-    from .ingest.pipeline import _upsert_track
+    from .ingest.pipeline import _tags_to_dict, _upsert_track, prepare_tags
 
     try:
         tags = mbq.assemble_tags(release_id=rel, recording_id=rec)
@@ -1682,6 +1695,9 @@ def library_track_apply_match(
         # A deleted/redirected MB id must land as a toast, not a raw 500
         # (parity with review_apply's handling).
         return _toast_response("/library", f"MusicBrainz lookup failed: {e}", "error")
+    # Same schema guarantees as the pipeline / review-apply paths (formatting,
+    # RELEASETYPE inference, RELEASESTATUS default).
+    prepare_tags(None, tags)
     cover = fetch_for_release(tags.mb_album_id) if tags.mb_album_id else None
     if cover:
         tags.cover_bytes = cover.data
@@ -1689,11 +1705,37 @@ def library_track_apply_match(
     try:
         from .library.filelock import path_lock
         with path_lock(p):
+            # This is a full canonical rewrite (every writer clears the
+            # existing tag set), so: snapshot first so the write is auditable
+            # and revertable via /changes, and carry the file's own embedded
+            # lyrics/advisory onto the outgoing tags — this route is a
+            # metadata correction, not a re-ingest, and assemble_tags brings
+            # no lyrics of its own.
+            original_snapshot = _snapshot.capture(p)
+            info = _existing.read(p)
+            if tags.advisory is None:
+                tags.advisory = info.get("advisory")
+            if info.get("has_lyrics"):
+                try:
+                    tags.lyrics = read_lyrics(p) or None
+                except Exception:
+                    pass
             write_tags(p, tags)
     except Exception as e:
         return _toast_response("/library", f"{p.name}: tag write failed: {e}", "error")
 
     with session() as s:
+        # Audit row so the rewrite shows in /changes and can be reverted.
+        # job_id=None: no pipeline job backs this manual correction.
+        s.add(FileChange(
+            job_id=None,
+            file_path=str(p),
+            original_path=str(p),
+            original_name=p.name,
+            original_tags_json=original_snapshot or {},
+            new_tags_json=_tags_to_dict(tags),
+            cover_jpg_created=False,
+        ))
         folder = s.get(LibraryFolder, folder_id) if folder_id else None
         lib_root = Path(folder.path) if folder else env().library_path
         _upsert_track(s, p, tags, lib_root)

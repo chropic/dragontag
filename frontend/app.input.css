@@ -89,3 +89,9 @@
 }
 
 @keyframes dt-blink { 0%, 48% { opacity: 1; } 49%, 100% { opacity: 0; } }
+
+/* On narrow screens, wide data tables scroll inside themselves instead of
+   stretching the page (which made the whole body horizontally scrollable). */
+@media (max-width: 640px) {
+  table { display: block; overflow-x: auto; }
+}

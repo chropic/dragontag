@@ -4,6 +4,38 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Fixed (web UI UX sweep — 2026-07-11)
+- **Identify phase held the SQLite write lock for its entire network-bound duration** — the
+  pipeline `flush()`ed the job's clue log before the MusicBrainz/AcoustID calls, which issues the
+  UPDATE and takes the write lock without releasing it; on a slow/dead network every other writer
+  (watcher enqueues, any POST from the UI — adding a schedule, saving settings) blocked for the
+  busy-timeout and then failed with "database is locked". Now commits before going to the
+  network. (`ingest/pipeline.py`)
+- **A failed watcher enqueue silently stranded the file in /drop** — the path was already removed
+  from the pending map when `enqueue` raised (e.g. the locked-DB case above), so the file was
+  never retried until a restart; it is now re-registered for the next settle pass.
+  (`ingest/watcher.py`)
+- **Toasts (including validation errors) were silently lost on every plain-form submit** —
+  `_toast_response` only carried the toast in an `HX-Trigger` header on a 303 redirect, which the
+  browser follows itself for regular `<form method=post>` submits, so e.g. "Invalid cron
+  expression" on /schedule produced a feedback-free page reload; the toast is now also encoded
+  into `dt_toast`/`dt_level`/`dt_job` query params which base.html shows once and strips from the
+  URL. (`main.py`, `web/templates/base.html`)
+- **Every page scrolled horizontally on narrow screens** — the top nav was a fixed non-wrapping
+  row (~690px), and wide tables (queue, schedule, docs, changes) stretched the body; the nav link
+  row now scrolls within itself and tables scroll inside their own container under 640px.
+  (`web/templates/base.html`, `frontend/app.input.css`, rebuilt `app.css`)
+- **Manual MusicBrainz search reported "No results." when the search actually failed** — network
+  errors were swallowed into an empty candidate list; the review-page and track-modal searches
+  now surface "MusicBrainz search failed — network error" instead, and skip the outer retry layer
+  (musicbrainzngs already retries 8× internally) so the failure surfaces sooner.
+  (`identify/musicbrainz.py`, `main.py`, `web/templates/_mb_search_results.html`,
+  `_track_mb_results.html`)
+- **Failed login cleared the username field** — the value is now re-rendered on the 401 response.
+  (`main.py`, `web/templates/login.html`)
+- **Setup wizard referenced the pre-rename `AIO_USERNAME` env var** — now `DRAGONTAG_USERNAME`.
+  (`web/templates/setup.html`)
+
 ### Fixed (repo bug sweep — 2026-07-10)
 - **Cancelling disc-folder / filename cleanup discarded Track.path updates for files already
   moved** — `fix_disc_folders` and `normalize_filenames` held every path update in one session

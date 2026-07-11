@@ -158,7 +158,10 @@
       ('/settings', 'settings', 'settings'),
       ('/docs', 'docs', 'docs'),
     ] %}
-    <div class="flex items-center gap-4 text-xs ml-1">
+    {# flex-1 min-w-0 overflow-x-auto: on narrow screens the link row scrolls
+       inside itself instead of widening the whole page (which made every page
+       horizontally scrollable on mobile). #}
+    <div class="flex flex-1 min-w-0 overflow-x-auto items-center gap-4 text-xs ml-1 whitespace-nowrap">
       {% for href, page_key, label in nav_items %}
         {% if active_page == page_key %}
           <a href="{{ href }}" class="text-white font-bold border-b-2 border-[#c7f0c7] pb-[3px]">{{ label }}</a>
@@ -168,7 +171,7 @@
       {% endfor %}
     </div>
 
-    <div class="ml-auto flex items-center gap-4 text-[11px] text-[#5a5a5a]">
+    <div class="ml-auto flex shrink-0 items-center gap-4 text-[11px] text-[#5a5a5a]">
       <span class="text-[#7fbf7f]">&#9679; online</span>
       <form action="/logout" method="post">
         <button class="text-[#5a5a5a] hover:text-white">log&nbsp;out</button>
@@ -255,8 +258,23 @@
         _nextId: 0,
         _recentKeys: [],
         init() {
-          // Single delivery path: HTMX fires the native showToast body event.
+          // HTMX delivery path: HTMX fires the native showToast body event.
           document.body.addEventListener('showToast', (e) => this.addToast(e.detail));
+          // Plain-form delivery path: a normal <form method=post> follows the
+          // 303 redirect at the browser level, so the HX-Trigger header is
+          // never seen. _toast_response also encodes the toast into query
+          // params; show it once and strip the params from the URL.
+          const params = new URLSearchParams(window.location.search);
+          if (params.has('dt_toast')) {
+            this.addToast({
+              message: params.get('dt_toast'),
+              level: params.get('dt_level') || 'info',
+              job_id: params.has('dt_job') ? Number(params.get('dt_job')) : undefined,
+            });
+            params.delete('dt_toast'); params.delete('dt_level'); params.delete('dt_job');
+            const qs = params.toString();
+            history.replaceState(null, '', window.location.pathname + (qs ? '?' + qs : ''));
+          }
         },
         addToast(detail) {
           const level = detail.level || 'info';

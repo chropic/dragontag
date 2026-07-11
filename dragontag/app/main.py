@@ -23,6 +23,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
@@ -97,8 +98,18 @@ def _toast_response(
     """Return a redirect that also carries an HX-Trigger showToast header.
 
     ``job_id``, when given, makes the toast clickable to that job's detail page.
+
+    Most callers are plain ``<form method=post>`` submits, where the browser
+    follows the 303 itself and the HX-Trigger header is never seen by htmx —
+    so the toast is *also* encoded into ``dt_toast``/``dt_level``/``dt_job``
+    query params, which the toastManager in base.html shows on page load and
+    then strips from the URL.
     """
-    resp = RedirectResponse(redirect_url, status_code=303)
+    params: dict[str, str] = {"dt_toast": message, "dt_level": level}
+    if job_id is not None:
+        params["dt_job"] = str(job_id)
+    sep = "&" if "?" in redirect_url else "?"
+    resp = RedirectResponse(redirect_url + sep + urlencode(params), status_code=303)
     payload: dict[str, Any] = {"message": message, "level": level}
     if job_id is not None:
         payload["job_id"] = job_id
@@ -273,7 +284,7 @@ def login_submit(request: Request, username: str = Form(...), password: str = Fo
     return templates.TemplateResponse(
         request,
         "login.html",
-        {"request": request, "error": "Invalid credentials"},
+        {"request": request, "error": "Invalid credentials", "username": username},
         status_code=401,
     )
 
@@ -1633,14 +1644,21 @@ def library_track_mb_search(
     mbid: str = "",
 ):
     """HTMX partial: manual MusicBrainz search from the track-edit modal."""
-    if mbid.strip():
-        cands = mbq.candidates_from_mbid(mbid.strip(), title_hint=title or None)
-        searched = True
-    else:
-        cands = mbq.search_candidates(title=title, artist=artist or None, album=album or None, limit=10) if title.strip() else []
-        searched = bool(title.strip())
+    search_error = None
+    try:
+        if mbid.strip():
+            cands = mbq.candidates_from_mbid(mbid.strip(), title_hint=title or None)
+            searched = True
+        else:
+            cands = mbq.search_candidates(title=title, artist=artist or None, album=album or None, limit=10, raise_on_error=True) if title.strip() else []
+            searched = bool(title.strip())
+    except Exception as e:
+        log.warning("track mb-search failed: %s", e)
+        cands, searched = [], True
+        search_error = "MusicBrainz search failed — network error. Try again."
     return templates.TemplateResponse(request, "_track_mb_results.html", {
         "request": request, "track_id": track_id, "searched": searched,
+        "search_error": search_error,
         "cands": [
             {
                 "recording_id": c.recording_id, "release_id": c.release_id, "score": c.score,
@@ -2130,6 +2148,17 @@ def api_mb_search(
     * title only, in which case the job's known artist and album are seeded so
       results stay scoped to the right artist for common titles.
     """
+    try:
+        return _api_mb_search_inner(request, title, artist, album, mbid, job_id)
+    except Exception as e:
+        log.warning("mb-search failed: %s", e)
+        return templates.TemplateResponse(request, "_mb_search_results.html", {
+            "request": request, "job_id": job_id, "cands": [], "searched": True,
+            "search_error": "MusicBrainz search failed — network error. Try again.",
+        })
+
+
+def _api_mb_search_inner(request: Request, title: str, artist: str, album: str, mbid: str, job_id: int):
     if mbid.strip():
         cands = mbq.candidates_from_mbid(mbid.strip(), title_hint=title or None)
         searched = True
@@ -2149,7 +2178,8 @@ def api_mb_search(
                     seed_album = seed_album or stored.get("album")
         cands = (
             mbq.search_candidates(
-                title=title, artist=seed_artist, album=seed_album, limit=10
+                title=title, artist=seed_artist, album=seed_album, limit=10,
+                raise_on_error=True,
             )
             if title.strip()
             else []

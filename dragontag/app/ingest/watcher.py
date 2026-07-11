@@ -141,7 +141,11 @@ class _Handler(FileSystemEventHandler):
                     pipeline.submit(job.id)
                     log.info("Enqueued from watcher: %s (job %d)", p, job.id)
                 except Exception:
-                    log.exception("Failed to enqueue %s", p)
+                    # Re-register the path so a later settle pass retries it —
+                    # a transient failure (e.g. a locked DB) must not silently
+                    # strand the file in the drop folder until a restart.
+                    log.exception("Failed to enqueue %s (will retry)", p)
+                    self._touch(p)
 
 
 _observer: Observer | None = None

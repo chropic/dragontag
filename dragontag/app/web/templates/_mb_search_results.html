@@ -13,6 +13,8 @@
   </label>
   {% endfor %}
 </div>
+{% elif search_error %}
+<p class="text-xs text-[#ffb4b4]">{{ search_error }}</p>
 {% elif searched %}
 <p class="text-xs text-[#8a8a8a]">No results.</p>
 {% endif %}

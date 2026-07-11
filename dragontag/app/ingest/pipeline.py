@@ -333,14 +333,16 @@ def _process_inner(s: Session, job: Job) -> None:
     _finalize_and_commit(s, job, src, tags, score=best_total)
 
 
-def _finalize_and_commit(s: Session, job: Job, src: Path, tags: TrackTags, *, score: float) -> None:
-    """Shared tail of every identification path (MB search, MBID short-circuit).
+def prepare_tags(job: Job | None, tags: TrackTags) -> None:
+    """Apply the schema guarantees every write path must honor.
 
-    Applies the optional smart formatting, enforces the mandatory
-    RELEASETYPE/RELEASESTATUS defaults, and routes through the dry-run gate
-    before anything destructive happens — the gate must sit here rather than
-    in the search path only, or a dry-run over an already-tagged library
-    (where every file short-circuits on its MBIDs) would silently write.
+    Optional smart formatting, RELEASETYPE inference (the only mandatory
+    field) and the RELEASESTATUS default. Shared by ``_finalize_and_commit``
+    and the review/apply routes in ``main.py`` — those call
+    ``_commit_tag_path`` directly (an explicit user commit must not re-enter
+    the dry-run gate), so without this hook their files would skip the
+    formatting pass and could be written with no RELEASETYPE at all whenever
+    MB lacks a release-group primary-type.
     """
     # ----- optional smart formatting -----
     cfg = settings()
@@ -367,10 +369,23 @@ def _finalize_and_commit(s: Session, job: Job, src: Path, tags: TrackTags, *, sc
     # always yields a value from the track count, so this never blocks.
     if not tags.release_type:
         tags.release_type = _infer_release_type(tags.track_total)
-        _append_log(job, f"RELEASETYPE inferred as '{tags.release_type}' from track count={tags.track_total}")
+        if job is not None:
+            _append_log(job, f"RELEASETYPE inferred as '{tags.release_type}' from track count={tags.track_total}")
 
     if not tags.release_status:
         tags.release_status = "Official"
+
+
+def _finalize_and_commit(s: Session, job: Job, src: Path, tags: TrackTags, *, score: float) -> None:
+    """Shared tail of every identification path (MB search, MBID short-circuit).
+
+    Applies the shared schema guarantees (``prepare_tags``) and routes through
+    the dry-run gate before anything destructive happens — the gate must sit
+    here rather than in the search path only, or a dry-run over an
+    already-tagged library (where every file short-circuits on its MBIDs)
+    would silently write.
+    """
+    prepare_tags(job, tags)
 
     effective_dry_run = (
         job.dry_run_override if job.dry_run_override is not None else settings().dry_run
@@ -517,7 +532,7 @@ def _commit_tag_path(s: Session, job: Job, src: Path, tags: TrackTags, *, score:
         # User-supplied art (picker or custom upload): always write sidecar.
         write_cover_jpg(dest.parent, tags.cover_bytes, min_overwrite_pixels=0, new_width=0)
 
-    track = _upsert_track(s, dest, tags, lib_root)
+    track = _upsert_track(s, dest, tags, lib_root, original_path=original_path)
     job.track_id = track.id
     _set(job, status=JobStatus.done, destination_path=str(dest))
     _append_log(job, f"Done -> {dest}")
@@ -593,8 +608,17 @@ def _pick_library_folder() -> Path:
     return Path(folder.path) if folder else env().library_path
 
 
-def _upsert_track(s: Session, dest: Path, tags: TrackTags, lib_root: Path) -> "Track":
-    """Create or update the Track row for a successfully moved file."""
+def _upsert_track(
+    s: Session, dest: Path, tags: TrackTags, lib_root: Path, original_path: str | None = None
+) -> "Track":
+    """Create or update the Track row for a successfully moved file.
+
+    ``original_path`` is the file's pre-move location. When a re-tagged
+    in-library file moves to a new canonical destination, the row indexed at
+    the old path must be re-pointed rather than left behind — otherwise the
+    library lists a phantom entry (and double-counts) until the next scan's
+    prune, and the old row's ``protected`` flag is lost to a fresh insert.
+    """
     from ..models import LibraryFolder, Track
 
     folder_row = s.exec(
@@ -605,6 +629,10 @@ def _upsert_track(s: Session, dest: Path, tags: TrackTags, lib_root: Path) -> "T
     now = now_utc()
     duration = existing_tags.read(dest).get("duration")
     existing = s.exec(select(Track).where(Track.path == str(dest))).first()
+    if existing is None and original_path and original_path != str(dest):
+        existing = s.exec(select(Track).where(Track.path == original_path)).first()
+        if existing:
+            existing.path = str(dest)
     if existing:
         existing.library_folder_id = folder_id
         existing.title = tags.title

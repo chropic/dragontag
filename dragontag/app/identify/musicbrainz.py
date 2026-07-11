@@ -404,8 +404,9 @@ def assemble_tags(*, release_id: str, recording_id: str) -> TrackTags:
     if tags.original_date and len(tags.original_date) >= 4:
         tags.original_year = tags.original_date[:4]
     tags.mb_release_group_id = rg.get("id")
-    # primary-type is e.g. "Album"/"Single"/"EP". If absent, the pipeline
-    # routes the job to the review queue for a manual override.
+    # primary-type is e.g. "Album"/"Single"/"EP". If absent, the write paths
+    # infer one from the track count (pipeline.prepare_tags) — RELEASETYPE is
+    # the schema's one mandatory field.
     pt = rg.get("primary-type") or rg.get("type")
     tags.release_type = pt
 

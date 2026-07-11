@@ -16,7 +16,7 @@ from ..config import settings
 from ..db import session
 from ..identify.existing_tags import read as read_existing
 from ..ingest.pipeline import SUPPORTED_EXTS
-from ..models import Track
+from ..models import Job, Track
 from ..timeutil import now_utc
 from .filters import is_path_excluded
 
@@ -84,6 +84,11 @@ def _prune_missing(folder_id: int) -> int:
         rows = s.exec(select(Track).where(Track.library_folder_id == folder_id)).all()
         for t in rows:
             if not Path(t.path).exists():
+                # Detach referencing jobs first so Job.track_id never dangles
+                # (same care as the manual delete route in main.py).
+                for j in s.exec(select(Job).where(Job.track_id == t.id)).all():
+                    j.track_id = None
+                    s.add(j)
                 s.delete(t)
                 removed += 1
         if removed:

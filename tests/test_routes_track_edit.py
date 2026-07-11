@@ -110,10 +110,10 @@ def test_protect_toggle_sets_flag_and_exclude_list(client, track):
 def test_apply_match_writes_full_tags_and_upserts_track(client, track, monkeypatch):
     tid, p = track
 
-    fake_tags = types.SimpleNamespace(
-        title="MB Title", artist="MB Artist", mb_album_id=None,
-        cover_bytes=None, cover_mime=None,
-    )
+    # A real TrackTags: the route now runs prepare_tags (RELEASETYPE inference
+    # etc.) and _tags_to_dict over it, which need the full field set.
+    from dragontag.app.tagging.schema import TrackTags
+    fake_tags = TrackTags(title="MB Title", artist_display="MB Artist")
 
     def fake_assemble_tags(*, release_id, recording_id):
         assert recording_id == "rec1"

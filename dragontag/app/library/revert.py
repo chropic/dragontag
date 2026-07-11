@@ -19,7 +19,7 @@ from ..models import FileChange, Job, Track
 from ..tagging import snapshot
 from ..timeutil import now_utc
 from . import filelock
-from .mover import move
+from .mover import move, move_lyric_sidecar
 from .paths import unique_path
 
 log = logging.getLogger(__name__)
@@ -91,6 +91,11 @@ def move_back(change_id: int) -> tuple[bool, str]:
         try:
             with filelock.path_lock(file):
                 res = move(file, dest, overwrite=False)
+                if res.moved:
+                    # The pipeline moved the .lrc sidecar into the library
+                    # alongside the audio — bring it back too, or it's
+                    # orphaned next to a file that no longer exists.
+                    move_lyric_sidecar(file, dest)
             if not res.moved:
                 return False, f"Could not move back: {dest} already exists."
         except Exception as e:  # noqa: BLE001 - surface any failure to the user
@@ -115,6 +120,8 @@ def move_back(change_id: int) -> tuple[bool, str]:
             try:
                 with filelock.path_lock(dest):
                     restored = move(dest, file, overwrite=False).moved
+                    if restored:
+                        move_lyric_sidecar(dest, file)
             except Exception:
                 log.exception("move-back: rollback move failed for %s", dest)
             if restored:

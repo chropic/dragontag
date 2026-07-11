@@ -4,6 +4,51 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Fixed (repo bug sweep — 2026-07-10)
+- **Cancelling disc-folder / filename cleanup discarded Track.path updates for files already
+  moved** — `fix_disc_folders` and `normalize_filenames` held every path update in one session
+  and committed once after the loop, so a Stop request (or an unguarded exception) mid-run rolled
+  the DB back to paths that no longer exist on disk; both now commit per physical move/rename,
+  matching the organizer and the album-consistency fixer. (`library/actions.py`)
+- **Apply-match was an unauditable destructive rewrite that wiped embedded lyrics** — the
+  per-track "apply MB match" route ran the full canonical `write_tags` (which clears every
+  existing tag) without capturing a snapshot or recording a `FileChange`, so the rewrite was
+  invisible in /changes and unrevertable — and since it fetches no lyrics, the file's embedded
+  lyrics/advisory were destroyed and the dashboard counters reset. It now snapshots first,
+  records an audit row (`job_id` null — no pipeline job backs it), and carries the file's own
+  lyrics/advisory across the rewrite. (`main.py`)
+- **Review-applied files could be written with no RELEASETYPE and skipped smart formatting** —
+  the single- and bulk-apply review handlers call `_commit_tag_path` directly, bypassing
+  `_finalize_and_commit`'s RELEASETYPE inference, `RELEASESTATUS=Official` default, and
+  formatting pass; those guarantees now live in `pipeline.prepare_tags`, shared by the pipeline
+  and all three manual apply paths (an explicit `release_type_override` still wins, and the
+  dry-run gate deliberately stays pipeline-only). (`ingest/pipeline.py`, `main.py`)
+- **Re-tagging an in-library file that moved left a phantom Track row at the old path** —
+  `_upsert_track` only looked up the destination path, so a requeue/bulk re-tag whose canonical
+  destination changed inserted a duplicate row and orphaned the old one (double-counted in the
+  library and dashboard, `protected` flag lost) until the next scan pruned it; the row at the
+  pre-move path is now re-pointed instead. (`ingest/pipeline.py`)
+- **Linking an album onto an M4A could destroy its track/disc totals** — the MP4 branch of
+  `write_album_link_tags` gated totals with `is not None`, so a representative track carrying a
+  total of 0 ("unknown", per convention) overwrote the file's existing `trkn`/`disk` total half
+  with 0; now uses truthiness like the FLAC/ID3 branches. (`tagging/partial.py`)
+- **Move-back orphaned the lyric sidecar** — the pipeline moves a track's `.lrc` into the
+  library beside the audio, but `move_back` returned only the audio file to its original folder,
+  leaving the sidecar next to a file that no longer exists; the sidecar now follows the audio
+  (both on the move and on a DB-failure rollback). (`library/revert.py`)
+- **Scheduled batches ran against stale track data** — the route layer unconditionally prepends
+  a library scan to every batch ("so it never runs against stale track data") but the scheduler's
+  `batch_organize`/`batch_retag` dispatch built its chains without one, so a cron-fired organize
+  moved files based on whatever the Track table last saw; both now scan the target folder first.
+  (`scheduler.py`)
+- **Scan pruning left Job rows pointing at deleted tracks** — `_prune_missing` deleted Track
+  rows directly while the manual delete route carefully nulls referencing `Job.track_id`; the
+  scanner now detaches jobs the same way. (`library/scanner.py`)
+- **The in-app manual documented a review reason that can no longer occur** —
+  `missing_releasetype` was removed when RELEASETYPE inference was added, but /docs still listed
+  it (and a comment in `musicbrainz.py` still claimed absence routes to review). (`docs.html`,
+  `identify/musicbrainz.py`)
+
 ### Fixed (repo bug sweep — 2026-07-09)
 - **Explicit `"artist": null` in an MB credit crashed candidate scoring** — `score_candidate`
   still used `credits[0].get("artist", {})`, which passes a stored `None` through to

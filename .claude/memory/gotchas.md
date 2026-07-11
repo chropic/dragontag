@@ -96,6 +96,12 @@ recurring. When writing new code in one of these areas, check the pattern first.
 - Popping a job's cancel event (`tasks._cancel_events`) breaks the Stop button — only do it when
   the job is truly finished.
 - Never poll/sleep in a request handler; long work goes through `tasks.run_task`.
+- **Never `flush()` (or otherwise hold an open write transaction) across a network call.**
+  SQLite has one writer: `pipeline._process_inner` flushed the clue log before the
+  MusicBrainz/AcoustID calls and blocked every other writer (watcher enqueues, UI POSTs)
+  with "database is locked" for the whole identify phase. Commit before going to the network.
+- The drop watcher must re-register a path if `enqueue` raises, or the file is silently
+  stranded until restart (`watcher.settle_loop`).
 
 ## Timezone & time
 
@@ -122,6 +128,13 @@ recurring. When writing new code in one of these areas, check the pattern first.
   music metadata) is up to 4 bytes each. Cap on `len(s.encode("utf-8"))` and slice bytes,
   decoding with `errors="ignore"` (`models.append_job_log` is the worked example).
 - Form checkboxes the browser may omit must be `str | None = Form(None)` + `bool(...)`.
+- **`_toast_response`'s HX-Trigger header is invisible to plain `<form method=post>` submits**
+  (the browser follows the 303 itself). Toasts also travel as `dt_toast`/`dt_level`/`dt_job`
+  query params that base.html's toastManager shows on load and strips — keep both channels when
+  touching toast plumbing.
+- On narrow screens: wide tables scroll inside themselves via the global `@media (max-width:
+  640px) table` rule in `frontend/app.input.css`; the nav link row is `flex-1 min-w-0
+  overflow-x-auto`. New wide layouts must not widen the body.
 
 ## Pipeline semantics
 

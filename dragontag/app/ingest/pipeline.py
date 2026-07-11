@@ -207,9 +207,13 @@ def _process_inner(s: Session, job: Job) -> None:
         "album": existing.get("album"),
         "duration": existing.get("duration"),
     }
+    # Commit (not flush) before the network-bound identify calls below: a
+    # flush issues the UPDATE and takes SQLite's write lock, and holding it
+    # open across MusicBrainz/AcoustID retries blocks every other writer
+    # (watcher enqueues, any POST from the UI) with "database is locked".
     _append_log(job, f"Clues: {clues}")
     s.add(job)
-    s.flush()
+    s.commit()
 
     # ----- step 1: short-circuit on existing MBIDs -----
     # If the file was already tagged by Picard (or by us), the MB IDs are the

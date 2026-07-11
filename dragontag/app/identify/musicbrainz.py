@@ -114,8 +114,15 @@ def search_candidates(
     album: str | None,
     duration_sec: float | None = None,
     limit: int = 10,
+    raise_on_error: bool = False,
 ) -> list[Candidate]:
     """Query MB recordings; return one ``Candidate`` per (recording, release) pair.
+
+    ``raise_on_error=True`` re-raises ``WebServiceError`` instead of returning
+    ``[]``, so interactive callers (the review-page manual search) can tell
+    "MusicBrainz unreachable" apart from a genuine zero-hit search. The
+    pipeline keeps the swallow-and-return-[] behaviour so its AcoustID
+    fallback still runs.
 
     Uses a progressive fallback strategy to maximise hit rate:
     1. title + artist + album + duration
@@ -141,8 +148,19 @@ def search_candidates(
             ms = int(duration_sec * 1000)
             q_parts.append(f"dur:[{ms - 2000} TO {ms + 2000}]")
         try:
-            res = _mb_retry(mb.search_recordings, query=" AND ".join(q_parts), limit=limit)
+            # Interactive callers get no outer retry layer: musicbrainzngs
+            # already retries up to 8× internally, and stacking _mb_retry's
+            # 3 attempts on top makes a dead network take many minutes to
+            # surface in the UI.
+            res = _mb_retry(
+                mb.search_recordings,
+                query=" AND ".join(q_parts),
+                limit=limit,
+                retries=0 if raise_on_error else 2,
+            )
         except mb.WebServiceError:
+            if raise_on_error:
+                raise
             return []
         out: list[Candidate] = []
         for rec in res.get("recording-list", []):

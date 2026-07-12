@@ -22,6 +22,7 @@ import threading
 import traceback
 from pathlib import Path
 
+import requests
 from sqlmodel import Session, select
 
 from ..config import env, settings
@@ -425,16 +426,35 @@ def _commit_tag_path(s: Session, job: Job, src: Path, tags: TrackTags, *, score:
     # (e.g. the review UI cover-art picker or a custom upload).
     cover = None
     if not tags.cover_bytes:
-        cover = fetch_for_release(tags.mb_album_id) if tags.mb_album_id else None
-        # The release-group cover is shared across every edition in the group,
-        # so it can bleed one album's art onto another. Only use it when the
-        # user has explicitly opted in.
-        if (
-            not cover
-            and tags.mb_release_group_id
-            and settings().cover_allow_release_group_fallback
-        ):
-            cover = fetch_for_release_group(tags.mb_release_group_id)
+        # A CAA *fetch failure* (5xx/SSL/connection) is transient and retriable,
+        # so it must not abort the whole job (previously it crashed the pipeline
+        # and left the file untagged). Route to review instead — bailing here,
+        # before any destructive write/move, keeps ``source_path`` valid so the
+        # review "Apply" path can re-run this fetch later. A genuine "no art in
+        # CAA" (HTTP 404) returns None and is *not* an error: the job proceeds
+        # art-less as before.
+        try:
+            cover = fetch_for_release(tags.mb_album_id) if tags.mb_album_id else None
+            # The release-group cover is shared across every edition in the group,
+            # so it can bleed one album's art onto another. Only use it when the
+            # user has explicitly opted in.
+            if (
+                not cover
+                and tags.mb_release_group_id
+                and settings().cover_allow_release_group_fallback
+            ):
+                cover = fetch_for_release_group(tags.mb_release_group_id)
+        except requests.RequestException as e:
+            _append_log(job, f"Cover art fetch failed ({e}); routing to review")
+            _set(
+                job,
+                status=JobStatus.needs_review,
+                review_reason=ReviewReason.cover_fetch_failed,
+                score=score,
+            )
+            s.add(job)
+            s.commit()
+            return
         if cover:
             tags.cover_bytes = cover.data
             tags.cover_mime = cover.mime

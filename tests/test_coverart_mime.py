@@ -5,6 +5,7 @@ a wrong declared ``image/jpeg`` MIME, so the bytes and MIME disagreed.
 """
 from io import BytesIO
 
+import pytest
 from PIL import Image
 
 from dragontag.app.tagging import coverart
@@ -24,7 +25,8 @@ class _Resp:
 
     def raise_for_status(self):
         if self.status_code >= 400:
-            raise AssertionError(f"status {self.status_code}")
+            import requests
+            raise requests.HTTPError(f"status {self.status_code}")
 
     def close(self):
         pass
@@ -66,3 +68,36 @@ def test_jpeg_cover_stays_jpeg(monkeypatch):
     assert art is not None
     assert art.mime == "image/jpeg"
     assert Image.open(BytesIO(art.data)).format == "JPEG"
+
+
+# ---- metadata fetch: soft-miss vs. real failure ----
+#
+# A 404 from CAA means "no art here" and must stay a soft-miss (None). A 5xx or
+# a transport error (the archive.org mirror flaking with 500 / SSL failures seen
+# in production) is transient and must *surface* as a requests exception so the
+# pipeline can route the job to review for retry rather than embedding no art.
+
+def test_caa_404_is_soft_miss(monkeypatch):
+    from dragontag.app import net
+    monkeypatch.setattr(net.requests, "get", lambda url, **kw: _Resp(b"", status=404))
+    assert coverart.fetch_for_release("some-mbid") is None
+
+
+def test_caa_500_raises(monkeypatch):
+    import requests
+    from dragontag.app import net
+    monkeypatch.setattr(net.requests, "get", lambda url, **kw: _Resp(b"", status=500))
+    with pytest.raises(requests.HTTPError):
+        coverart.fetch_for_release("some-mbid")
+
+
+def test_caa_ssl_error_propagates(monkeypatch):
+    import requests
+    from dragontag.app import net
+
+    def boom(url, **kw):
+        raise requests.exceptions.SSLError("certificate verify failed")
+
+    monkeypatch.setattr(net.requests, "get", boom)
+    with pytest.raises(requests.exceptions.SSLError):
+        coverart.fetch_for_release("some-mbid")

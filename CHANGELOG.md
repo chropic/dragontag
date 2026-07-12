@@ -4,6 +4,16 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Fixed (ingest resilience — 2026-07-12)
+- **A flaky Cover Art Archive fetch crashed the whole ingest/apply job** — when the archive.org
+  mirror CAA redirects to answered with a 500 or failed TLS verification, the exception escaped
+  the best-effort cover step and aborted the pipeline, so the file was never tagged or moved (a
+  large fraction of a bulk import failed this way, each failure retriable). A CAA *fetch failure*
+  (5xx/SSL/connection) now parks the job in `needs_review` with a new `cover_fetch_failed` reason —
+  bailing before the destructive write/move so the source file is untouched and the review "Apply"
+  path can retry the fetch. A genuine "no art in CAA" (HTTP 404) is unchanged: the job completes
+  art-less. (`ingest/pipeline.py`, `models.py`, `web/templates/docs.html`)
+
 ### Fixed (web UI UX sweep — 2026-07-11)
 - **Identify phase held the SQLite write lock for its entire network-bound duration** — the
   pipeline `flush()`ed the job's clue log before the MusicBrainz/AcoustID calls, which issues the

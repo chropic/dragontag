@@ -124,6 +124,7 @@ class ReviewReason(str, Enum):
     low_score = "low_score"  # best candidate was below the configured threshold
     no_match = "no_match"  # no MB or AcoustID candidate at all
     destination_conflict = "destination_conflict"  # target path already exists
+    cover_fetch_failed = "cover_fetch_failed"  # CAA unreachable (5xx/SSL); retriable
     missing_releasetype = "missing_releasetype"  # MB release-group has no primary-type
     dry_run = "dry_run"  # dry-run mode: preview without writing
 

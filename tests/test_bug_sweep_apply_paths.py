@@ -18,7 +18,7 @@ from sqlmodel import select
 from dragontag.app.db import session
 from dragontag.app.ingest import pipeline
 from dragontag.app.main import app, require_auth
-from dragontag.app.models import FileChange, Job, JobStatus, Track
+from dragontag.app.models import FileChange, Job, JobStatus, ReviewReason, Track
 from dragontag.app.tagging.schema import TrackTags
 
 
@@ -114,6 +114,35 @@ def test_review_apply_override_beats_inference(client, tmp_path, monkeypatch):
     )
     assert r.status_code == 303
     assert captured["tags"].release_type == "EP"
+
+
+# ---- cover-art fetch failure routes to review (not a pipeline crash) ----
+
+def test_commit_routes_to_review_on_cover_fetch_failure(tmp_path, monkeypatch):
+    """A transient CAA fetch failure (5xx/SSL) must not abort ingest: the job is
+    parked in needs_review (retriable) and the source file is left untouched."""
+    import requests
+    from dragontag.app import net
+
+    src = tmp_path / "song.wav"
+    _make_wav(src)
+    jid = _review_job(src)
+
+    def boom(url, **kw):
+        raise requests.exceptions.SSLError("certificate verify failed")
+
+    monkeypatch.setattr(net.requests, "get", boom)
+
+    tags = TrackTags(title="T", artist_display="A", mb_album_id="rel-id")
+    with session() as s:
+        job = s.get(Job, jid)
+        pipeline._commit_tag_path(s, job, src, tags, score=0.9)  # must not raise
+
+    assert src.exists()  # file was neither tagged nor moved
+    with session() as s:
+        job = s.get(Job, jid)
+        assert job.status == JobStatus.needs_review
+        assert job.review_reason == ReviewReason.cover_fetch_failed
 
 
 # ---- apply-match: snapshot + FileChange + lyrics preserved ----

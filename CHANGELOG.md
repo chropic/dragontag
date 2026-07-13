@@ -4,6 +4,19 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Added (project tooling — 2026-07-13)
+- **Pull-request template** (`.github/pull_request_template.md`) — an accessible,
+  self-explaining scaffold (summary, what/why, change type, how-tested, screenshots
+  with alt-text guidance, reviewer notes, checklist) that GitHub pre-fills on every
+  new PR. (`.github/pull_request_template.md`)
+- **Per-commit versioning** — dragontag now bumps the patch version on every commit.
+  A tracked `.githooks/pre-commit` runs `scripts/bump_version.py`, which increments
+  `PATCH` in lockstep across `pyproject.toml` and both package `__init__.py` files
+  and re-stages them. Enable once per clone with `git config core.hooksPath .githooks`.
+  The version line was reset to `0.1.0` as the new baseline. See `docs/VERSIONING.md`.
+  (`.githooks/pre-commit`, `scripts/bump_version.py`, `docs/VERSIONING.md`,
+  `pyproject.toml`, `dragontag/app/__init__.py`)
+
 ### Added (duplicate artist/album folder cleanup — 2026-07-13)
 - **New "Fix artist folders" library action** (`unify_artist_folders`,
   `POST /library/unify-artist-folders`, queued in the organize and nuclear batches

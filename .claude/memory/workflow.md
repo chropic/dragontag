@@ -59,12 +59,24 @@ silently — always touch all four):
    dict (checkboxes: `str | None = Form(None)` + `bool(...)`).
 4. Whatever consumes the setting (usually `ingest/pipeline.py` or the relevant module).
 
+## Versioning
+
+- **Every commit bumps the patch version.** A tracked git hook (`.githooks/pre-commit`) runs
+  `scripts/bump_version.py`, which increments `PATCH` (`X.Y.Z` → `X.Y.Z+1`) across
+  `pyproject.toml` and both `__init__.py` files and re-stages them. Enable once per clone:
+  `git config core.hooksPath .githooks`. Bump `MAJOR`/`MINOR` by hand at milestones. Full
+  detail in `docs/VERSIONING.md`.
+- The hook skips merge commits; `git commit --no-verify` skips a single bump if ever needed.
+- Don't hand-edit the three version files to different values — they must stay in lockstep
+  (the bump script re-syncs them from `pyproject.toml`, the source of truth).
+
 ## PRs
 
 - Title: short imperative with a conventional prefix (`feat:`, `fix:`, `docs:` …).
 - Body: Summary (grouped by severity/area for sweeps) + Testing section stating the suite result.
-- No PR template exists in the repo — write the body free-form in the style of merged PRs
-  (#39, #40).
+- **A PR template exists** (`.github/pull_request_template.md`) — GitHub pre-fills it on new PRs.
+  Populate its sections; delete any that don't apply. When creating a PR via the GitHub MCP,
+  mirror the template's headings in the body.
 - In the remote-agent environment there is no `gh` CLI — use the GitHub MCP tools
   (`mcp__github__create_pull_request` etc.). Locally, `gh pr create` with a HEREDOC body works.
 - Draft first when the maintainer hasn't pre-approved the direction.

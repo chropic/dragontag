@@ -70,6 +70,9 @@ class Track(SQLModel, table=True):
     mb_track_id: str | None = None
     mb_album_id: str | None = None
     mb_release_group_id: str | None = None
+    # First MusicBrainz album-artist id. Keys artist-folder unification across
+    # alias/credit variants (FERG/A$AP Ferg) that fold to different strings.
+    mb_album_artist_id: str | None = None
     advisory: int | None = Field(default=None)
     has_lyrics: bool = Field(default=False)
 

@@ -99,6 +99,7 @@ def _migrate(engine):
         "ALTER TABLE job ADD COLUMN progress_item VARCHAR",
         "ALTER TABLE track ADD COLUMN protected INTEGER DEFAULT 0",
         "ALTER TABLE track ADD COLUMN mb_release_group_id VARCHAR",
+        "ALTER TABLE track ADD COLUMN mb_album_artist_id VARCHAR",
     ):
         try:
             with engine.begin() as conn:

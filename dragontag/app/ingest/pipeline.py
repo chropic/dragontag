@@ -757,6 +757,9 @@ def _upsert_track(
         existing.mb_track_id = tags.mb_track_id
         existing.mb_album_id = tags.mb_album_id
         existing.mb_release_group_id = tags.mb_release_group_id
+        existing.mb_album_artist_id = (
+            tags.mb_album_artist_ids[0] if tags.mb_album_artist_ids else None
+        )
         existing.advisory = tags.advisory
         existing.has_lyrics = bool(tags.lyrics)
         existing.duration = duration
@@ -780,6 +783,9 @@ def _upsert_track(
         mb_track_id=tags.mb_track_id,
         mb_album_id=tags.mb_album_id,
         mb_release_group_id=tags.mb_release_group_id,
+        mb_album_artist_id=(
+            tags.mb_album_artist_ids[0] if tags.mb_album_artist_ids else None
+        ),
         advisory=tags.advisory,
         has_lyrics=bool(tags.lyrics),
         duration=duration,

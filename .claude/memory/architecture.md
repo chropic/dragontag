@@ -107,7 +107,10 @@ dragontag/app/
       _id3common.py        Shared ID3v2.4 frame builder (TXXX_FIELDS, dedicated TSOP/TSO2, UFID).
   library/
     filelock.py            path_lock(path) — per-resolved-path threading.Lock. See "Locking".
-    paths.py               sanitize_segment, primary_artist, build_destination, unique_path.
+    paths.py               sanitize_segment, primary_artist, build_destination, unique_path,
+                           fold_text/artist_fold_key (case/punct/Unicode fold for grouping),
+                           _reuse_folded_dir (build_destination converges on an existing
+                           case/punct-variant folder instead of minting a duplicate).
     mover.py               move(src, dst, overwrite=False) → MoveResult(moved, destination,
                            conflict). DOES NOT RAISE on conflict. Verifies byte count after move.
                            move_lyric_sidecar, write_cover_jpg (temp + os.replace).
@@ -125,6 +128,12 @@ dragontag/app/
                            prefetched rel doc), preserving lyrics/advisory/existing art;
                            offline _majority_pair fallback for MB-less groups (shared
                            _normalize_track_to_pair helper with check_album_consistency).
+                           unify_artist_folders: one folder per artist — group by
+                           Track.mb_album_artist_id (else artist_fold_key), elect the
+                           majority album_artist spelling, patch+move outliers via
+                           _normalize_track_to_pair(winning_album=None) (album kept), then
+                           _rename_artist_dir for case-only dir variants. Runs before
+                           check_album_consistency in the batches.
     filters.py             is_path_excluded(p, patterns, dirs) — applied by scanner, bulk, watcher.
     revert.py              revert_change (restore tags in place under path_lock) + move_back
                            (return file to original dir; rollback checks MoveResult; adds dest
@@ -167,9 +176,11 @@ read-then-write on a file's tags or location must hold it. Current holders:
 3. **Organizer** — `library/organizer.organize_folder` (move + Track.path update + rollback).
 4. **Conflict resolver** — `main.resolve_conflict` (replace/rename move + lyric sidecar).
 5. **Library actions** — every file-touching function in `library/actions.py`
-   (album-consistency tag patch + move, album-split full re-tag + move, disc-folder flatten,
-   filename normalize, fetch lyrics/covers, advisory re-tag) locks each per-file mutate/move
-   section.
+   (album-consistency tag patch + move, album-split full re-tag + move, artist-folder
+   unification tag patch + move, disc-folder flatten, filename normalize, fetch lyrics/covers,
+   advisory re-tag) locks each per-file mutate/move section. Artist-folder unification also
+   renames whole artist directories (`_rename_artist_dir`); that rename re-points every
+   `Track.path` beneath it and commits per rename.
 6. **Per-track edit routes** — `main.py` manual tag edit, link-album, apply-match, and
    single-track lyrics fetch lock around their in-place writes.
 

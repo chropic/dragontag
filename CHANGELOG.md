@@ -4,6 +4,45 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Added (duplicate artist/album folder cleanup — 2026-07-13)
+- **New "Fix artist folders" library action** (`unify_artist_folders`,
+  `POST /library/unify-artist-folders`, queued in the organize and nuclear batches
+  before album-folder consistency) — collapses duplicate artist folders caused by
+  capitalization (`fakemink`/`Fakemink`, `LUCKI`/`Lucki`), punctuation/Unicode
+  (curly quotes, the Unicode dashes, `®`/`™`/`©` marks, `×`→`x`) and MusicBrainz
+  alias/credit drift (`FERG`/`A$AP Ferg`) into one canonical folder per artist. It
+  groups tracks by MusicBrainz album-artist id (falling back to a folded artist
+  name), elects the majority album-artist spelling among the user's own files (a
+  pure vote — stylized-lowercase names are kept, never forced to capitals),
+  rewrites outlier `album_artist` tags and moves each file under the canonical
+  folder while leaving its album untouched, then renames case-only folder variants
+  (case-insensitive mounts) and prunes emptied folders. Offline; every move/tag
+  write holds `path_lock` and commits per track; protected tracks are skipped.
+  (`library/actions.py`, `main.py`, `tests/test_unify_artist_folders.py`)
+- **New `Track.mb_album_artist_id` column** (idempotent `ALTER TABLE`), populated by
+  the scanner and the ingest pipeline from the file's `MUSICBRAINZ_ALBUMARTISTID`,
+  giving artist-folder unification a reliable key for alias variants that fold to
+  different strings. (`models.py`, `db.py`, `identify/existing_tags.py`,
+  `library/scanner.py`, `ingest/pipeline.py`)
+
+### Changed (duplicate folder prevention — 2026-07-13)
+- **Ingest now converges on an existing artist/album folder that differs only by
+  case/punctuation instead of minting a duplicate next to it** — `build_destination`
+  resolves each artist/album segment against the sibling directories already on disk
+  (fold-equality only, never fuzzy), so a file tagged `Afraid` lands under an existing
+  `afraid` folder rather than creating `Afraid`. This stops every future ingest from
+  re-seeding the case-variant problem. (`library/paths.py`, `tests/test_paths.py`)
+- **The offline album grouping used by "Fix album/folder consistency" and "Fix album
+  splits" now folds case/punctuation/Unicode and strips iTunes-style trailing
+  `- Single` / `- EP` suffixes and dangling dashes** (`…Friends–`), so `X` / `X (Deluxe)`
+  / `X - Single` / `SPIDERR`/`Spiderr` variants of MB-less albums group together.
+  (`library/actions.py`, `tests/test_unify_artist_folders.py`)
+- **"Prune junk & empty folders" now also reports (never deletes) dead folders** — a
+  directory with no audio anywhere below it but leftover files (`cover.jpg`, orphan
+  `.lrc`), and album folders that contain only `Disc NN` subfolders with disc 1
+  missing (the orphan-disc symptom). **"Validate tags" flags suspicious album names**
+  (`_`, `(Deluxe)` with no base title). Both are report-only. (`library/actions.py`)
+
 ### Added (album-split repair — 2026-07-13)
 - **New "Fix album splits" library action** (`fix_album_splits`, `POST /library/fix-album-splits`,
   also queued automatically as the first post-pipeline step of the nuclear batch) — repairs albums

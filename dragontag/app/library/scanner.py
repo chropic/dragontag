@@ -128,6 +128,7 @@ def _upsert_from_disk(s, path: Path, folder_id: int) -> Track:
         "mb_track_id": raw.get("mb_track_id"),
         "mb_album_id": raw.get("mb_album_id"),
         "mb_release_group_id": raw.get("mb_release_group_id"),
+        "mb_album_artist_id": raw.get("mb_album_artist_id"),
         "advisory": raw.get("advisory"),
         "has_lyrics": bool(raw.get("has_lyrics")),
         "last_seen": now,

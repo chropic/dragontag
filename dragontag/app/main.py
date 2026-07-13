@@ -1865,6 +1865,14 @@ def library_fix_disc_folders(request: Request, _: None = Depends(require_auth), 
     return _toast_response("/library", "Disc-folder normalization started.")
 
 
+@app.post("/library/fix-album-splits")
+def library_fix_album_splits(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
+    from .library.actions import fix_album_splits
+    tasks.run_task("fix_album_splits", f"Fix album splits (folder {folder_id})",
+                   lambda ctx: fix_album_splits(folder_id, ctx=ctx))
+    return _toast_response("/library", "Album-split repair started — split albums will be unified onto one release.")
+
+
 @app.post("/library/find-missing-tracks")
 def library_find_missing_tracks(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
     from .library.actions import find_missing_tracks

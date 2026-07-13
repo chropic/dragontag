@@ -30,6 +30,7 @@ High-confidence matches flow through hands-free. Low-confidence files land in a 
 | **MusicBrainz-first** | Short-circuits on an existing `MUSICBRAINZ_TRACKID`; otherwise searches by title / artist / album / duration with progressive fallback to maximise hit rate |
 | **AcoustID fingerprint** | Toggleable acoustic fingerprint fallback using `fpcalc` (bundled in the image) when text search comes up empty |
 | **Confidence scoring** | Matches above the threshold are tagged and moved automatically; everything else goes to review |
+| **Release consensus** | Near-tied candidates resolve to one deterministic release per album — Official status, then the release your library already uses for that release group, then the larger edition — so tracks of one album can't scatter across MusicBrainz editions and split into multiple album listings |
 
 ### Tagging & metadata
 
@@ -49,8 +50,9 @@ High-confidence matches flow through hands-free. Low-confidence files land in a 
 |---|---|
 | **Organize** | Moves all tracks to their canonical paths based on current filename templates; picks up manual edits after a scan |
 | **Library scan** | Indexes existing on-disk files into the DB — useful after editing tags outside dragontag |
-| **Batch operations** | One-click chained runs: **Organize batch** (organize + fix disc folders + normalize + covers + prune + dedupe + find missing), **Re-tag batch** (validate + advisories + ReplayGain + full pipeline), and the **Nuclear option** (both) |
-| **Library actions** | 12 individual actions (fetch lyrics/covers, extract covers, ReplayGain, verify integrity, validate tags, fix disc folders, normalize filenames, find duplicates, prune junk, find missing tracks, tag advisories) — run one or multi-select to chain |
+| **Batch operations** | One-click chained runs: **Organize batch** (organize + fix disc folders + normalize + covers + prune + dedupe + find missing), **Re-tag batch** (validate + advisories + ReplayGain + full pipeline), and the **Nuclear option** (both, with an album-split repair pass right after the re-tag pipeline) |
+| **Library actions** | 14 individual actions (fetch lyrics/covers, extract covers, ReplayGain, verify integrity, validate tags, fix disc folders, normalize filenames, find duplicates, prune junk, find missing tracks, tag advisories, fix album splits, fix album/folder consistency) — run one or multi-select to chain |
+| **Album-split repair** | "Fix album splits" re-unifies albums whose tracks were matched to different MusicBrainz editions (multiple album IDs / titles / track totals / covers shown as several albums by players): elects the edition covering the most of your tracks and fully re-tags every track against it, preserving lyrics and existing art, then merges the files into one folder |
 | **Incomplete albums** | Persisted results of "find missing tracks": albums with fewer local tracks than the MB total, with missing titles, MB links, and per-row dismiss |
 | **Library table** | Column sorting and pagination (10 / 25 / 50 / 100 / 200); explicit advisory badge on each row |
 
@@ -333,6 +335,8 @@ Pure-logic, no-network tests cover the most failure-prone paths:
 | `test_scoring.py` | Perfect match scores high; wrong title scores low |
 | `test_scoring_unicode.py` | Scores match across unicode forms (NFC/NFD) and casing; a 0-second duration still participates |
 | `test_musicbrainz_credits.py` | Artist-credit extraction tolerates malformed/partial MB payloads without raising |
+| `test_release_consensus.py` | Near-tied candidates converge on one deterministic release (Official → library majority → larger edition); distant candidates never win |
+| `test_fix_album_splits.py` | Split albums are re-unified onto the canonical release on disk and in the DB; bonus/protected tracks are left alone; MB-less groups fall back to the offline vote |
 | `test_existing_tags_corrupt.py` | A corrupt/unreadable file degrades to empty clues instead of erroring the job |
 | `test_watcher_settle.py` | A file is released for ingest only once its size is stable across the settle window |
 | `test_tasks_reaper.py` | Heartbeat-stale `running` jobs are reaped to `error`; fresh ones are left alone |

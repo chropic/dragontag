@@ -64,7 +64,12 @@ dragontag/app/
                            → _process_inner (identify branches) → _finalize_and_commit →
                            _commit_tag_path (snapshot → write_tags → move, under path_lock) →
                            _record_change/_upsert_track. start_worker/_worker_loop (ONE thread),
-                           submit, resubmit_pending (boot recovery).
+                           submit, resubmit_pending (boot recovery). _select_candidate: among
+                           near-tied candidates (_CONSENSUS_EPSILON of top score) prefer
+                           Official → library-majority release for the release group
+                           (_existing_release_for_group) → larger edition → smallest id, so one
+                           album's tracks converge on one release; threshold still gates on the
+                           raw score leader.
     watcher.py             watchdog observer; _Handler._pending stores (ts, size) — a path is
                            released only when the settle window elapsed AND size stopped changing.
     uploads.py             UI upload handler; streams 1 MiB chunks; unlinks the partial file if
@@ -74,7 +79,10 @@ dragontag/app/
     existing_tags.py       mutagen-based normalized tag reader; degrades to {"duration": None}
                            on unreadable headers. Knows TXXX:/UFID:/MP4-freeform MBID aliases.
     filename_parse.py      "Artist - Title" / "NN - Title" heuristics.
-    musicbrainz.py         search_candidates (progressive fallback) + assemble_tags. _mb_retry
+    musicbrainz.py         search_candidates (progressive fallback) + assemble_tags (accepts a
+                           prefetched rel doc for bulk repairs). MEDIA + release_track_total
+                           are normalized release-wide (_release_media/_release_track_total) —
+                           never write per-medium values into album-level tags. _mb_retry
                            wrapper; _credit_names/_sorts/_ids/_phrase all guard malformed
                            credits with (c.get("artist") or {}).
     acoustid.py            fpcalc + AcoustID lookup; swallows ALL exceptions → [].
@@ -110,7 +118,13 @@ dragontag/app/
                            _prune_empty_dirs (bottom-up, never the library root).
     actions.py             LIBRARY_ACTIONS registry: key → (label, description, fn(folder_id,
                            ctx=None) -> dict). Keys map to routes /library/<key-with-dashes>.
-                           BATCH_ORGANIZE / BATCH_RETAG step lists; build_chain_steps.
+                           BATCH_ORGANIZE / BATCH_RETAG / BATCH_NUCLEAR step lists;
+                           build_chain_steps. fix_album_splits: per release group, elect a
+                           canonical release (recording coverage → Official → size → id) and
+                           fully re-tag every track against it (assemble_tags with the
+                           prefetched rel doc), preserving lyrics/advisory/existing art;
+                           offline _majority_pair fallback for MB-less groups (shared
+                           _normalize_track_to_pair helper with check_album_consistency).
     filters.py             is_path_excluded(p, patterns, dirs) — applied by scanner, bulk, watcher.
     revert.py              revert_change (restore tags in place under path_lock) + move_back
                            (return file to original dir; rollback checks MoveResult; adds dest
@@ -153,8 +167,9 @@ read-then-write on a file's tags or location must hold it. Current holders:
 3. **Organizer** — `library/organizer.organize_folder` (move + Track.path update + rollback).
 4. **Conflict resolver** — `main.resolve_conflict` (replace/rename move + lyric sidecar).
 5. **Library actions** — every file-touching function in `library/actions.py`
-   (album-consistency tag patch + move, disc-folder flatten, filename normalize, fetch
-   lyrics/covers, advisory re-tag) locks each per-file mutate/move section.
+   (album-consistency tag patch + move, album-split full re-tag + move, disc-folder flatten,
+   filename normalize, fetch lyrics/covers, advisory re-tag) locks each per-file mutate/move
+   section.
 6. **Per-track edit routes** — `main.py` manual tag edit, link-album, apply-match, and
    single-track lyrics fetch lock around their in-place writes.
 
@@ -222,8 +237,9 @@ conflict=True)` on a conflict instead of raising. Every caller must branch on `.
   Multi-value fields emit native lists, never separator-joined strings.
 - **New individual library action** → function `(folder_id, ctx=None) -> dict` in
   `library/actions.py`, register in `LIBRARY_ACTIONS` (key → (label, description, fn)); the
-  Library page, multi-select chains, batches (`BATCH_ORGANIZE`/`BATCH_RETAG`) and scheduler all
-  read the registry. Route appears at `/library/<key-with-dashes>`.
+  Library page, multi-select chains, batches (`BATCH_ORGANIZE`/`BATCH_RETAG`/`BATCH_NUCLEAR`)
+  and scheduler all read the registry, but the `/library/<key-with-dashes>` POST route in
+  `main.py` must be added by hand (the template's carrier forms assume it exists).
 - **New pipeline step** → `ingest/pipeline._process_inner` (keep flat; review-branch routing at
   the bottom) or `_finalize_and_commit` for post-identify steps shared with the MBID short-circuit.
 - **New identifier source** → `identify/` with the same shape as `musicbrainz`/`acoustid`;

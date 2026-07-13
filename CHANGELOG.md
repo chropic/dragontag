@@ -4,6 +4,39 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Added (album-split repair — 2026-07-13)
+- **New "Fix album splits" library action** (`fix_album_splits`, `POST /library/fix-album-splits`,
+  also queued automatically as the first post-pipeline step of the nuclear batch) — repairs albums
+  whose tracks were identified against *different editions* of the same MusicBrainz release group
+  (different `MUSICBRAINZ_ALBUMID`s, album titles, track totals, barcodes and covers — rendered as
+  several album listings by players). Per release group it elects a canonical release (the edition
+  covering the most of the group's recordings, then Official status, then size, then a
+  deterministic id tiebreak) and fully re-tags every track against it, preserving embedded
+  lyrics/advisory and keeping existing art when no canonical cover is available, then merges the
+  files into one canonical folder (conflict-safe moves, per-track DB commits, protected tracks
+  skipped, edition-exclusive bonus tracks left as-is; groups with no MB ids fall back to the
+  offline album/album-artist majority vote). (`library/actions.py`, `main.py`,
+  `identify/musicbrainz.py`, `tests/test_fix_album_splits.py`)
+
+### Fixed (album splitting — 2026-07-13)
+- **Independent per-file identification scattered one album across MB editions** — near-tied
+  search candidates (scores within 0.05) were picked by raw score order, so tracks of one album
+  drifted onto different releases of the same release group. The pipeline now applies a consensus
+  preference among near-tied candidates: Official status, then the release the library already
+  uses for that release group (majority `mb_album_id`), then the larger edition, then a
+  deterministic id tiebreak — so once one track of an album lands, its siblings follow. The
+  auto-apply threshold still gates on the raw score leader. (`ingest/pipeline.py`,
+  `tests/test_release_consensus.py`)
+- **RELEASETYPE was inferred from the per-disc track count** — on releases without an MB
+  primary-type, a small final disc (≤6 tracks) tagged its tracks "EP" while disc 1 said "Album",
+  splitting the album. Inference now uses the release-wide track count (sum over all media),
+  carried on a new internal `TrackTags.release_track_total`. (`ingest/pipeline.py`,
+  `tagging/schema.py`, `identify/musicbrainz.py`)
+- **MEDIA was the per-medium format** — mixed-format releases (CD+DVD, or a disc with no declared
+  format) wrote different `MEDIA` values per track. It is now normalized release-wide: the uniform
+  format, distinct formats joined as "CD/DVD", or omitted when unknown.
+  (`identify/musicbrainz.py`, `tests/test_infer_release_type.py`)
+
 ### Fixed (ingest resilience — 2026-07-12)
 - **A flaky Cover Art Archive fetch crashed the whole ingest/apply job** — when the archive.org
   mirror CAA redirects to answered with a 500 or failed TLS verification, the exception escaped

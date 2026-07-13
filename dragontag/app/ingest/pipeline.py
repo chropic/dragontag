@@ -139,6 +139,77 @@ def enqueue(path: Path, *, dry_run: bool | None = None, requeue_reviews: bool = 
 # ---------------------------------------------------------------------------
 
 
+# Candidates whose score is within this margin of the top score are treated
+# as equally plausible identifications, and the release among them is chosen
+# by _release_pref_key instead of raw score order. Without this, near-tied
+# editions of one album (scores differing by noise in the title/duration
+# similarity) get picked per-track, scattering an album's tracks across
+# several MUSICBRAINZ_ALBUMIDs — the main cause of album splitting.
+_CONSENSUS_EPSILON = 0.05
+
+
+def _existing_release_for_group(rg_id: str | None) -> str | None:
+    """The library's majority ``mb_album_id`` for a release group, or None.
+
+    Lets a new track of an album we already hold land on the same release its
+    siblings used, instead of whichever edition scored a hair higher today.
+    """
+    if not rg_id:
+        return None
+    from collections import Counter
+    from ..models import Track
+    with session() as s:
+        rows = s.exec(
+            select(Track.mb_album_id).where(
+                Track.mb_release_group_id == rg_id,
+                Track.mb_album_id.is_not(None),
+            )
+        ).all()
+    if not rows:
+        return None
+    counts = Counter(rows)
+    best = max(counts.values())
+    # Deterministic on ties so two concurrent ingests can't flip-flop.
+    return sorted(rid for rid, c in counts.items() if c == best)[0]
+
+
+def _select_candidate(scored: list[tuple]) -> tuple:
+    """Pick the (total, breakdown, candidate) entry to auto-apply.
+
+    ``scored`` is sorted best-first. Among the near-tied head of the list
+    (within ``_CONSENSUS_EPSILON``), prefer — in order — an Official release,
+    the release the library already uses for this release group, the edition
+    with the most tracks, then the lexicographically smallest release id.
+    """
+    top_total = scored[0][0]
+    near = [e for e in scored if top_total - e[0] <= _CONSENSUS_EPSILON]
+    if len(near) == 1:
+        return scored[0]
+
+    existing_cache: dict[str, str | None] = {}
+
+    def existing_for(rg_id: str | None) -> str | None:
+        if not rg_id:
+            return None
+        if rg_id not in existing_cache:
+            existing_cache[rg_id] = _existing_release_for_group(rg_id)
+        return existing_cache[rg_id]
+
+    def pref(entry: tuple):
+        _, _, c = entry
+        rel = c.raw_release or {}
+        official = rel.get("status") == "Official"
+        rg_id = (rel.get("release-group") or {}).get("id")
+        matches_library = c.release_id == existing_for(rg_id)
+        try:
+            track_count = int(rel.get("track-count") or 0)
+        except (TypeError, ValueError):
+            track_count = 0
+        return (not official, not matches_library, -track_count, c.release_id)
+
+    return min(near, key=pref)
+
+
 def _infer_release_type(track_total: int | None) -> str:
     """Derive RELEASETYPE from track count when MB omits the primary-type."""
     if track_total is None or track_total >= 7:
@@ -302,12 +373,22 @@ def _process_inner(s: Session, job: Job) -> None:
             for (t, _, c) in scored[:5]
         ]
     }
-    best_total, _, best = scored[0]
+    best_total, _, best = _select_candidate(scored)
     _append_log(job, f"Best candidate score={best_total:.3f}")
+    if best is not scored[0][2]:
+        _append_log(
+            job,
+            f"Consensus pick: release {best.release_id} "
+            f"('{best.raw_release.get('title')}') over score-leader "
+            f"{scored[0][2].release_id} (Δ={scored[0][0] - best_total:.3f})",
+        )
 
     # ----- step 5: branch on threshold -----
+    # Gate on the raw score leader: the consensus pick may sit up to
+    # _CONSENSUS_EPSILON below it, and preferring a consistent release must
+    # not push an otherwise auto-applying job into review.
     threshold = settings().score_threshold
-    if best_total < threshold:
+    if scored[0][0] < threshold:
         _set(
             job,
             status=JobStatus.needs_review,
@@ -373,9 +454,15 @@ def prepare_tags(job: Job | None, tags: TrackTags) -> None:
     # an album) corrupts a lot of downstream tooling. ``_infer_release_type``
     # always yields a value from the track count, so this never blocks.
     if not tags.release_type:
-        tags.release_type = _infer_release_type(tags.track_total)
+        # Prefer the release-wide count: track_total is per-disc, and a small
+        # final disc must not demote its tracks to "EP" while disc 1 says
+        # "Album" — that difference alone splits the album in players.
+        # getattr: review/apply paths may pass duck-typed tag objects that
+        # predate this field (stubs, stored candidate shims).
+        total = getattr(tags, "release_track_total", None) or tags.track_total
+        tags.release_type = _infer_release_type(total)
         if job is not None:
-            _append_log(job, f"RELEASETYPE inferred as '{tags.release_type}' from track count={tags.track_total}")
+            _append_log(job, f"RELEASETYPE inferred as '{tags.release_type}' from track count={total}")
 
     if not tags.release_status:
         tags.release_status = "Official"

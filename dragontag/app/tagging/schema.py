@@ -60,6 +60,12 @@ class TrackTags:
     track_total: int | None = None
     disc: int | None = None
     disc_total: int | None = None
+    # Release-wide track count (sum over all media). Internal only — never
+    # rendered by ``to_vorbis`` and therefore exempt from the "every field
+    # goes into all four writers" rule. It exists so RELEASETYPE inference
+    # can use the whole release's size instead of the per-disc ``track_total``
+    # (a 2-disc album with a 4-track disc 2 must not tag disc 2 as an EP).
+    release_track_total: int | None = None
 
     # --- additional roles ---
     conductor: list[str] = field(default_factory=list)

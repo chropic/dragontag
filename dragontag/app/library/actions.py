@@ -641,6 +641,98 @@ def _majority_pair(tracks: list[Track]) -> tuple[str, str]:
     return pair(candidates[0])
 
 
+def _normalize_track_to_pair(
+    s,
+    t: Track,
+    winning_album: str,
+    winning_artist: str,
+    lib_root: Path,
+    source_dirs: set[Path],
+    ctx=None,
+    log_prefix: str = "album-consistency",
+) -> bool:
+    """Patch one track's album/album_artist to the winning pair and move it
+    into the canonical folder. Shared by ``check_album_consistency`` and the
+    offline fallback of ``fix_album_splits``.
+
+    Returns True when the track was fixed (tag patch applied, move
+    best-effort), False when nothing could be changed. Commits per track —
+    the file is already mutated on disk, so a later cancel/exception must not
+    roll the row back to a stale path.
+    """
+    from ..tagging.partial import write_basic_tags
+    from ..tagging.schema import TrackTags
+    from .paths import build_destination
+
+    p = Path(t.path)
+    try:
+        # path_lock: in-place mutator, same rule as the pipeline /
+        # organizer / revert.
+        with filelock.path_lock(p):
+            write_basic_tags(
+                p, title=None, artist=None,
+                album=winning_album, album_artist=winning_artist,
+                track=None, track_total=None, disc=None, disc_total=None,
+            )
+    except Exception:
+        log.exception("%s: tag patch failed for %s", log_prefix, p)
+        return False
+
+    shim = TrackTags(
+        title=t.title, artist_display=t.artist,
+        album=winning_album, album_artist_display=winning_artist,
+        track=t.track_num, track_total=t.track_total,
+        disc=t.disc_num, disc_total=t.disc_total,
+    )
+    try:
+        dest = build_destination(shim, p.suffix, library_root=lib_root)
+    except ValueError:
+        log.exception("%s: destination computation failed for %s", log_prefix, p)
+        return False
+
+    db_t = s.get(Track, t.id)
+    if dest == p:
+        if db_t:
+            db_t.album, db_t.album_artist = winning_album, winning_artist
+            s.add(db_t)
+        s.commit()
+        return True
+
+    try:
+        with filelock.path_lock(p):
+            result = _safe_move(p, dest, overwrite=False)
+            if result.moved:
+                _move_lyric_sidecar(p, dest)
+    except OSError:
+        # The tag patch is already on the file — keep the matching
+        # DB update and carry on with the rest of the group.
+        log.exception("%s: move failed for %s", log_prefix, p)
+        if db_t:
+            db_t.album, db_t.album_artist = winning_album, winning_artist
+            s.add(db_t)
+        s.commit()
+        return True
+    if not result.moved:
+        if ctx:
+            ctx.log(f"{log_prefix}: destination conflict, tags patched but not moved: {p} -> {dest}")
+        if db_t:
+            db_t.album, db_t.album_artist = winning_album, winning_artist
+            s.add(db_t)
+        s.commit()
+        return True
+
+    _update_track_path(s, str(p), str(dest))
+    moved_t = s.exec(select(Track).where(Track.path == str(dest))).first()
+    if moved_t:
+        moved_t.album, moved_t.album_artist = winning_album, winning_artist
+        s.add(moved_t)
+    source_dirs.add(p.parent)
+    s.commit()
+    if ctx:
+        ctx.log(f"moved {p.name}: {p.parent} -> {dest.parent}")
+    return True
+
+
 def check_album_consistency(folder_id: int, ctx=None) -> dict:
     """Detect tracks sharing a MusicBrainz release-group (or, lacking an MB
     id, a normalized album+artist match) that disagree on album/album_artist
@@ -653,10 +745,7 @@ def check_album_consistency(folder_id: int, ctx=None) -> dict:
     A destination conflict from a same-path file is best-effort: the tag
     patch still applies but the physical move is skipped and logged.
     """
-    from ..tagging.partial import write_basic_tags
     from .organizer import _prune_empty_dirs
-    from .paths import build_destination
-    from ..tagging.schema import TrackTags
 
     with session() as s:
         folder = s.get(LibraryFolder, folder_id)
@@ -688,79 +777,10 @@ def check_album_consistency(folder_id: int, ctx=None) -> dict:
             for t in eligible:
                 if t.album == winning_album and t.album_artist == winning_artist:
                     continue
-                p = Path(t.path)
-                try:
-                    # path_lock: in-place mutator, same rule as the pipeline /
-                    # organizer / revert.
-                    with filelock.path_lock(p):
-                        write_basic_tags(
-                            p, title=None, artist=None,
-                            album=winning_album, album_artist=winning_artist,
-                            track=None, track_total=None, disc=None, disc_total=None,
-                        )
-                except Exception:
-                    log.exception("album-consistency: tag patch failed for %s", p)
-                    continue
-
-                shim = TrackTags(
-                    title=t.title, artist_display=t.artist,
-                    album=winning_album, album_artist_display=winning_artist,
-                    track=t.track_num, track_total=t.track_total,
-                    disc=t.disc_num, disc_total=t.disc_total,
-                )
-                try:
-                    dest = build_destination(shim, p.suffix, library_root=lib_root)
-                except ValueError:
-                    log.exception("album-consistency: destination computation failed for %s", p)
-                    continue
-
-                db_t = s.get(Track, t.id)
-                if dest == p:
-                    if db_t:
-                        db_t.album, db_t.album_artist = winning_album, winning_artist
-                        s.add(db_t)
+                if _normalize_track_to_pair(
+                    s, t, winning_album, winning_artist, lib_root, source_dirs, ctx
+                ):
                     tracks_fixed += 1
-                    s.commit()
-                    continue
-
-                try:
-                    with filelock.path_lock(p):
-                        result = _safe_move(p, dest, overwrite=False)
-                        if result.moved:
-                            _move_lyric_sidecar(p, dest)
-                except OSError:
-                    # The tag patch is already on the file — keep the matching
-                    # DB update and carry on with the rest of the group.
-                    log.exception("album-consistency: move failed for %s", p)
-                    if db_t:
-                        db_t.album, db_t.album_artist = winning_album, winning_artist
-                        s.add(db_t)
-                    tracks_fixed += 1
-                    s.commit()
-                    continue
-                if not result.moved:
-                    if ctx:
-                        ctx.log(f"album-consistency: destination conflict, tags patched but not moved: {p} -> {dest}")
-                    if db_t:
-                        db_t.album, db_t.album_artist = winning_album, winning_artist
-                        s.add(db_t)
-                    tracks_fixed += 1
-                    s.commit()
-                    continue
-
-                _update_track_path(s, str(p), str(dest))
-                moved_t = s.exec(select(Track).where(Track.path == str(dest))).first()
-                if moved_t:
-                    moved_t.album, moved_t.album_artist = winning_album, winning_artist
-                    s.add(moved_t)
-                source_dirs.add(p.parent)
-                tracks_fixed += 1
-                # Commit per track: the file was already physically moved, so a
-                # failure later in the loop must not roll this row back to a
-                # path that no longer exists on disk.
-                s.commit()
-                if ctx:
-                    ctx.log(f"moved {p.name}: {p.parent} -> {dest.parent}")
         s.commit()
 
     folders_merged = _prune_empty_dirs(source_dirs, lib_root) if source_dirs else 0
@@ -768,6 +788,293 @@ def check_album_consistency(folder_id: int, ctx=None) -> dict:
     log.info("check_album_consistency(%d): %s", folder_id, summary)
     if ctx:
         ctx.log(f"Checked {groups_checked} group(s), fixed {tracks_fixed} track(s), merged/pruned {folders_merged} empty folder(s)")
+    return summary
+
+
+# ---------------------------------------------------------------------------
+# Album-split repair: unify every track of a release group onto one release
+# ---------------------------------------------------------------------------
+
+
+def _group_is_split(tracks: list[Track]) -> bool:
+    """True when tracks that belong to one album disagree on any of the
+    fields players group albums by (as mirrored in the DB)."""
+    album_ids = {t.mb_album_id for t in tracks if t.mb_album_id}
+    if len(album_ids) > 1:
+        return True
+    pairs = {(t.album or "", t.album_artist or "") for t in tracks}
+    if len(pairs) > 1:
+        return True
+    totals = {t.track_total for t in tracks if t.track_total}
+    return len(totals) > 1
+
+
+def _elect_canonical_release(
+    album_ids: set[str], group_recording_ids: set[str], ctx=None
+) -> tuple[str | None, dict | None, set[str]]:
+    """Pick the one release every track of the group should be tagged against.
+
+    Fetches each candidate release once from MusicBrainz and ranks by:
+    recording coverage (how many of the group's recordings the release
+    actually contains — the deluxe/superset edition wins over a standard
+    edition that lacks the bonus tracks), then Official status, then total
+    track count, then lexicographically smallest id for determinism.
+
+    Returns ``(release_id, release_doc, recording_ids_on_release)`` or
+    ``(None, None, set())`` when no candidate could be fetched.
+    """
+    from ..identify import musicbrainz as mbq
+
+    best: tuple | None = None
+    for rid in sorted(album_ids):
+        try:
+            rel = mbq.fetch_release(rid)
+        except Exception as e:
+            if ctx:
+                ctx.log(f"fix-splits: could not fetch release {rid}: {e}")
+            continue
+        recs = {
+            (trk.get("recording") or {}).get("id")
+            for medium in rel.get("medium-list") or []
+            for trk in medium.get("track-list") or []
+        } - {None}
+        coverage = len(group_recording_ids & recs)
+        official = rel.get("status") == "Official"
+        total = mbq._release_track_total(rel) or 0
+        key = (-coverage, not official, -total, rid)
+        if best is None or key < best[0]:
+            best = (key, rid, rel, recs)
+    if best is None:
+        return None, None, set()
+    return best[1], best[2], best[3]
+
+
+def _retag_to_canonical(
+    s,
+    t: Track,
+    release_id: str,
+    release_doc: dict,
+    cover,
+    lib_root: Path,
+    source_dirs: set[Path],
+    dest_dirs: set[Path],
+    ctx=None,
+) -> bool:
+    """Fully re-tag one track against the canonical release and move it to
+    its canonical location. Returns True when the file was rewritten."""
+    from ..identify import musicbrainz as mbq
+    from ..ingest.pipeline import prepare_tags
+    from ..tagging.partial import read_lyrics
+    from ..tagging.writers import write_tags
+    from .paths import build_destination
+
+    p = Path(t.path)
+    try:
+        tags = mbq.assemble_tags(
+            release_id=release_id, recording_id=t.mb_track_id, rel=release_doc
+        )
+    except Exception as e:
+        if ctx:
+            ctx.log(f"fix-splits: assemble failed for {p.name}: {e}")
+        return False
+    prepare_tags(None, tags)
+    if cover:
+        tags.cover_bytes, tags.cover_mime = cover.data, cover.mime
+
+    moved_to = p
+    try:
+        # One lock over the read-then-write pair *and* the move: nothing may
+        # rewrite or relocate the file between reading its lyrics/art and the
+        # full-frame rewrite (rule: read-then-write mutators hold path_lock).
+        with filelock.path_lock(p):
+            lyrics = read_lyrics(p)
+            if lyrics:
+                # The full writers replace the entire frame set — carry the
+                # already-embedded lyrics (and the advisory derived from
+                # them) over instead of dropping them.
+                tags.lyrics = lyrics
+                tags.advisory = t.advisory
+            if not tags.cover_bytes:
+                # No canonical art available: keep whatever the file already
+                # has rather than stripping it in the rewrite.
+                data, ext = _read_embedded_picture(p)
+                if data:
+                    tags.cover_bytes = data
+                    tags.cover_mime = "image/png" if ext == "png" else "image/jpeg"
+            write_tags(p, tags)
+            dest = build_destination(tags, p.suffix, library_root=lib_root)
+            if dest != p:
+                result = _safe_move(p, dest, overwrite=False)
+                if result.moved:
+                    _move_lyric_sidecar(p, dest)
+                    source_dirs.add(p.parent)
+                    moved_to = dest
+                elif result.conflict and ctx:
+                    ctx.log(f"fix-splits: destination conflict, tags fixed but not moved: {p} -> {dest}")
+    except Exception:
+        log.exception("fix-splits: rewrite failed for %s", p)
+        return False
+    dest_dirs.add(moved_to.parent)
+
+    # Mirror the rewrite into the Track row (per-track commit: the file is
+    # already mutated/moved on disk, a later cancel must not roll this back).
+    db_t = s.get(Track, t.id)
+    if db_t:
+        db_t.path = str(moved_to)
+        db_t.title = tags.title
+        db_t.artist = tags.artist_display
+        db_t.album = tags.album
+        db_t.album_artist = tags.album_artist_display
+        db_t.track_num = tags.track
+        db_t.track_total = tags.track_total
+        db_t.disc_num = tags.disc
+        db_t.disc_total = tags.disc_total
+        db_t.mb_track_id = tags.mb_track_id
+        db_t.mb_album_id = tags.mb_album_id
+        db_t.mb_release_group_id = tags.mb_release_group_id
+        db_t.has_lyrics = bool(tags.lyrics)
+        db_t.advisory = tags.advisory
+        s.add(db_t)
+    s.commit()
+    if ctx and moved_to != p:
+        ctx.log(f"moved {p.name}: {p.parent} -> {moved_to.parent}")
+    return True
+
+
+def fix_album_splits(folder_id: int, ctx=None) -> dict:
+    """Repair albums whose tracks were identified against different releases.
+
+    Independent per-file identification can scatter one album's tracks across
+    several editions of the same MusicBrainz release group (different
+    MUSICBRAINZ_ALBUMID / album title / track totals / covers), which players
+    render as multiple albums. For each release-group whose tracks disagree,
+    this elects a canonical release (the edition covering the most of the
+    group's recordings, then Official status, then size) and fully re-tags
+    every track against it — album-level fields, numbering, cover — while
+    preserving embedded lyrics/advisory, then moves the files into the single
+    canonical folder.
+
+    Tracks whose recording genuinely isn't on the canonical release are left
+    untouched (logged). Groups with no MusicBrainz ids fall back to the same
+    offline majority-vote album/album_artist patch as
+    ``check_album_consistency``. Protected tracks are always skipped.
+    """
+    from ..config import settings
+    from ..tagging.coverart import fetch_for_release
+    from .mover import write_cover_jpg
+    from .organizer import _prune_empty_dirs
+
+    with session() as s:
+        folder = s.get(LibraryFolder, folder_id)
+        if not folder:
+            return {"ok": False, "reason": "Folder not found"}
+        tracks = s.exec(select(Track).where(Track.library_folder_id == folder_id)).all()
+        lib_root = Path(folder.path)
+
+    groups = _build_album_groups(tracks)
+    groups_fixed = 0
+    tracks_retagged = 0
+    tracks_voted = 0
+    skipped_bonus = 0
+    source_dirs: set[Path] = set()
+
+    if ctx:
+        ctx.progress(0, len(groups))
+    with session() as s:
+        for gi, group in enumerate(groups, start=1):
+            if ctx:
+                ctx.check_cancelled()
+                ctx.progress(gi, len(groups), item=group[0].album or "")
+            eligible = [t for t in group if not t.protected and Path(t.path).exists()]
+            if len(eligible) < 2 or not _group_is_split(eligible):
+                continue
+
+            with_ids = [t for t in eligible if t.mb_album_id and t.mb_track_id]
+            if not with_ids:
+                # Offline fallback: no MB ids to re-resolve against, so unify
+                # album/album_artist by majority vote like check_album_consistency.
+                winning_album, winning_artist = _majority_pair(eligible)
+                fixed = 0
+                for t in eligible:
+                    if t.album == winning_album and t.album_artist == winning_artist:
+                        continue
+                    if _normalize_track_to_pair(
+                        s, t, winning_album, winning_artist, lib_root,
+                        source_dirs, ctx, log_prefix="fix-splits",
+                    ):
+                        fixed += 1
+                if fixed:
+                    groups_fixed += 1
+                    tracks_voted += fixed
+                continue
+
+            album_ids = {t.mb_album_id for t in with_ids}
+            recording_ids = {t.mb_track_id for t in with_ids}
+            canonical_id, release_doc, on_release = _elect_canonical_release(
+                album_ids, recording_ids, ctx
+            )
+            if not canonical_id:
+                if ctx:
+                    ctx.log(f"fix-splits: no fetchable release for '{group[0].album}' — skipped")
+                continue
+            if ctx:
+                ctx.log(
+                    f"fix-splits: '{release_doc.get('title')}' -> canonical release "
+                    f"{canonical_id} ({len(album_ids)} edition(s) in library)"
+                )
+
+            cover = None
+            try:
+                cover = fetch_for_release(canonical_id)
+            except Exception as e:
+                if ctx:
+                    ctx.log(f"fix-splits: cover fetch failed for {canonical_id}: {e} — keeping embedded art")
+
+            dest_dirs: set[Path] = set()
+            fixed = 0
+            for t in eligible:
+                if ctx:
+                    ctx.check_cancelled()
+                if not t.mb_track_id or t.mb_track_id not in on_release:
+                    # A recording genuinely absent from the canonical release
+                    # (edition-exclusive track) — leave it as its own release
+                    # rather than inventing a slot for it.
+                    skipped_bonus += 1
+                    if ctx:
+                        ctx.log(f"fix-splits: '{t.title or Path(t.path).name}' is not on the canonical release — left as-is")
+                    continue
+                if _retag_to_canonical(
+                    s, t, canonical_id, release_doc, cover, lib_root,
+                    source_dirs, dest_dirs, ctx,
+                ):
+                    fixed += 1
+            if fixed:
+                groups_fixed += 1
+                tracks_retagged += fixed
+                if cover:
+                    for d in dest_dirs:
+                        write_cover_jpg(
+                            d, cover.data,
+                            min_overwrite_pixels=settings().cover_min_overwrite_pixels,
+                            new_width=cover.width,
+                        )
+        s.commit()
+
+    folders_merged = _prune_empty_dirs(source_dirs, lib_root) if source_dirs else 0
+    summary = {
+        "groups_fixed": groups_fixed,
+        "tracks_retagged": tracks_retagged,
+        "tracks_voted": tracks_voted,
+        "skipped_bonus": skipped_bonus,
+        "folders_merged": folders_merged,
+    }
+    log.info("fix_album_splits(%d): %s", folder_id, summary)
+    if ctx:
+        ctx.log(
+            f"Unified {groups_fixed} split album(s): {tracks_retagged} track(s) re-tagged from MusicBrainz, "
+            f"{tracks_voted} normalized offline, {skipped_bonus} edition-exclusive track(s) left as-is, "
+            f"{folders_merged} empty folder(s) pruned"
+        )
     return summary
 
 
@@ -1115,6 +1422,15 @@ LIBRARY_ACTIONS: dict[str, tuple[str, str, Any]] = {
         "Find missing tracks",
         "Compare each album's local track count to MusicBrainz and list incomplete albums on the Incomplete tab.",
         find_missing_tracks),
+    "fix_album_splits": (
+        "Fix album splits",
+        "Re-unify albums whose tracks were matched to different MusicBrainz editions "
+        "(different album IDs, titles, track totals or covers — shown as several albums "
+        "by players). Elects the release covering the most tracks and fully re-tags every "
+        "track against it (network), preserving lyrics; merges files into one folder. "
+        "Groups without MusicBrainz IDs get an offline album/album-artist majority vote. "
+        "Skips protected tracks and edition-exclusive bonus tracks.",
+        fix_album_splits),
     "check_album_consistency": (
         "Fix album/folder consistency",
         "Detect tracks sharing a MusicBrainz release-group (or matching album+artist) "
@@ -1140,6 +1456,11 @@ BATCH_RETAG = ["validate_tags", "tag_advisories", "replaygain"]
 # data must exist before disc/filename cleanup, which must happen before
 # ReplayGain (per-file loudness) and the report-only/cleanup passes.
 BATCH_NUCLEAR = [
+    # fix_album_splits runs right after the re-tag pipeline (prepended by the
+    # route layer): per-file identification can still scatter one album over
+    # several MB editions, and everything downstream (covers, disc folders,
+    # consistency, ReplayGain's album gain) should see the unified state.
+    "fix_album_splits",
     "validate_tags", "fetch_covers", "fetch_lyrics", "tag_advisories",
     "fix_disc_folders", "normalize_filenames", "check_album_consistency",
     "extract_covers", "replaygain", "find_duplicates", "find_missing_tracks", "prune",

@@ -328,20 +328,51 @@ def fetch_recording(recording_id: str) -> dict[str, Any]:
     )["recording"]
 
 
+def _release_track_total(rel: dict[str, Any]) -> int | None:
+    """Total track count across every medium of a release, or None if unknown."""
+    total = 0
+    for medium in rel.get("medium-list") or []:
+        total += int(medium.get("track-count") or len(medium.get("track-list") or []))
+    return total or None
+
+
+def _release_media(rel: dict[str, Any]) -> str | None:
+    """Release-level MEDIA value: identical for every track of the release.
+
+    The uniform format when all media agree, else the distinct formats joined
+    with "/" in medium order ("CD/DVD"), or None when no medium declares one.
+    """
+    formats: list[str] = []
+    for medium in rel.get("medium-list") or []:
+        fmt = medium.get("format")
+        if fmt and fmt not in formats:
+            formats.append(fmt)
+    return "/".join(formats) or None
+
+
 # ---------------------------------------------------------------------------
 # Assemble TrackTags from a (recording_id, release_id) pair
 # ---------------------------------------------------------------------------
 
 
-def assemble_tags(*, release_id: str, recording_id: str) -> TrackTags:
+def assemble_tags(
+    *, release_id: str, recording_id: str, rel: dict[str, Any] | None = None
+) -> TrackTags:
     """Build a ``TrackTags`` from an MB release + recording.
 
     This is the core translation step from "MB-shaped data" to "our schema".
     Anything fancy in the user's tagging convention (the duplicated track
     totals, the lowercase Vorbis keys, etc.) is handled later in
     ``TrackTags.to_vorbis()``; here we just populate fields.
+
+    ``rel`` optionally supplies an already-fetched release document (from
+    ``fetch_release``) so callers assembling many tracks of one release —
+    the fix-album-splits action — pay one release fetch instead of one per
+    track. It must be the full-include document; a search-result stub lacks
+    the media/track lists this function walks.
     """
-    rel = fetch_release(release_id)
+    if rel is None:
+        rel = fetch_release(release_id)
     rec = fetch_recording(recording_id)
 
     tags = TrackTags()
@@ -410,8 +441,15 @@ def assemble_tags(*, release_id: str, recording_id: str) -> TrackTags:
     tags.track_total = track_total
     tags.disc = disc_position
     tags.disc_total = disc_total
-    tags.media = media_format
     tags.mb_releasetrack_id = mb_releasetrack_id
+
+    # MEDIA and the release-wide track count are normalized over *all* media,
+    # not taken from the medium this track happens to sit on. Per-medium
+    # values differ between discs of one release (CD vs DVD, 10-track disc 1
+    # vs 4-track disc 2), and players group albums on MEDIA — writing the
+    # per-disc value split multi-disc albums into several album listings.
+    tags.media = _release_media(rel) or media_format
+    tags.release_track_total = _release_track_total(rel)
 
     # ----- dates -----
     # DATE = this specific release's date (e.g. a 2014 reissue).

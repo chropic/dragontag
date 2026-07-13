@@ -83,6 +83,19 @@ recurring. When writing new code in one of these areas, check the pattern first.
   when touching MB parsing.
 - MB artist-credit lists mix strings and dicts; join phrases live on the credit entry. Any new
   credit-walking code should mirror `_credit_names`.
+- **MB per-medium fields (`format`, `track-count`) are NOT album-level.** Writing them per-track
+  splits albums in players: a mixed CD+DVD release got differing `MEDIA`, and RELEASETYPE
+  inference from the per-disc `track_total` tagged a short disc 2 as "EP" while disc 1 said
+  "Album". Normalize release-wide before writing anything players group on
+  (`_release_media` / `_release_track_total` in `identify/musicbrainz.py`,
+  `TrackTags.release_track_total`).
+- **Per-file identification must not pick releases in isolation.** Near-tied candidates (within
+  `_CONSENSUS_EPSILON`) of one release group scattered an album's tracks over 4 editions
+  (different `MUSICBRAINZ_ALBUMID`/`TALB`/totals ⇒ split albums). `pipeline._select_candidate`
+  applies the consensus preference; `library/actions.fix_album_splits` repairs existing
+  libraries. Note the MBID short-circuit in `_process_inner` trusts a file's existing (possibly
+  drifted) album id — bulk re-tags alone never heal a split, which is why the nuclear chain runs
+  `fix_album_splits` afterwards.
 
 ## Threading / background tasks
 

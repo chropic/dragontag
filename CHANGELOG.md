@@ -5,6 +5,13 @@
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
 ### Added (project tooling — 2026-07-13)
+- **SessionStart hook** (`.claude/hooks/session-start.sh`, registered in
+  `.claude/settings.json`) — runs on every agent session start: enables the tracked
+  git hooks (`git config core.hooksPath .githooks`) in *every* environment so the
+  per-commit version bump is never missed, and on Claude Code on the web additionally
+  builds the Python 3.12 venv, installs `-e ".[dev]"`, and puts `.venv/bin` on PATH so
+  tests run without setup. Idempotent and non-interactive.
+  (`.claude/hooks/session-start.sh`, `.claude/settings.json`)
 - **Pull-request template** (`.github/pull_request_template.md`) — an accessible,
   self-explaining scaffold (summary, what/why, change type, how-tested, screenshots
   with alt-text guidance, reviewer notes, checklist) that GitHub pre-fills on every

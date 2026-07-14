@@ -34,9 +34,11 @@ Jinja2 + HTMX/Alpine UI, SQLite + threads (deliberately no Postgres/celery/multi
 1. **Any code that mutates an audio file** must go through
    `tagging/writers/_atomic.atomic_inplace(path)` (temp copy → mutate → `os.replace`).
 2. **Any code that moves a file or does read-then-write on its tags/location** must hold
-   `library/filelock.path_lock(path)`. Three known mutators exist: the ingest worker
-   (`ingest/pipeline.py`), revert/move-back (`library/revert.py`), and the organizer
-   (`library/organizer.py`). If you add a fourth, lock it.
+   `library/filelock.path_lock(path)`. Known mutators: the ingest worker
+   (`ingest/pipeline.py`), revert/move-back (`library/revert.py`), the organizer
+   (`library/organizer.py`), every file-touching function in `library/actions.py`
+   (including `cleanup_library`'s twin-merge/quarantine moves), and
+   `library/retag.apply_match` (shared in-place re-tag). If you add another, lock it.
 3. **`library/mover.move(..., overwrite=False)` does NOT raise on conflict** — it returns
    `MoveResult(moved=False, conflict=True)`. Always check `.moved` / `.conflict`; ignoring the
    result has twice produced "reported success, file actually elsewhere" bugs.

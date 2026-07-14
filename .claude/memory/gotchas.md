@@ -45,6 +45,14 @@ recurring. When writing new code in one of these areas, check the pattern first.
 - **Anything that moves an audio file also moves its `.lrc` sidecar** (`mover.move_lyric_sidecar`).
   `move_back` forgot; note the disc-folder flatten does NOT need an explicit call because its
   loop already iterates every file in the disc dir.
+- **`cleanup_library` must exclude its own quarantine root from every walk and from the scanner,
+  or it re-ingests its own trash.** Its `os.walk`/`iterdir` passes skip `qroot` (and any
+  `.dragontag-trash` dir), and on the first quarantine it appends `qroot` to
+  `settings().scan_exclude_dirs`. It also never quarantines audio (assert on `SUPPORTED_EXTS`) and
+  guards a missing/unmounted library root before `iterdir()` (raises `FileNotFoundError`
+  otherwise). Twin-merge uses bespoke moves preserving each file's relative sub-path — NOT
+  `_normalize_track_to_pair`, which recomputes the destination via `build_destination` and would
+  re-fold/re-template the very folders being consolidated.
 - **Schema guarantees for manual apply paths live in `pipeline.prepare_tags`.** Any route that
   calls `_commit_tag_path` directly (review apply, bulk apply, apply-match) must call
   `prepare_tags` first or files get written without RELEASETYPE (the one mandatory field),

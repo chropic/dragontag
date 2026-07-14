@@ -89,6 +89,9 @@ dragontag/app/
                            wrapper; _credit_names/_sorts/_ids/_phrase all guard malformed
                            credits with (c.get("artist") or {}).
     acoustid.py            fpcalc + AcoustID lookup; swallows ALL exceptions → [].
+    relookup.py            candidates_for_file: shared AcoustID→MB (fingerprint, high
+                           confidence) / text-search fallback lookup for a lone file. Used by
+                           the per-track Identify route and the reidentify batch action.
     scoring.py             Confidence model; weights sum to 1.0 by design (missing album/duration
                            caps the max score below auto-apply — intentional).
     genres.py              Whitelist filter (vendored data/genres.txt) + junk fallback.
@@ -113,8 +116,13 @@ dragontag/app/
     filelock.py            path_lock(path) — per-resolved-path threading.Lock. See "Locking".
     paths.py               sanitize_segment, primary_artist, build_destination, unique_path,
                            fold_text/artist_fold_key (case/punct/Unicode fold for grouping),
-                           _reuse_folded_dir (build_destination converges on an existing
-                           case/punct-variant folder instead of minting a duplicate).
+                           strip_edition_suffixes/album_fold_key (drop "- Single"/"(Deluxe)"
+                           before folding). _reuse_folded_dir converges build_destination on an
+                           existing case/punct-variant folder; with edition_fold=True (album
+                           level only, gated on settings().fold_edition_suffixes) it also reuses
+                           an edition-suffix twin — preferring an audio-bearing then base-named
+                           candidate. Convergence, not canonical naming: reuse whatever exists;
+                           cleanup_library merges twins later.
     mover.py               move(src, dst, overwrite=False) → MoveResult(moved, destination,
                            conflict). DOES NOT RAISE on conflict. Verifies byte count after move.
                            move_lyric_sidecar, write_cover_jpg (temp + os.replace).
@@ -138,6 +146,22 @@ dragontag/app/
                            _normalize_track_to_pair(winning_album=None) (album kept), then
                            _rename_artist_dir for case-only dir variants. Runs before
                            check_album_consistency in the batches.
+                           cleanup_library(apply=False): report-only in chains; apply merges
+                           edition-suffix twin album folders (bespoke moves preserving Disc N
+                           sub-paths — NOT _normalize_track_to_pair, which recomputes dest +
+                           patches tags), elects the widest cover.jpg, and QUARANTINES dead
+                           folders/leftovers to <lib>/.dragontag-trash/<ts>/ (never deletes,
+                           never quarantines audio); auto-excludes the trash from future scans.
+                           _find_dead_folders shared with prune_library. reidentify_tracks:
+                           AcoustID re-ID of tracks with mb_track_id is None, applying only
+                           fingerprint-confirmed matches via retag.apply_match (skips protected,
+                           does not move). BATCH_RETAG starts with reidentify; BATCH_ORGANIZE/
+                           BATCH_NUCLEAR include cleanup (report).
+    retag.py               apply_match(track_id, rec, rel): shared in-place re-tag (extracted
+                           from the apply-match route) — assemble_tags + cover fetch (network)
+                           before the path_lock write, snapshot + carry lyrics/advisory,
+                           FileChange(job_id=None) audit, _upsert_track. Used by the route and
+                           reidentify_tracks.
     filters.py             is_path_excluded(p, patterns, dirs) — applied by scanner, bulk, watcher.
     revert.py              revert_change (restore tags in place under path_lock) + move_back
                            (return file to original dir; rollback checks MoveResult; adds dest
@@ -182,11 +206,13 @@ read-then-write on a file's tags or location must hold it. Current holders:
 5. **Library actions** — every file-touching function in `library/actions.py`
    (album-consistency tag patch + move, album-split full re-tag + move, artist-folder
    unification tag patch + move, disc-folder flatten, filename normalize, fetch lyrics/covers,
-   advisory re-tag, genre backfill) locks each per-file mutate/move section. Artist-folder unification also
+   advisory re-tag, genre backfill, cleanup_library twin-merge + quarantine moves) locks each
+   per-file mutate/move section. Artist-folder unification also
    renames whole artist directories (`_rename_artist_dir`); that rename re-points every
    `Track.path` beneath it and commits per rename.
-6. **Per-track edit routes** — `main.py` manual tag edit, link-album, apply-match, and
-   single-track lyrics fetch lock around their in-place writes.
+6. **Per-track edit routes / retag** — `main.py` manual tag edit, link-album, single-track
+   lyrics fetch, and `library/retag.apply_match` (shared by the apply-match route and the
+   reidentify action) lock around their in-place writes.
 
 If you add another mutator (a new action that renames/moves/retags), take the lock — the lock
 is caller-held (do NOT move it into `atomic_inplace`; the pipeline already holds the

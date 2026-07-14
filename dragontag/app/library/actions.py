@@ -1952,6 +1952,69 @@ def cleanup_library(folder_id: int, ctx=None, *, apply: bool = False) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Re-identify untagged tracks (AcoustID fingerprint, fingerprint matches only)
+# ---------------------------------------------------------------------------
+
+
+def reidentify_tracks(folder_id: int, ctx=None) -> dict:
+    """AcoustID-re-identify tracks that have no MusicBrainz recording id.
+
+    Applies only fingerprint-confirmed matches; text-search fallbacks are logged
+    for manual review, never auto-applied unattended. Skips protected tracks.
+    Writes tags in place — does not move files (run Organize/the batch afterwards
+    to reshape folders). Network work is done outside any open DB write txn.
+    """
+    from ..identify.relookup import candidates_for_file
+    from . import retag
+
+    with session() as s:
+        tracks = s.exec(select(Track).where(Track.library_folder_id == folder_id)).all()
+    untagged = [t for t in tracks if t.mb_track_id is None and Path(t.path).exists()]
+    skipped_protected = sum(1 for t in untagged if t.protected)
+    items = [
+        (t.id, t.title, t.artist, t.album, Path(t.path))
+        for t in untagged if not t.protected
+    ]
+    if ctx:
+        ctx.progress(0, len(items))
+
+    applied = no_match = failed = 0
+    for i, (tid, title, artist, album, p) in enumerate(items, start=1):
+        if ctx:
+            ctx.check_cancelled()
+            ctx.progress(i, len(items), item=p.name)
+        try:
+            cands, fingerprinted = candidates_for_file(
+                p, title=title, artist=artist, album=album
+            )
+        except Exception:
+            log.exception("reidentify: lookup failed for %s", p)
+            failed += 1
+            continue
+        c = cands[0] if cands else None
+        if not fingerprinted or c is None or not (c.recording_id and c.release_id):
+            no_match += 1
+            ctx and ctx.log(f"no confident match: {p.name}")
+            continue
+        ok, msg = retag.apply_match(tid, c.recording_id, c.release_id)
+        if ok:
+            applied += 1
+        else:
+            failed += 1
+        ctx and ctx.log(f"{p.name}: {msg}")
+    if ctx:
+        ctx.log(
+            f"Re-identified {applied}/{len(items)} untagged track(s); "
+            f"{no_match} no confident match, {failed} failed, "
+            f"{skipped_protected} protected skipped"
+        )
+    return {
+        "candidates_checked": len(items), "applied": applied,
+        "no_match": no_match, "failed": failed, "skipped_protected": skipped_protected,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Filename normalization
 # ---------------------------------------------------------------------------
 
@@ -2149,6 +2212,12 @@ LIBRARY_ACTIONS: dict[str, tuple[str, str, Any]] = {
         "Find missing tracks",
         "Compare each album's local track count to MusicBrainz and list incomplete albums on the Incomplete tab.",
         find_missing_tracks),
+    "reidentify": (
+        "Re-identify untagged tracks",
+        "AcoustID-fingerprint tracks that have no MusicBrainz recording id and apply the match "
+        "in place (tags + cover). Fingerprint matches only — fuzzy text matches are reported, "
+        "not applied. Skips protected tracks. Does not move files.",
+        reidentify_tracks),
     "fix_album_splits": (
         "Fix album splits",
         "Re-unify albums whose tracks were matched to different MusicBrainz editions "
@@ -2187,7 +2256,7 @@ BATCH_ORGANIZE = [
     "check_album_consistency",
     "extract_covers", "prune", "cleanup", "find_duplicates", "find_missing_tracks",
 ]
-BATCH_RETAG = ["validate_tags", "tag_advisories", "fix_genres", "replaygain"]
+BATCH_RETAG = ["reidentify", "validate_tags", "tag_advisories", "fix_genres", "replaygain"]
 
 # Nuclear option: the full identify -> tag -> move pipeline runs first (added
 # manually by the route layer, since it lives in ingest.bulk), then this list
@@ -2200,6 +2269,9 @@ BATCH_NUCLEAR = [
     # several MB editions, and everything downstream (covers, disc folders,
     # consistency, ReplayGain's album gain) should see the unified state.
     "fix_album_splits",
+    # reidentify mops up files the pipeline left un-identified (only those that
+    # exited review — tracks parked in needs_review keep their state).
+    "reidentify",
     "validate_tags", "fetch_covers", "fetch_lyrics", "tag_advisories",
     "fix_disc_folders", "normalize_filenames", "unify_artist_folders",
     "check_album_consistency",

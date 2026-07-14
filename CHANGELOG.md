@@ -4,6 +4,20 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Added (batch re-identify — 2026-07-14)
+- **New "Re-identify untagged tracks" library action** (`reidentify`, first step
+  of the Re-tag batch, and in the Nuclear batch after album-split repair) —
+  AcoustID-fingerprints every track that has no MusicBrainz recording id and
+  applies the match in place (tags + cover). **Fingerprint matches only** —
+  fuzzy text-search fallbacks are logged for manual review, never auto-applied.
+  Skips protected tracks; writes tags in place without moving files. The
+  per-track Identify lookup and apply-match write were refactored into shared
+  helpers (`identify/relookup.candidates_for_file`, `library/retag.apply_match`)
+  reused by both the route and the batch; the apply path keeps its
+  network-before-write ordering and auditable `FileChange`/lyrics-carry
+  semantics. (`identify/relookup.py`, `library/retag.py`, `library/actions.py`,
+  `main.py`)
+
 ### Added (library cleanup with quarantine — 2026-07-14)
 - **New "Cleanup" library action** (`cleanup`, `POST /library/cleanup`) — merges
   edition-suffix twin album folders (`Afraid` / `Afraid - Single` / `Afraid

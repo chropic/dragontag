@@ -1604,7 +1604,7 @@ def library_track_identify(track_id: int, request: Request, _: None = Depends(re
     """AcoustID fingerprint lookup (falling back to a plain MB text search on
     the track's current tags) — renders the same candidate-picker list used
     by the manual search box, into the track-edit modal."""
-    from .identify import acoustid
+    from .identify.relookup import candidates_for_file
 
     with session() as s:
         track = s.get(Track, track_id)
@@ -1613,13 +1613,9 @@ def library_track_identify(track_id: int, request: Request, _: None = Depends(re
     p = Path(track.path)
     cands = []
     if p.exists():
-        matches = acoustid.lookup(p)
-        if matches and matches[0].recording_id:
-            cands = mbq.candidates_from_mbid(matches[0].recording_id)
-        if not cands:
-            cands = mbq.search_candidates(
-                title=track.title, artist=track.artist, album=track.album, limit=10
-            )
+        cands, _ = candidates_for_file(
+            p, title=track.title, artist=track.artist, album=track.album, limit=10
+        )
     return templates.TemplateResponse(request, "_track_mb_results.html", {
         "request": request, "track_id": track_id, "searched": True,
         "cands": [
@@ -1695,69 +1691,13 @@ def library_track_apply_match(
         track = s.get(Track, track_id)
         if not track:
             raise HTTPException(404)
-        p = Path(track.path)
-        if not p.exists():
-            return _toast_response("/library", f"{p.name}: file not found on disk.", "error")
         folder_id = track.library_folder_id
 
-    from .identify import existing_tags as _existing
-    from .tagging import snapshot as _snapshot
-    from .tagging.coverart import fetch_for_release
-    from .tagging.partial import read_lyrics
-    from .tagging.writers import write_tags
-    from .ingest.pipeline import _tags_to_dict, _upsert_track, prepare_tags
-
-    try:
-        tags = mbq.assemble_tags(release_id=rel, recording_id=rec)
-    except Exception as e:
-        # A deleted/redirected MB id must land as a toast, not a raw 500
-        # (parity with review_apply's handling).
-        return _toast_response("/library", f"MusicBrainz lookup failed: {e}", "error")
-    # Same schema guarantees as the pipeline / review-apply paths (formatting,
-    # RELEASETYPE inference, RELEASESTATUS default).
-    prepare_tags(None, tags)
-    cover = fetch_for_release(tags.mb_album_id) if tags.mb_album_id else None
-    if cover:
-        tags.cover_bytes = cover.data
-        tags.cover_mime = cover.mime
-    try:
-        from .library.filelock import path_lock
-        with path_lock(p):
-            # This is a full canonical rewrite (every writer clears the
-            # existing tag set), so: snapshot first so the write is auditable
-            # and revertable via /changes, and carry the file's own embedded
-            # lyrics/advisory onto the outgoing tags — this route is a
-            # metadata correction, not a re-ingest, and assemble_tags brings
-            # no lyrics of its own.
-            original_snapshot = _snapshot.capture(p)
-            info = _existing.read(p)
-            if tags.advisory is None:
-                tags.advisory = info.get("advisory")
-            if info.get("has_lyrics"):
-                try:
-                    tags.lyrics = read_lyrics(p) or None
-                except Exception:
-                    pass
-            write_tags(p, tags)
-    except Exception as e:
-        return _toast_response("/library", f"{p.name}: tag write failed: {e}", "error")
-
-    with session() as s:
-        # Audit row so the rewrite shows in /changes and can be reverted.
-        # job_id=None: no pipeline job backs this manual correction.
-        s.add(FileChange(
-            job_id=None,
-            file_path=str(p),
-            original_path=str(p),
-            original_name=p.name,
-            original_tags_json=original_snapshot or {},
-            new_tags_json=_tags_to_dict(tags),
-            cover_jpg_created=False,
-        ))
-        folder = s.get(LibraryFolder, folder_id) if folder_id else None
-        lib_root = Path(folder.path) if folder else env().library_path
-        _upsert_track(s, p, tags, lib_root)
-    return _toast_response(f"/library?folder_id={folder_id or ''}", f"Updated {p.name} from MusicBrainz.")
+    from .library.retag import apply_match
+    ok, msg = apply_match(track_id, rec, rel)
+    return _toast_response(
+        f"/library?folder_id={folder_id or ''}", msg, "success" if ok else "error"
+    )
 
 
 @app.post("/library/tracks/{track_id}/fetch-lyrics")

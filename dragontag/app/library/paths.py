@@ -15,7 +15,9 @@ ext4 and NTFS, and aggressive sanitization mangles non-Latin artist names.
 """
 from __future__ import annotations
 
+import os
 import re
+import unicodedata
 from pathlib import Path
 
 from ..config import env, settings
@@ -24,6 +26,47 @@ from ..tagging.schema import TrackTags
 
 # Windows-forbidden chars (the union covers all major filesystems).
 _FORBIDDEN = set('<>:"/\\|?*\0')
+
+
+# Punctuation the folder tree drifts on across sources/OSes: curly vs straight
+# quotes, the various Unicode dashes, the multiplication sign used for "x"
+# collaborations. Folded to one canonical spelling so two folders that differ
+# only by these characters compare equal.
+_QUOTE_DASH_FOLD = str.maketrans(
+    {
+        "‘": "'", "’": "'", "‛": "'",          # ‘ ’ ‛ → '
+        "“": '"', "”": '"', "„": '"',          # “ ” „ → "
+        "‐": "-", "‑": "-", "‒": "-",          # ‐ ‑ ‒ → -
+        "–": "-", "—": "-", "−": "-",          # – — − → -
+        "×": "x",                                        # × → x
+    }
+)
+
+
+def fold_text(s: str) -> str:
+    """Fold a string for case-, punctuation- and Unicode-insensitive matching.
+
+    NFKC (® ™ fullwidth → compat forms), quote/dash normalization, drop the
+    ®/™/© marks entirely, collapse whitespace, casefold. Used to decide whether
+    two artist/album folder names are "the same" on a case-insensitive Windows
+    view of a case-sensitive Linux volume. Never used to *rename* — only to
+    group/compare, so an over-eager fold can never mangle a stored name.
+    """
+    s = unicodedata.normalize("NFKC", s)
+    s = s.translate(_QUOTE_DASH_FOLD)
+    s = re.sub(r"[®™©]", "", s)
+    s = re.sub(r"\s+", " ", s).strip().casefold()
+    return s
+
+
+def artist_fold_key(name: str) -> str:
+    """Fold an artist credit to its grouping key.
+
+    Order matters: reduce to the primary artist first (strips feat./configured
+    separators), *then* fold punctuation/case — so "Artist feat. Guest" and
+    "artist" collapse together.
+    """
+    return fold_text(primary_artist(name))
 
 # Featured-guest markers: everything from "feat./ft./featuring" onward is cut.
 # The marker must be preceded by whitespace or an opening bracket so we never
@@ -67,6 +110,40 @@ def sanitize_segment(name: str) -> str:
     cleaned = "".join("_" if ch in _FORBIDDEN else ch for ch in name)
     cleaned = cleaned.rstrip(". ").strip()
     return cleaned or "_"
+
+
+def _reuse_folded_dir(parent: Path, wanted: str) -> str:
+    """Return an existing sibling of ``parent/wanted`` that folds equal to it.
+
+    When the exact ``wanted`` directory is absent but a sibling directory
+    compares equal under :func:`fold_text` (same name modulo case, curly
+    quotes, dash flavour, ® marks), reuse that sibling's *exact on-disk name*.
+    This makes ingest converge on whatever artist/album folder already exists
+    rather than minting a second case-variant next to it (``Afraid`` beside
+    ``afraid``). Fold-equality only — never fuzzy — because a false merge would
+    move a file into the wrong artist's folder.
+
+    One ``os.scandir`` per level; nothing is cached (single-user, cheap). Any
+    filesystem error (parent doesn't exist yet — the common case on a fresh
+    library) degrades to ``wanted`` unchanged.
+    """
+    try:
+        if (parent / wanted).exists():
+            return wanted
+        target = fold_text(wanted)
+        if not target:
+            return wanted
+        with os.scandir(parent) as it:
+            for entry in it:
+                if (
+                    entry.name != wanted
+                    and entry.is_dir()
+                    and fold_text(entry.name) == target
+                ):
+                    return entry.name
+    except OSError:
+        pass
+    return wanted
 
 
 def render_filename(tags: TrackTags, ext: str) -> str:
@@ -113,6 +190,13 @@ def build_destination(
         )
     )
     album_seg = sanitize_segment(tags.album or "Unknown Album")
+
+    # Converge on an existing folder that differs only by case/punctuation
+    # instead of creating a duplicate next to it (the root cause of the
+    # Windows-side duplicate-listing problem). Artist level first, then album
+    # under the (possibly reused) artist directory.
+    artist_seg = _reuse_folded_dir(base, artist_seg)
+    album_seg = _reuse_folded_dir(base / artist_seg, album_seg)
 
     parts = [base, artist_seg, album_seg]
     if (tags.disc_total or 1) > 1 and tags.disc is not None:

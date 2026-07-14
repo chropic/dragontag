@@ -1873,6 +1873,14 @@ def library_fix_album_splits(request: Request, _: None = Depends(require_auth), 
     return _toast_response("/library", "Album-split repair started — split albums will be unified onto one release.")
 
 
+@app.post("/library/unify-artist-folders")
+def library_unify_artist_folders(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
+    from .library.actions import unify_artist_folders
+    tasks.run_task("unify_artist_folders", f"Fix artist folders (folder {folder_id})",
+                   lambda ctx: unify_artist_folders(folder_id, ctx=ctx))
+    return _toast_response("/library", "Artist-folder unification started — duplicate artist folders will be merged.")
+
+
 @app.post("/library/find-missing-tracks")
 def library_find_missing_tracks(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
     from .library.actions import find_missing_tracks

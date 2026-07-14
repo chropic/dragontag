@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import subprocess
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,7 @@ from ..models import LibraryFolder, Track
 from . import filelock
 from .mover import move as _safe_move
 from .mover import move_lyric_sidecar as _move_lyric_sidecar
+from .paths import artist_fold_key, fold_text, primary_artist, sanitize_segment
 
 log = logging.getLogger(__name__)
 
@@ -581,6 +583,24 @@ _EDITION_SUFFIX_RE = re.compile(
     re.IGNORECASE,
 )
 
+# iTunes-style *unparenthesized* trailing edition markers: "Album - Single",
+# "Album - EP" (any dash flavour). MusicBrainz names the same release group
+# without the suffix, so these are the same album under two source spellings.
+_TRAILING_EDITION_RE = re.compile(r"\s*[-–—]\s*(single|ep)\s*$", re.IGNORECASE)
+
+# A dash left dangling by sanitization ("…Friends–", "Album -").
+_DANGLING_DASH_RE = re.compile(r"\s*[-–—]+\s*$")
+
+
+def _strip_edition_suffixes(album: str) -> str:
+    """Remove parenthesized and iTunes-style trailing edition markers plus any
+    dangling dash. Applied before folding so the offline album key groups the
+    ``X`` / ``X - Single`` / ``X (Deluxe)`` / ``…Friends–`` variants together."""
+    a = _EDITION_SUFFIX_RE.sub("", album)
+    a = _TRAILING_EDITION_RE.sub("", a)
+    a = _DANGLING_DASH_RE.sub("", a)
+    return a
+
 
 def _normalize_album_key(album: str | None, album_artist: str | None) -> tuple[str, str] | None:
     """Fold an (album, album_artist) pair into a deterministic grouping key.
@@ -588,14 +608,16 @@ def _normalize_album_key(album: str | None, album_artist: str | None) -> tuple[s
     Used only as a fallback for tracks with no MusicBrainz release-group id —
     deterministic exact-match-after-normalization avoids any false-positive
     merges (which would be destructive), at the cost of missing matches a
-    human would consider obviously "the same album" (e.g. typos).
+    human would consider obviously "the same album" (e.g. typos). The same
+    quote/dash/NFKC fold as the artist key is applied so case- and
+    punctuation-only album variants collapse together.
     """
     if not album or not album_artist:
         return None
-    a = _EDITION_SUFFIX_RE.sub("", album).strip().lower()
+    a = fold_text(_strip_edition_suffixes(album))
     a = re.sub(r"[^\w\s]", "", a)
     a = re.sub(r"\s+", " ", a).strip()
-    artist = re.sub(r"[^\w\s]", "", album_artist.strip().lower())
+    artist = re.sub(r"[^\w\s]", "", fold_text(album_artist))
     artist = re.sub(r"\s+", " ", artist).strip()
     if not a or not artist:
         return None
@@ -644,16 +666,22 @@ def _majority_pair(tracks: list[Track]) -> tuple[str, str]:
 def _normalize_track_to_pair(
     s,
     t: Track,
-    winning_album: str,
+    winning_album: str | None,
     winning_artist: str,
     lib_root: Path,
     source_dirs: set[Path],
     ctx=None,
     log_prefix: str = "album-consistency",
 ) -> bool:
-    """Patch one track's album/album_artist to the winning pair and move it
-    into the canonical folder. Shared by ``check_album_consistency`` and the
-    offline fallback of ``fix_album_splits``.
+    """Patch one track's album/album_artist to the winning value and move it
+    into the canonical folder. Shared by ``check_album_consistency``, the
+    offline fallback of ``fix_album_splits`` and ``unify_artist_folders``.
+
+    ``winning_album`` may be ``None``, meaning "leave this track's own album
+    alone and only unify the album artist" — the album tag is not written and
+    the track keeps its existing album for the destination computation. This
+    is what ``unify_artist_folders`` uses: it moves every album under a single
+    artist folder without collapsing distinct albums together.
 
     Returns True when the track was fixed (tag patch applied, move
     best-effort), False when nothing could be changed. Commits per track —
@@ -664,10 +692,14 @@ def _normalize_track_to_pair(
     from ..tagging.schema import TrackTags
     from .paths import build_destination
 
+    # The album value we record/target: the winning album, or the track's own
+    # album when the caller only means to unify the artist.
+    effective_album = winning_album if winning_album is not None else t.album
+
     p = Path(t.path)
     try:
         # path_lock: in-place mutator, same rule as the pipeline /
-        # organizer / revert.
+        # organizer / revert. album=None leaves the album tag untouched.
         with filelock.path_lock(p):
             write_basic_tags(
                 p, title=None, artist=None,
@@ -680,7 +712,7 @@ def _normalize_track_to_pair(
 
     shim = TrackTags(
         title=t.title, artist_display=t.artist,
-        album=winning_album, album_artist_display=winning_artist,
+        album=effective_album, album_artist_display=winning_artist,
         track=t.track_num, track_total=t.track_total,
         disc=t.disc_num, disc_total=t.disc_total,
     )
@@ -693,7 +725,7 @@ def _normalize_track_to_pair(
     db_t = s.get(Track, t.id)
     if dest == p:
         if db_t:
-            db_t.album, db_t.album_artist = winning_album, winning_artist
+            db_t.album, db_t.album_artist = effective_album, winning_artist
             s.add(db_t)
         s.commit()
         return True
@@ -708,7 +740,7 @@ def _normalize_track_to_pair(
         # DB update and carry on with the rest of the group.
         log.exception("%s: move failed for %s", log_prefix, p)
         if db_t:
-            db_t.album, db_t.album_artist = winning_album, winning_artist
+            db_t.album, db_t.album_artist = effective_album, winning_artist
             s.add(db_t)
         s.commit()
         return True
@@ -716,7 +748,7 @@ def _normalize_track_to_pair(
         if ctx:
             ctx.log(f"{log_prefix}: destination conflict, tags patched but not moved: {p} -> {dest}")
         if db_t:
-            db_t.album, db_t.album_artist = winning_album, winning_artist
+            db_t.album, db_t.album_artist = effective_album, winning_artist
             s.add(db_t)
         s.commit()
         return True
@@ -724,7 +756,7 @@ def _normalize_track_to_pair(
     _update_track_path(s, str(p), str(dest))
     moved_t = s.exec(select(Track).where(Track.path == str(dest))).first()
     if moved_t:
-        moved_t.album, moved_t.album_artist = winning_album, winning_artist
+        moved_t.album, moved_t.album_artist = effective_album, winning_artist
         s.add(moved_t)
     source_dirs.add(p.parent)
     s.commit()
@@ -788,6 +820,223 @@ def check_album_consistency(folder_id: int, ctx=None) -> dict:
     log.info("check_album_consistency(%d): %s", folder_id, summary)
     if ctx:
         ctx.log(f"Checked {groups_checked} group(s), fixed {tracks_fixed} track(s), merged/pruned {folders_merged} empty folder(s)")
+    return summary
+
+
+# ---------------------------------------------------------------------------
+# Artist-folder unification: one folder per artist across every album
+# ---------------------------------------------------------------------------
+
+
+def _elect_canonical_artist(tracks: list[Track]) -> str:
+    """Elect the canonical album-artist spelling for a group by majority vote.
+
+    Votes over the *raw* ``album_artist`` (falling back to ``artist``) strings
+    — a pure count, deliberately *not* a "prefer capitals" heuristic:
+    stylized-lowercase names (``fakemink``, ``glaive``, ``jonatan
+    leandoer96``) are legitimate, and the majority of the user's own files is
+    the least-surprising winner. Ties break by the most-recently-indexed track
+    carrying a tied spelling, then alphabetically for determinism (mirrors
+    ``_majority_pair``). Returns ``""`` when no track has a usable name.
+    """
+    def name(t: Track) -> str:
+        return (t.album_artist or t.artist or "").strip()
+
+    counts = Counter(name(t) for t in tracks if name(t))
+    if not counts:
+        return ""
+    best = max(counts.values())
+    tied = sorted(n for n, c in counts.items() if c == best)
+    if len(tied) == 1:
+        return tied[0]
+    candidates = [t for t in tracks if name(t) in tied]
+    candidates.sort(key=lambda t: (t.indexed_at, name(t)), reverse=True)
+    return name(candidates[0])
+
+
+def _group_tracks_by_artist(tracks: list[Track]) -> list[list[Track]]:
+    """Group tracks that should share a single artist folder.
+
+    Primary key is the MusicBrainz *album-artist id* — it unifies alias/credit
+    variants that fold differently (``FERG``/``A$AP Ferg``, ``Cordae``/``YBN
+    Cordae``, a Japanese-script credit) into one group. Tracks with no id fall
+    back to the folded artist name (case/punctuation/Unicode-insensitive), and
+    join an id-keyed group when their fold key matches that group's folded
+    canonical name — so an id-less file lands with its id-carrying siblings.
+    """
+    id_groups: dict[str, list[Track]] = {}
+    fold_only: dict[str, list[Track]] = {}
+    for t in tracks:
+        name = t.album_artist or t.artist or ""
+        if not name.strip():
+            continue
+        aid = getattr(t, "mb_album_artist_id", None)
+        if aid:
+            id_groups.setdefault(aid, []).append(t)
+        else:
+            key = artist_fold_key(name)
+            if key:
+                fold_only.setdefault(key, []).append(t)
+
+    # Fold key of each id-group's canonical name, so id-less tracks can join.
+    fold_to_id_group: dict[str, list[Track]] = {}
+    for group in id_groups.values():
+        fk = artist_fold_key(_elect_canonical_artist(group))
+        if fk:
+            fold_to_id_group.setdefault(fk, group)
+
+    groups: list[list[Track]] = list(id_groups.values())
+    for key, group in fold_only.items():
+        target = fold_to_id_group.get(key)
+        if target is not None:
+            target.extend(group)
+        else:
+            groups.append(group)
+    return groups
+
+
+def _rename_artist_dir(s, tracks: list[Track], src: Path, dst: Path, ctx=None) -> bool:
+    """Rename an artist directory ``src`` → ``dst`` and re-point every
+    ``Track.path`` beneath it.
+
+    Handles the case-insensitive-mount caveat: when the per-file move degraded
+    to a tag-patch (``dst`` resolves to the same inode as ``src``, differing
+    only in case), rename via a temp name so the case actually changes on
+    disk. Refuses when ``dst`` already exists as a genuinely distinct
+    directory (a real collision — leave those files where they are and let the
+    per-file merge / prune handle it). Returns True on a successful rename.
+    """
+    try:
+        if not src.exists() or not src.is_dir():
+            return False
+        if not dst.exists():
+            src.rename(dst)
+        elif dst != src and os.path.samefile(str(src), str(dst)):
+            # dst resolves to the *same inode* as src (case-insensitive mount,
+            # names differ only by case): a direct rename is a no-op, so go
+            # through a temp name to actually change the casing on disk.
+            tmp = src.with_name(src.name + ".dgtmp")
+            src.rename(tmp)
+            tmp.rename(dst)
+        else:
+            # dst is a genuinely distinct existing directory — a real
+            # collision. Leave those files where they are (the per-file move
+            # / prune handles the case-sensitive merge).
+            return False
+    except OSError:
+        return False
+
+    prefix = str(src) + os.sep
+    for t in tracks:
+        if t.path.startswith(prefix):
+            db_t = s.get(Track, t.id)
+            if db_t:
+                db_t.path = t.path.replace(str(src), str(dst), 1)
+                s.add(db_t)
+    s.commit()
+    if ctx:
+        ctx.log(f"renamed artist folder {src.name} -> {dst.name}")
+    return True
+
+
+def unify_artist_folders(folder_id: int, ctx=None) -> dict:
+    """Collapse duplicate artist folders caused by casing / punctuation /
+    alias drift into one canonical folder per artist.
+
+    For each group of tracks that belong to the same artist — keyed by
+    MusicBrainz album-artist id, else by a case/punctuation/Unicode-folded
+    name — elect the majority album-artist spelling and rewrite every outlier
+    track's ``album_artist`` tag to it, moving the file under the canonical
+    artist folder (its album is left untouched, so distinct albums stay
+    distinct). Then rename any leftover artist directory that differs from the
+    canonical only by case (case-insensitive mounts) and prune the emptied
+    source folders.
+
+    Skips protected tracks entirely; every file mutate/move holds
+    ``path_lock`` and commits per track (via ``_normalize_track_to_pair``).
+    Offline — no network.
+    """
+    from .organizer import _prune_empty_dirs
+
+    with session() as s:
+        folder = s.get(LibraryFolder, folder_id)
+        if not folder:
+            return {"ok": False, "reason": "Folder not found"}
+        tracks = s.exec(select(Track).where(Track.library_folder_id == folder_id)).all()
+        lib_root = Path(folder.path)
+
+    groups = _group_tracks_by_artist(tracks)
+    groups_checked = 0
+    tracks_fixed = 0
+    source_dirs: set[Path] = set()
+    canonical_names: set[str] = set()
+
+    if ctx:
+        ctx.progress(0, len(groups))
+    with session() as s:
+        for gi, group in enumerate(groups, start=1):
+            if ctx:
+                ctx.check_cancelled()
+                ctx.progress(gi, len(groups))
+            eligible = [t for t in group if not t.protected and Path(t.path).exists()]
+            if len(eligible) < 2:
+                continue
+            canonical = _elect_canonical_artist(eligible)
+            if not canonical:
+                continue
+            canonical_names.add(canonical)
+            if all((t.album_artist or "") == canonical for t in eligible):
+                continue  # already unified
+            groups_checked += 1
+            for t in eligible:
+                if (t.album_artist or "") == canonical:
+                    continue
+                if _normalize_track_to_pair(
+                    s, t, None, canonical, lib_root, source_dirs, ctx,
+                    log_prefix="unify-artists",
+                ):
+                    tracks_fixed += 1
+        s.commit()
+
+    # Case-only directory cleanup: after the per-file moves, an artist dir may
+    # still carry the loser's casing (case-insensitive mount, where the move
+    # degraded to a tag patch). Rename such dirs onto the canonical spelling.
+    folders_renamed = 0
+    with session() as s:
+        live_tracks = s.exec(
+            select(Track).where(Track.library_folder_id == folder_id)
+        ).all()
+        for canonical in canonical_names:
+            target_name = sanitize_segment(primary_artist(canonical))
+            target_dir = lib_root / target_name
+            target_fold = fold_text(target_name)
+            try:
+                entries = list(os.scandir(lib_root))
+            except OSError:
+                break
+            for entry in entries:
+                if not entry.is_dir() or entry.name == target_name:
+                    continue
+                if fold_text(entry.name) != target_fold:
+                    continue
+                src_dir = Path(entry.path)
+                if _rename_artist_dir(s, live_tracks, src_dir, target_dir, ctx):
+                    folders_renamed += 1
+                    source_dirs.add(src_dir)
+
+    folders_merged = _prune_empty_dirs(source_dirs, lib_root) if source_dirs else 0
+    summary = {
+        "groups": groups_checked,
+        "tracks_fixed": tracks_fixed,
+        "folders_renamed": folders_renamed,
+        "folders_merged": folders_merged,
+    }
+    log.info("unify_artist_folders(%d): %s", folder_id, summary)
+    if ctx:
+        ctx.log(
+            f"Unified {groups_checked} artist group(s), fixed {tracks_fixed} track(s), "
+            f"renamed {folders_renamed} folder(s), merged/pruned {folders_merged} empty folder(s)"
+        )
     return summary
 
 
@@ -1205,9 +1454,53 @@ _JUNK_NAMES = {"thumbs.db", ".ds_store", "desktop.ini", "albumartsmall.jpg"}
 _JUNK_SUFFIXES = {".tmp", ".part", ".crdownload"}
 
 
+def _report_dead_folders(lib_root: Path, ctx=None) -> int:
+    """Report (never delete) two classes of suspicious directory:
+
+    * folders with no audio anywhere below them but leftover files (a
+      ``cover.jpg`` / orphan ``.lrc`` left by a manual move);
+    * album folders that contain only ``Disc NN`` subfolders with disc 1
+      absent — the orphan-disc symptom (the real fix is finding the missing
+      discs via ``find_missing_tracks``).
+
+    Report-only: deleting these is a judgement call the maintainer should make.
+    """
+    from ..ingest.pipeline import SUPPORTED_EXTS
+
+    reported = 0
+    for dirpath, dirnames, filenames in os.walk(lib_root):
+        d = Path(dirpath)
+        if d == lib_root:
+            continue
+        subtree_files: list[str] = []
+        subtree_has_audio = False
+        for _dp, _dn, fns in os.walk(d):
+            for fn in fns:
+                subtree_files.append(fn)
+                if Path(fn).suffix.lower() in SUPPORTED_EXTS:
+                    subtree_has_audio = True
+        if subtree_files and not subtree_has_audio:
+            if ctx:
+                sample = ", ".join(sorted(set(subtree_files))[:5])
+                ctx.log(f"dead folder (no audio below, leftover files: {sample}): {d}")
+            reported += 1
+            dirnames[:] = []  # don't also report this dead subtree's children
+            continue
+        disc_subs = [c for c in dirnames if _DISC_RE.match(c)]
+        direct_audio = any(Path(fn).suffix.lower() in SUPPORTED_EXTS for fn in filenames)
+        if disc_subs and len(disc_subs) == len(dirnames) and not direct_audio:
+            nums = {int(m.group(1)) for m in (_DISC_RE.match(c) for c in disc_subs) if m}
+            if nums and 1 not in nums:
+                if ctx:
+                    ctx.log(f"orphan disc(s) — disc 1 missing under {d}: discs {sorted(nums)}")
+                reported += 1
+    return reported
+
+
 def prune_library(folder_id: int, ctx=None) -> dict:
     """Delete junk files (Thumbs.db, .DS_Store, *.tmp …) and then any
-    completely empty directories. Audio files are never candidates."""
+    completely empty directories. Audio files are never candidates. Also
+    reports (never deletes) dead folders and orphan-disc album folders."""
     from .organizer import _prune_empty_dirs
 
     with session() as s:
@@ -1242,11 +1535,18 @@ def prune_library(folder_id: int, ctx=None) -> dict:
                 ctx.log(f"could not delete {f}: {e}")
 
     dirs_removed = _prune_empty_dirs(all_dirs, lib_root)
+    dead_reported = _report_dead_folders(lib_root, ctx)
     if ctx:
         ctx.progress(len(junk) or 1, len(junk) or 1)
-        ctx.log(f"Removed {removed} junk file(s) and {dirs_removed} empty dir(s)")
-    log.info("prune_library(%d): %d junk, %d dirs", folder_id, removed, dirs_removed)
-    return {"junk_removed": removed, "dirs_removed": dirs_removed}
+        ctx.log(
+            f"Removed {removed} junk file(s) and {dirs_removed} empty dir(s); "
+            f"{dead_reported} dead/orphan-disc folder(s) reported (not deleted)"
+        )
+    log.info(
+        "prune_library(%d): %d junk, %d dirs, %d dead reported",
+        folder_id, removed, dirs_removed, dead_reported,
+    )
+    return {"junk_removed": removed, "dirs_removed": dirs_removed, "dead_reported": dead_reported}
 
 
 # ---------------------------------------------------------------------------
@@ -1339,6 +1639,7 @@ def validate_tags(folder_id: int, ctx=None) -> dict:
     items = [t for t in tracks if Path(t.path).exists()]
 
     problems: list[str] = []
+    seen_bad_albums: set[str] = set()  # report each suspicious album name once
     if ctx:
         ctx.progress(0, len(items))
     for i, t in enumerate(items, start=1):
@@ -1360,6 +1661,19 @@ def validate_tags(folder_id: int, ctx=None) -> dict:
             problems.append(f"{name}: track {t.track_num} > track total {t.track_total}")
         if t.disc_num and t.disc_total and t.disc_num > t.disc_total:
             problems.append(f"{name}: disc {t.disc_num} > disc total {t.disc_total}")
+        # Suspicious album folder names (class 9): an album that is only an
+        # edition marker / punctuation with no real title, or one that
+        # sanitizes to the "_" placeholder — the folder shows up as "(Deluxe)"
+        # or "_" with no base album name.
+        alb = (t.album or "").strip()
+        if alb and alb not in seen_bad_albums:
+            base = _strip_edition_suffixes(alb).strip(" ()[]{}-–—_")
+            if not base:
+                seen_bad_albums.add(alb)
+                problems.append(f"{name}: suspicious album name {alb!r} (edition marker / punctuation only)")
+            elif sanitize_segment(alb) == "_":
+                seen_bad_albums.add(alb)
+                problems.append(f"{name}: album name {alb!r} sanitizes to the '_' placeholder")
     if ctx:
         for line in problems[:100]:
             ctx.log(line)
@@ -1431,6 +1745,17 @@ LIBRARY_ACTIONS: dict[str, tuple[str, str, Any]] = {
         "Groups without MusicBrainz IDs get an offline album/album-artist majority vote. "
         "Skips protected tracks and edition-exclusive bonus tracks.",
         fix_album_splits),
+    "unify_artist_folders": (
+        "Fix artist folders",
+        "Collapse duplicate artist folders that differ only by capitalization, "
+        "punctuation/Unicode (curly quotes, dashes, ® marks) or MusicBrainz "
+        "alias (FERG/A$AP Ferg) into one canonical folder per artist. Elects the "
+        "majority album-artist spelling among your files, rewrites outlier "
+        "album_artist tags to it and moves each file under the canonical folder "
+        "(albums are left untouched), then renames case-only folder variants and "
+        "prunes emptied folders. Offline; skips protected tracks. Run before "
+        "album-folder consistency.",
+        unify_artist_folders),
     "check_album_consistency": (
         "Fix album/folder consistency",
         "Detect tracks sharing a MusicBrainz release-group (or matching album+artist) "
@@ -1445,7 +1770,8 @@ LIBRARY_ACTIONS: dict[str, tuple[str, str, Any]] = {
 # Batch compositions (keys into LIBRARY_ACTIONS, executed in order). "organize"
 # itself is prepended by the route layer because it lives in organizer.py.
 BATCH_ORGANIZE = [
-    "fix_disc_folders", "normalize_filenames", "check_album_consistency",
+    "fix_disc_folders", "normalize_filenames", "unify_artist_folders",
+    "check_album_consistency",
     "extract_covers", "prune", "find_duplicates", "find_missing_tracks",
 ]
 BATCH_RETAG = ["validate_tags", "tag_advisories", "replaygain"]
@@ -1462,7 +1788,8 @@ BATCH_NUCLEAR = [
     # consistency, ReplayGain's album gain) should see the unified state.
     "fix_album_splits",
     "validate_tags", "fetch_covers", "fetch_lyrics", "tag_advisories",
-    "fix_disc_folders", "normalize_filenames", "check_album_consistency",
+    "fix_disc_folders", "normalize_filenames", "unify_artist_folders",
+    "check_album_consistency",
     "extract_covers", "replaygain", "find_duplicates", "find_missing_tracks", "prune",
     "verify_integrity",
 ]

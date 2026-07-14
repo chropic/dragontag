@@ -31,6 +31,7 @@ def test_id3_mb_ids_round_trip_through_own_writer(tmp_path):
             mb_track_id="rec-mbid",
             mb_album_id="rel-mbid",
             mb_release_group_id="rg-mbid",
+            mb_album_artist_ids=["aa-mbid"],
         ),
         Separators(),
     )
@@ -39,6 +40,7 @@ def test_id3_mb_ids_round_trip_through_own_writer(tmp_path):
     assert got["mb_track_id"] == "rec-mbid"
     assert got["mb_album_id"] == "rel-mbid"
     assert got["mb_release_group_id"] == "rg-mbid"
+    assert got["mb_album_artist_id"] == "aa-mbid"
 
 
 def test_picard_style_txxx_descs_are_read(tmp_path):

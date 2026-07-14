@@ -99,6 +99,12 @@ def read(path: Path) -> dict[str, Any]:
         "----:com.apple.iTunes:MUSICBRAINZ_RELEASEGROUPID",
         "----:com.apple.iTunes:MusicBrainz Release Group Id",
     )
+    out["mb_album_artist_id"] = first(
+        "MUSICBRAINZ_ALBUMARTISTID", "musicbrainz_albumartistid",
+        "TXXX:MUSICBRAINZ_ALBUMARTISTID", "TXXX:MusicBrainz Album Artist Id",
+        "----:com.apple.iTunes:MUSICBRAINZ_ALBUMARTISTID",
+        "----:com.apple.iTunes:MusicBrainz Album Artist Id",
+    )
     out["track"] = first("TRACKNUMBER", "tracknumber", "track", "TRCK", "trkn")
     out["disc"] = first("DISCNUMBER", "discnumber", "disc", "TPOS", "disk")
     out["disc_total"] = first("DISCTOTAL", "TOTALDISCS", "totaldiscs", "disctotal")

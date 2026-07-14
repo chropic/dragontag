@@ -1,7 +1,13 @@
 from pathlib import Path
 
 from dragontag.app.library import paths as paths_mod
-from dragontag.app.library.paths import sanitize_segment, build_destination, primary_artist
+from dragontag.app.library.paths import (
+    artist_fold_key,
+    build_destination,
+    fold_text,
+    primary_artist,
+    sanitize_segment,
+)
 from dragontag.app.tagging.schema import TrackTags
 
 
@@ -92,3 +98,75 @@ def test_build_destination_multi_disc():
     )
     dest = build_destination(t, ".flac")
     assert dest.parts[-4:] == ("Artist", "DoubleAlbum", "Disc 2", "03. Track.flac")
+
+
+# --- fold keys -------------------------------------------------------------
+
+
+def test_fold_text_case_punctuation_unicode(monkeypatch):
+    _patch_seps(monkeypatch, "")
+    # casefold
+    assert fold_text("LUCKI") == fold_text("Lucki")
+    assert fold_text("BONES") == fold_text("Bones")
+    # curly vs straight apostrophe
+    assert fold_text("Her's") == fold_text("Her’s")
+    assert fold_text("Pi'erre Bourne") == fold_text("Pi’erre Bourne")
+    # U+2010 hyphen vs ASCII hyphen
+    assert fold_text("Tay-K") == fold_text("Tay‐K")
+    # ® stripped
+    assert fold_text("NIGO®") == fold_text("Nigo")
+    # × folds to x
+    assert fold_text("A × B") == fold_text("A x B")
+    # whitespace collapse
+    assert fold_text("Until  Japan") == fold_text("Until Japan")
+
+
+def test_fold_text_negatives(monkeypatch):
+    _patch_seps(monkeypatch, "")
+    # genuinely different names must not collide
+    assert fold_text("Bones") != fold_text("Bone")
+    assert fold_text("AC/DC") == "ac/dc"  # slash preserved, not treated as separator
+
+
+def test_artist_fold_key_strips_feat(monkeypatch):
+    _patch_seps(monkeypatch, "")
+    # primary_artist runs first, then the fold
+    assert artist_fold_key("Drake feat. Rihanna") == artist_fold_key("Drake")
+    assert artist_fold_key("fakemink") == artist_fold_key("Fakemink")
+
+
+# --- build_destination existing-folder reuse (prevention) ------------------
+
+
+def test_build_destination_reuses_existing_case_variant_dir(tmp_path):
+    # An existing 'afraid' dir + tags spelling 'Afraid' → path lands under the
+    # existing 'afraid', not a new 'Afraid'.
+    (tmp_path / "afraid" / "Album").mkdir(parents=True)
+    t = TrackTags(
+        title="Song", artist_display="Afraid", album="Album",
+        album_artist_display="Afraid", track=1, track_total=1, disc=1, disc_total=1,
+    )
+    dest = build_destination(t, ".flac", library_root=tmp_path)
+    assert dest.parts[-3:-1] == ("afraid", "Album")
+
+
+def test_build_destination_no_existing_dir_uses_tag_casing(tmp_path):
+    t = TrackTags(
+        title="Song", artist_display="Afraid", album="Album",
+        album_artist_display="Afraid", track=1, track_total=1, disc=1, disc_total=1,
+    )
+    dest = build_destination(t, ".flac", library_root=tmp_path)
+    assert dest.parts[-3:-1] == ("Afraid", "Album")
+
+
+def test_build_destination_reuse_still_guards_root_escape(tmp_path):
+    # The traversal defence must still fire after segment substitution.
+    import pytest
+    t = TrackTags(
+        title="Song", artist_display="../../etc", album="x",
+        album_artist_display="../../etc", track=1, track_total=1, disc=1, disc_total=1,
+    )
+    # sanitize_segment neutralizes separators, so this should NOT escape — but
+    # the resolved path must remain under the root regardless.
+    dest = build_destination(t, ".flac", library_root=tmp_path)
+    dest.resolve().relative_to(tmp_path.resolve())

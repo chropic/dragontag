@@ -57,6 +57,14 @@ recurring. When writing new code in one of these areas, check the pattern first.
 - **`_upsert_track` needs the pre-move path** (`original_path=`) when the file moved, or a
   re-tag that changes the canonical destination leaves a phantom Track row (and loses
   `protected`) at the old path until the next scan prunes it.
+- **Case-only directory rename must gate the two-step temp dance on `os.path.samefile`,
+  not on `str(a).lower() == str(b).lower()`.** `unify_artist_folders._rename_artist_dir`
+  renames `Fakemink`→`fakemink`; on a case-insensitive mount the target "exists" (same inode)
+  so a direct rename is a no-op and you must go through a temp name. But on case-sensitive
+  ext4 two genuinely distinct dirs can share a case-insensitive name — doing the temp dance
+  there renames `Fakemink`→`Fakemink.dgtmp` then fails to `tmp.rename(fakemink)` (dir not
+  empty) and strands the files. Only do the two-step when `dst.exists()` **and**
+  `os.path.samefile(src, dst)`; otherwise refuse and let the per-file move / prune merge it.
 
 ## mutagen / tag-writing traps
 

@@ -191,6 +191,22 @@
       </label>
       {{ hint("Characters on which a multi-artist album-artist is reduced to its first artist for the folder name (e.g. \"&,;\" files \"A & B\" under \"A\"). Empty (default) keeps the full credit, so \"Tyler, The Creator\" stays intact. Setting \"&,;\" is recommended if you see separate folders for collaborations (\"Bladee & Ecco2K\" apart from \"Bladee\") and want them filed under the first artist. \"feat./ft./featuring\" guests are always stripped; slashes are never split, so \"AC/DC\" and \"A//B\" stay combined.") }}
     </div>
+    <div>
+      <label class="flex items-center gap-2">
+        <input type="checkbox" name="fold_edition_suffixes" {% if settings.fold_edition_suffixes %}checked{% endif %}>
+        Fold edition suffixes onto existing album folders
+      </label>
+      {{ hint("When on (default), a file tagged \"Afraid - Single\" or \"Afraid (Deluxe)\" reuses an existing \"Afraid\" album folder instead of creating a suffixed twin next to it — the same convergence already applied to case/punctuation variants. The Cleanup action can merge any historical twins on disk. Off = keep the album tag's exact spelling as its own folder.") }}
+    </div>
+    <div>
+      <label class="block">
+        <span class="text-[#8a8a8a]">Cleanup quarantine folder</span>
+        <input name="quarantine_path" value="{{ settings.quarantine_path }}"
+               placeholder="(default: <library>/.dragontag-trash)"
+               class="mt-1 w-full p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
+      </label>
+      {{ hint("Absolute path where the Cleanup action moves dead folders and leftover non-audio files (nothing is ever deleted; audio is never quarantined). Leave blank to use <library>/.dragontag-trash. Must be an absolute path when set.") }}
+    </div>
     <!-- Live preview -->
     <div class="text-xs text-[#8a8a8a] space-y-0.5">
       <div>Single disc: <code id="tpl_preview" class="text-[#c7f0c7]"></code></div>

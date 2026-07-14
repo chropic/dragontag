@@ -31,8 +31,13 @@
   values are left untouched (`check_album_consistency`/`fix_album_splits` own
   tag agreement). Protected tracks are never moved; every move holds `path_lock`,
   branches on `MoveResult`, and commits `Track.path` per move. The dead-folder
-  detection was refactored into a shared `_find_dead_folders`.
-  (`library/actions.py`, `config.py`)
+  detection was refactored into a shared `_find_dead_folders`. Exposed on the
+  Library page (report run + a confirm-gated apply card), as a schedulable task
+  type (`cleanup`, with an apply toggle), and via two new settings
+  (`quarantine_path`, `fold_edition_suffixes`) on the settings form.
+  (`library/actions.py`, `config.py`, `main.py`, `scheduler.py`,
+  `web/templates/library.html`, `web/templates/settings.html`,
+  `web/templates/schedule.html`)
 
 ### Changed (edition-suffix folder folding — 2026-07-14)
 - **Ingest now folds edition suffixes onto an existing base folder.** A file

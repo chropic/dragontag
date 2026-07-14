@@ -1857,6 +1857,10 @@ def cleanup_library(folder_id: int, ctx=None, *, apply: bool = False) -> dict:
     source_dirs: set[Path] = set()
     quarantined_anything = False
 
+    if not lib_root.exists():
+        ctx and ctx.log(f"library root does not exist: {lib_root}")
+        return result
+
     # 1. Twin-folder merge, grouped per artist directory.
     with session() as s:
         for artist_dir in sorted(p for p in lib_root.iterdir() if p.is_dir()):

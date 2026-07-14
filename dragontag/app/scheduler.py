@@ -39,6 +39,7 @@ TASK_TYPES = {
     "batch_retag": "Re-tag batch (QA + advisories + ReplayGain + pipeline)",
     "fetch_lyrics": "Fetch lyrics for folder",
     "fetch_covers": "Fetch cover art for folder",
+    "cleanup": "Library cleanup (report or quarantine)",
     "backup": "Create config backup",
 }
 
@@ -137,6 +138,20 @@ def run_task_by_type(task: ScheduledTask) -> int | None:
         steps += [("Organize files", lambda ctx: organize_folder(fid, ctx=ctx))]
         steps += build_chain_steps(BATCH_ORGANIZE, fid)
         return tasks.run_chain("batch_organize", name, steps)
+
+    if kind == "cleanup":
+        f = _folder(int(params.get("folder_id", 0)))
+        if not f:
+            raise ValueError("library folder not found")
+        from .library.actions import cleanup_library
+        fid = f.id
+        do_apply = bool(params.get("apply"))
+        # Scan first so twin-merge repoints Track rows for files edited since the
+        # last scan (same stale-Track-data reason as the other batches).
+        steps = _scan_step(f) + [
+            ("Cleanup", lambda ctx: cleanup_library(fid, ctx=ctx, apply=do_apply)),
+        ]
+        return tasks.run_chain("cleanup", name, steps)
 
     if kind == "batch_retag":
         f = _folder(int(params.get("folder_id", 0)))

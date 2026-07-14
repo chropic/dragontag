@@ -932,6 +932,8 @@ def settings_update(
     filename_template_multidisc: str = Form(...),
     multidisc_folder_template: str = Form(...),
     folder_artist_split_separators: str = Form(""),
+    fold_edition_suffixes: str | None = Form(None),
+    quarantine_path: str = Form(""),
     cover_allow_release_group_fallback: str | None = Form(None),
     replaygain_tool_path: str = Form(""),
     watcher_enabled: str | None = Form(None),
@@ -985,6 +987,8 @@ def settings_update(
         "filename_template_multidisc": filename_template_multidisc,
         "multidisc_folder_template": multidisc_folder_template,
         "folder_artist_split_separators": folder_artist_split_separators,
+        "fold_edition_suffixes": bool(fold_edition_suffixes),
+        "quarantine_path": quarantine_path.strip(),
         "cover_allow_release_group_fallback": bool(cover_allow_release_group_fallback),
         "replaygain_tool_path": replaygain_tool_path.strip(),
         "watcher_enabled": bool(watcher_enabled),
@@ -1858,6 +1862,40 @@ def library_prune(request: Request, _: None = Depends(require_auth), folder_id: 
     return _toast_response("/library", "Prune started — junk files and empty folders will be removed.")
 
 
+@app.post("/library/cleanup")
+def library_cleanup(
+    request: Request,
+    _: None = Depends(require_auth),
+    folder_id: int = Form(...),
+    apply: str | None = Form(None),
+):
+    """Report (default) or apply library cleanup: merge edition-suffix twin
+    folders, dedupe covers, quarantine dead folders/leftovers. Nothing deleted."""
+    from .library.actions import cleanup_library
+    do_apply = bool(apply)
+    if do_apply and (msg := _batch_guard()):
+        return _toast_response("/library", msg, "error")
+    mode = "apply" if do_apply else "report"
+    tasks.run_task("cleanup", f"Library cleanup [{mode}] (folder {folder_id})",
+                   lambda ctx: cleanup_library(folder_id, ctx=ctx, apply=do_apply))
+    return _toast_response(
+        "/library",
+        "Cleanup (apply) started — twins merged, leftovers quarantined, nothing deleted."
+        if do_apply else "Cleanup report started — see the job log; nothing is changed.",
+    )
+
+
+@app.post("/library/reidentify")
+def library_reidentify(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
+    """AcoustID re-identify tracks with no MusicBrainz recording id, in place."""
+    from .library.actions import reidentify_tracks
+    if msg := _batch_guard():
+        return _toast_response("/library", msg, "error")
+    tasks.run_task("reidentify", f"Re-identify untagged tracks (folder {folder_id})",
+                   lambda ctx: reidentify_tracks(folder_id, ctx=ctx))
+    return _toast_response("/library", "Re-identify started — fingerprint matches are applied in place.")
+
+
 @app.post("/library/normalize-filenames")
 def library_normalize_filenames(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
     from .library.actions import normalize_filenames
@@ -2262,6 +2300,7 @@ def schedule_create(
     folder_id: str = Form(default=""),
     source_path: str = Form(default=""),
     dry_run: str | None = Form(None),
+    apply: str | None = Form(None),
 ):
     cron = cron.strip()
     if task_type not in scheduler.TASK_TYPES:
@@ -2269,7 +2308,7 @@ def schedule_create(
     if not scheduler.is_valid_cron(cron):
         return _toast_response("/schedule", f"Invalid cron expression: {cron}", "error")
     params: dict = {}
-    if task_type in ("scan", "organize", "batch_organize", "batch_retag", "fetch_lyrics", "fetch_covers"):
+    if task_type in ("scan", "organize", "batch_organize", "batch_retag", "fetch_lyrics", "fetch_covers", "cleanup"):
         if not folder_id.strip().isdigit():
             return _toast_response("/schedule", "Pick a library folder for this task type.", "error")
         params["folder_id"] = int(folder_id)
@@ -2279,6 +2318,8 @@ def schedule_create(
         params["source_path"] = source_path.strip()
     if task_type in ("bulk_retag", "batch_retag"):
         params["dry_run"] = bool(dry_run)
+    if task_type == "cleanup":
+        params["apply"] = bool(apply)
     with session() as s:
         t = ScheduledTask(
             name=name.strip() or scheduler.TASK_TYPES[task_type],

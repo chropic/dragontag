@@ -16,6 +16,7 @@ from user settings — MB requires a contact URL/email in it.
 """
 from __future__ import annotations
 
+import logging
 import re
 import socket
 import time
@@ -27,6 +28,8 @@ import musicbrainzngs as mb
 from ..config import settings
 from ..tagging.schema import TrackTags
 from .artist_split import split_multi_artist
+
+log = logging.getLogger(__name__)
 
 _pkg_version_cache: str | None = None
 
@@ -328,6 +331,49 @@ def fetch_recording(recording_id: str) -> dict[str, Any]:
     )["recording"]
 
 
+def fetch_release_group(rg_id: str) -> dict[str, Any]:
+    """Fetch a release-group with its community tags.
+
+    A release-group nested inside a release response never carries a
+    ``tag-list`` (the release's ``tags`` include attaches release-level tags,
+    not release-group-level), so genre derivation from the release-group needs
+    this dedicated request.
+    """
+    _ensure_configured()
+    return _mb_retry(
+        mb.get_release_group_by_id,
+        rg_id,
+        includes=["tags"],
+    )["release-group"]
+
+
+def derive_genres(tag_dicts: list[dict[str, Any]]) -> list[str]:
+    """Turn a MusicBrainz community ``tag-list`` into an ordered genre list.
+
+    MB has no canonical genre field, so we rank community-voted folksonomy tags
+    by vote count, optionally filter them against the genre whitelist (dropping
+    junk like "billboard top 100"), cap at ``genre_limit`` and apply
+    ``genre_casing``. Returns ``[]`` for empty or all-junk input. Shared by the
+    ingest assembler and the "Fix genres" library action.
+    """
+    if not tag_dicts:
+        return []
+    cfg = settings()
+    sorted_tags = sorted(tag_dicts, key=lambda t: int(t.get("count", 0)), reverse=True)
+    candidates = [t["name"] for t in sorted_tags if t.get("name")]
+    if cfg.genre_whitelist_enabled:
+        from . import genres as _genres
+        candidates = _genres.filter_genres(candidates)
+    limit = cfg.genre_limit if cfg.genre_limit > 0 else None
+    raw_genres = candidates[:limit] if limit else candidates
+    casing = cfg.genre_casing
+    if casing == "lower":
+        return [g.lower() for g in raw_genres]
+    if casing == "as-is":
+        return list(raw_genres)
+    return [g.title() for g in raw_genres]
+
+
 def _release_track_total(rel: dict[str, Any]) -> int | None:
     """Total track count across every medium of a release, or None if unknown."""
     total = 0
@@ -492,27 +538,19 @@ def assemble_tags(
     secondary_types = rg.get("secondary-type-list") or []
     tags.compilation = pt == "Compilation" or "Compilation" in secondary_types
 
-    # ----- genre = top user-tags from recording or release-group -----
-    # MB doesn't have a single canonical genre field; we use community-voted tags.
-    cfg = settings()
-    src_tags = rec.get("tag-list") or rg.get("tag-list") or []
-    if src_tags:
-        sorted_tags = sorted(src_tags, key=lambda t: int(t.get("count", 0)), reverse=True)
-        candidates = [t["name"] for t in sorted_tags]
-        # Drop non-genre community tags ("billboard top 100", "seen live", …)
-        # before the limit is applied, so junk can't crowd out real genres.
-        if cfg.genre_whitelist_enabled:
-            from . import genres as _genres
-            candidates = _genres.filter_genres(candidates)
-        limit = cfg.genre_limit if cfg.genre_limit > 0 else None
-        raw_genres = candidates[:limit] if limit else candidates
-        casing = cfg.genre_casing
-        if casing == "lower":
-            tags.genres = [g.lower() for g in raw_genres]
-        elif casing == "as-is":
-            tags.genres = raw_genres
-        else:
-            tags.genres = [g.title() for g in raw_genres]
+    # ----- genre = top community tags from the recording, else release-group -----
+    # The recording is tried first (most specific). When it yields nothing usable
+    # we fall back to the release-group, which is far more often tagged — but a
+    # nested release-group carries no tag-list, so its tags need a dedicated
+    # fetch. Fall back on an empty *derived* result (not just missing raw tags) so
+    # a recording tagged only with junk still reaches the release-group.
+    tags.genres = derive_genres(rec.get("tag-list") or [])
+    if not tags.genres and rg.get("id"):
+        try:
+            rg_full = fetch_release_group(rg["id"])
+            tags.genres = derive_genres(rg_full.get("tag-list") or [])
+        except Exception:
+            log.debug("release-group tag fetch failed for %s", rg.get("id"), exc_info=True)
 
     # ----- recording-level artist relations (conductor, etc.) -----
     for ar in rec.get("artist-relation-list") or []:

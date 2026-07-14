@@ -26,8 +26,8 @@ recurring. When writing new code in one of these areas, check the pattern first.
   (`resolve_conflict`, the album-consistency fixer, disc-folder flatten, filename normalize,
   the fetch-lyrics/covers/advisory actions, and the per-track edit routes in `main.py`).
   Known mutators now: pipeline `_commit_tag_path`, revert/move-back, organizer,
-  `resolve_conflict`, every file-touching function in `library/actions.py`, and the per-track
-  edit/link/apply/lyrics routes. **Any new rename/retag/move feature joins this list — audit
+  `resolve_conflict`, every file-touching function in `library/actions.py` (including
+  `fix_genres_for_folder`'s `write_genre`), and the per-track edit/link/apply/lyrics routes. **Any new rename/retag/move feature joins this list — audit
   for the lock in review, it is the single most re-occurring bug class in this repo.**
 - **A destructive tag write and its audit row must not be separable.** `_commit_tag_path`
   rewrote tags *before* the move; the destination-conflict branch returned without recording a
@@ -97,6 +97,14 @@ recurring. When writing new code in one of these areas, check the pattern first.
   "Album". Normalize release-wide before writing anything players group on
   (`_release_media` / `_release_track_total` in `identify/musicbrainz.py`,
   `TrackTags.release_track_total`).
+- **The release-group genre fallback needs a dedicated `fetch_release_group`.** Genre comes from
+  community `tag-list` folksonomy tags, tried on the recording then the release-group. But a
+  release-group *nested* in a release response never carries a `tag-list` (a release's `tags`
+  include attaches release-*level* tags), so `rel["release-group"].get("tag-list")` is always
+  empty — the fallback was dead code and untagged recordings shipped with no genre. `assemble_tags`
+  now fetches RG tags explicitly, and falls back when the recording *derives* to nothing (via
+  `derive_genres`), not merely when its raw tag-list is absent, so junk-only recording tags still
+  reach the release-group.
 - **Per-file identification must not pick releases in isolation.** Near-tied candidates (within
   `_CONSENSUS_EPSILON`) of one release group scattered an album's tracks over 4 editions
   (different `MUSICBRAINZ_ALBUMID`/`TALB`/totals ⇒ split albums). `pipeline._select_candidate`

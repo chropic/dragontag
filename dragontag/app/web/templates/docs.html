@@ -120,7 +120,7 @@ Drop file  →  Read existing tags + filename clues
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
     <li><strong>Scan library</strong> — refresh the DB from on-disk tags. Run after manually editing tags outside dragontag.</li>
     <li><strong>Organize library (batch)</strong> — structural cleanup chain: move files to match templates, fix disc folders, normalize filenames, extract embedded covers, prune junk &amp; empty folders, find duplicates, find missing tracks. <span class="text-[#ffb4b4]">Files are moved/renamed and junk + empty directories deleted; audio files are never deleted.</span></li>
-    <li><strong>Full library re-tag (batch)</strong> — validate tags, re-tag advisories, recompute ReplayGain, then queue every file through the full identify → tag → move pipeline. Supports a per-run dry-run override.</li>
+    <li><strong>Full library re-tag (batch)</strong> — validate tags, re-tag advisories, fix genres, recompute ReplayGain, then queue every file through the full identify → tag → move pipeline. Supports a per-run dry-run override.</li>
     <li><strong>Nuclear option</strong> — the Organize batch followed by the Re-tag batch, as one job, with a <em>Fix album splits</em> pass right after the re-tag pipeline so albums whose tracks matched different MusicBrainz editions come out unified. The most invasive thing dragontag can do.</li>
     <li><strong>Individual library actions</strong> — each runs on its own via <em>run</em>, or tick several and <strong>Queue selected</strong> to run them sequentially as a single chained job:
       <ul class="ml-5 list-disc list-inside space-y-0.5 text-[#cfcfcf]">
@@ -130,6 +130,7 @@ Drop file  →  Read existing tags + filename clues
         <li><em>Fetch cover art</em> — Cover Art Archive fetch for tracks with an MB album ID.</li>
         <li><em>Fetch lyrics</em> — LRCLIB fetch + embed, no identify.</li>
         <li><em>Tag advisories</em> — re-run the explicit-content classifier on already-embedded lyrics.</li>
+        <li><em>Fix genres</em> — backfill missing genres from MusicBrainz community tags (the recording, then the release-group as a fallback) for tracks that have none. Only fills empty genres, never overwrites an existing one; tracks without a MusicBrainz id are left alone. Uses the network.</li>
         <li><em>Recompute ReplayGain</em> — invokes <code>rsgain</code> or <code>loudgain</code> per album folder if installed.</li>
         <li><em>Verify file integrity</em> — opens every file via mutagen, logs unreadable files.</li>
         <li><em>Validate tags</em> — report missing core tags, mis-encoded text and impossible track/disc numbers (report only).</li>

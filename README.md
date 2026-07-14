@@ -50,8 +50,8 @@ High-confidence matches flow through hands-free. Low-confidence files land in a 
 |---|---|
 | **Organize** | Moves all tracks to their canonical paths based on current filename templates; picks up manual edits after a scan |
 | **Library scan** | Indexes existing on-disk files into the DB — useful after editing tags outside dragontag |
-| **Batch operations** | One-click chained runs: **Organize batch** (organize + fix disc folders + normalize + covers + prune + dedupe + find missing), **Re-tag batch** (validate + advisories + ReplayGain + full pipeline), and the **Nuclear option** (both, with an album-split repair pass right after the re-tag pipeline) |
-| **Library actions** | 14 individual actions (fetch lyrics/covers, extract covers, ReplayGain, verify integrity, validate tags, fix disc folders, normalize filenames, find duplicates, prune junk, find missing tracks, tag advisories, fix album splits, fix album/folder consistency) — run one or multi-select to chain |
+| **Batch operations** | One-click chained runs: **Organize batch** (organize + fix disc folders + normalize + covers + prune + dedupe + find missing), **Re-tag batch** (validate + advisories + fix genres + ReplayGain + full pipeline), and the **Nuclear option** (both, with an album-split repair pass right after the re-tag pipeline) |
+| **Library actions** | 15 individual actions (fetch lyrics/covers, extract covers, ReplayGain, verify integrity, validate tags, fix disc folders, normalize filenames, find duplicates, prune junk, find missing tracks, tag advisories, fix genres, fix album splits, fix album/folder consistency) — run one or multi-select to chain |
 | **Album-split repair** | "Fix album splits" re-unifies albums whose tracks were matched to different MusicBrainz editions (multiple album IDs / titles / track totals / covers shown as several albums by players): elects the edition covering the most of your tracks and fully re-tags every track against it, preserving lyrics and existing art, then merges the files into one folder |
 | **Incomplete albums** | Persisted results of "find missing tracks": albums with fewer local tracks than the MB total, with missing titles, MB links, and per-row dismiss |
 | **Library table** | Column sorting and pagination (10 / 25 / 50 / 100 / 200); explicit advisory badge on each row |
@@ -300,7 +300,7 @@ dragontag/app/
 ├── tagging/
 │   ├── schema.py         TrackTags dataclass + Vorbis rendering
 │   ├── formatter.py      Smart formatting (Title Case, qualifiers, grammar)
-│   ├── partial.py        Single-field write helpers (lyrics, cover, advisory, album-link)
+│   ├── partial.py        Single-field write helpers (lyrics, cover, advisory, genre, album-link)
 │   ├── snapshot.py       Capture/restore a file's tags (powers revert)
 │   ├── coverart.py       Cover Art Archive fetcher
 │   ├── lyrics_fetcher.py LRCLIB client (synced + plain text)

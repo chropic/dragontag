@@ -4,6 +4,30 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Added (genre backfill — 2026-07-14)
+- **New "Fix genres" library action** (`fix_genres`, `POST /library/fix-genres`,
+  queued in the Re-tag batch) — backfills missing genres from MusicBrainz
+  community tags for tracks that have none. Reads each file's embedded genre and,
+  when empty, re-derives one from the recording's tags (falling back to the
+  release-group's, which are far more often tagged) and writes it via a new
+  single-field `write_genre` partial writer covering all four formats
+  (FLAC `GENRE`, ID3 `TCON`, MP4 `©gen`) under `path_lock` + `atomic_inplace`.
+  Only empty genres are filled — an existing genre is never overwritten — and
+  tracks without a MusicBrainz id are left alone; the network fetch happens
+  outside the file lock. (`library/actions.py`, `main.py`, `tagging/partial.py`,
+  `web/templates/docs.html`, `README.md`, `tests/test_fix_genres.py`,
+  `tests/test_partial_genre.py`, `tests/test_genre_derive.py`)
+
+### Fixed (genres missing on ingest — 2026-07-14)
+- **Release-group genre fallback now works.** `assemble_tags` intended to fall
+  back from a recording's community tags to its release-group's, but a
+  release-group nested in a release response never carries a `tag-list`, so the
+  fallback was dead code and any recording without its own tags was tagged with
+  no genre at all. Genre derivation is now a shared `derive_genres` helper, and
+  the assembler fetches release-group tags explicitly (new `fetch_release_group`)
+  whenever the recording derives to nothing — including recordings tagged only
+  with junk. (`identify/musicbrainz.py`, `tests/test_genre_derive.py`)
+
 ### Added (project tooling — 2026-07-13)
 - **SessionStart hook** (`.claude/hooks/session-start.sh`, registered in
   `.claude/settings.json`) — runs on every agent session start: enables the tracked

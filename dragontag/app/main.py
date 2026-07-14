@@ -1820,6 +1820,19 @@ def library_tag_advisories(
     return _toast_response("/library", "Advisory tagging started — track it on the Queue page.")
 
 
+@app.post("/library/fix-genres")
+def library_fix_genres(
+    request: Request,
+    _: None = Depends(require_auth),
+    folder_id: int = Form(...),
+):
+    """Backfill missing genres from MusicBrainz for tracks that have none."""
+    from .library.actions import fix_genres_for_folder
+    tasks.run_task("fix_genres", f"Fix genres (folder {folder_id})",
+                   lambda ctx: fix_genres_for_folder(folder_id, ctx=ctx))
+    return _toast_response("/library", "Genre backfill started — track it on the Queue page.")
+
+
 @app.post("/library/fetch-covers")
 def library_fetch_covers(
     request: Request,

@@ -25,6 +25,9 @@ Jinja2 + HTMX/Alpine UI, SQLite + threads (deliberately no Postgres/celery/multi
   run `bash frontend/build_css.sh` to regenerate `dragontag/app/web/static/app.css`. New Tailwind
   utility classes silently do nothing until you do.
 - All web assets are vendored (fonts, htmx, alpine, app.css) — never add a CDN reference.
+- **Every commit bumps the patch version.** A tracked git hook does it, but a fresh clone must
+  opt in **once**: `git config core.hooksPath .githooks`. Run that before your first commit or the
+  bump silently won't happen. Details: `docs/VERSIONING.md`, hard rule 9 below.
 
 ## Hard rules (violating these has caused real bugs — see .claude/memory/gotchas.md)
 
@@ -50,6 +53,12 @@ Jinja2 + HTMX/Alpine UI, SQLite + threads (deliberately no Postgres/celery/multi
 8. **Never commit or push without being asked**; always work on a topic branch; update the
    `CHANGELOG.md` WIP section with your changes (style: grouped Added/Changed/Fixed bullets,
    bold lead-in, trailing `(files)` list).
+9. **Every commit versions.** The patch segment (`X.Y.Z` → `X.Y.Z+1`) is bumped in lockstep
+   across `pyproject.toml` + both `__init__.py` files by the `.githooks/pre-commit` hook —
+   enable it once per clone with `git config core.hooksPath .githooks`. Don't hand-edit those
+   three files to differing values (the bump script re-syncs them from `pyproject.toml`); don't
+   `--no-verify` past the bump except for a deliberate no-bump commit. Bump `MAJOR`/`MINOR` by
+   hand at milestones. See `docs/VERSIONING.md`.
 
 ## Where things are
 
@@ -71,7 +80,7 @@ Jinja2 + HTMX/Alpine UI, SQLite + threads (deliberately no Postgres/celery/multi
 - `.claude/memory/project_overview.md` — what the app is, surfaces, goals
 - `.claude/memory/architecture.md` — module map, job state machine, threading, invariants
 - `.claude/memory/conventions.md` — style, terminology, tag-schema rules, template/route rules
-- `.claude/memory/workflow.md` — dev env, tests, CHANGELOG, PR discipline
+- `.claude/memory/workflow.md` — dev env, tests, CHANGELOG, per-commit versioning, PR discipline
 - `.claude/memory/gotchas.md` — bug patterns actually found here; check before writing similar code
 - `.claude/memory/testing.md` — test layout, fixtures, how to test each subsystem
 - `.claude/memory/user_preferences.md` — how the maintainer likes to work

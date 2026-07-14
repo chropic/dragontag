@@ -1,6 +1,6 @@
 ---
 name: workflow
-description: Dev environment, branching, testing, CHANGELOG, and PR discipline
+description: Dev environment, branching, testing, CHANGELOG, per-commit versioning, and PR discipline
 metadata:
   type: feedback
 ---

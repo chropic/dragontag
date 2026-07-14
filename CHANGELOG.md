@@ -13,8 +13,10 @@
   A tracked `.githooks/pre-commit` runs `scripts/bump_version.py`, which increments
   `PATCH` in lockstep across `pyproject.toml` and both package `__init__.py` files
   and re-stages them. Enable once per clone with `git config core.hooksPath .githooks`.
-  The version line was reset to `0.1.0` as the new baseline. See `docs/VERSIONING.md`.
-  (`.githooks/pre-commit`, `scripts/bump_version.py`, `docs/VERSIONING.md`,
+  The version line was reset to `0.1.0` as the new baseline. Documented as hard rule 9 in
+  `CLAUDE.md` and in the workflow memory / memory index so agents don't miss it.
+  See `docs/VERSIONING.md`. (`.githooks/pre-commit`, `scripts/bump_version.py`,
+  `docs/VERSIONING.md`, `CLAUDE.md`, `.claude/memory/workflow.md`, `.claude/memory/MEMORY.md`,
   `pyproject.toml`, `dragontag/app/__init__.py`)
 
 ### Added (duplicate artist/album folder cleanup — 2026-07-13)

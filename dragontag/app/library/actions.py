@@ -1763,13 +1763,15 @@ def _merge_twin_folder(
     s, loser: Path, target: Path, lib_root: Path, qroot: Path, run_ts: str,
     pathmap: dict, apply: bool, source_dirs: set[Path], ctx=None,
 ) -> dict:
-    """Move every file out of ``loser`` into ``target`` (audio preserving its
-    relative sub-path, images flattened into the album root so the cover-dedupe
-    can elect the widest, everything else quarantined). Track rows are repointed
-    and committed per move. Returns per-loser counters."""
+    """Move every file out of ``loser`` into ``target``: audio preserves its
+    relative sub-path, the loser's cover art is elected against the target's
+    (the wider ``cover.jpg`` wins), and everything else is quarantined. Track
+    rows are repointed and committed per move. Returns per-loser counters."""
     from ..ingest.pipeline import SUPPORTED_EXTS
 
-    counts = {"audio_moved": 0, "quarantined": 0, "skipped_protected": 0, "conflicts": 0}
+    counts = {"audio_moved": 0, "quarantined": 0, "skipped_protected": 0,
+              "conflicts": 0, "covers_deduped": 0}
+    loser_images: list[Path] = []
     for dp, _dn, fns in os.walk(loser):
         for fn in fns:
             src = Path(dp) / fn
@@ -1806,15 +1808,7 @@ def _merge_twin_folder(
                 s.commit()
                 counts["audio_moved"] += 1
             elif _COVER_RE.match(fn):
-                if not apply:
-                    ctx and ctx.log(f"would relocate cover {src} -> {target}")
-                    continue
-                try:
-                    cover_dest = unique_path(target / fn)
-                    with filelock.path_lock(src):
-                        _safe_move(src, cover_dest, overwrite=False)
-                except OSError:
-                    log.exception("cleanup: cover relocate failed for %s", src)
+                loser_images.append(src)  # elected after the walk
             else:
                 if apply:
                     if _quarantine_file(src, lib_root, qroot, run_ts, ctx):
@@ -1822,6 +1816,41 @@ def _merge_twin_folder(
                 else:
                     ctx and ctx.log(f"would quarantine {src}")
                     counts["quarantined"] += 1
+
+    # Cover election: keep the widest cover.jpg between the loser and the target;
+    # quarantine every other loser image (a duplicate or a losing candidate).
+    if loser_images:
+        best = max(loser_images, key=lambda p: (_image_width(p) or 0, p.name))
+        target_cover = _find_cover(target)
+        promote = target_cover is None or (
+            (_image_width(best) or 0) > (_image_width(target_cover) or 0)
+        )
+        if not apply:
+            ctx and ctx.log(
+                f"would elect cover for {target.name} "
+                f"({'loser' if promote else 'target'} wins)"
+            )
+            counts["covers_deduped"] += len(loser_images)
+        elif promote:
+            # Quarantine the target's narrower cover (if any), then move ours in.
+            if target_cover is not None and _quarantine_file(
+                target_cover, lib_root, qroot, run_ts, ctx
+            ):
+                counts["covers_deduped"] += 1
+            try:
+                with filelock.path_lock(best):
+                    _safe_move(best, target / "cover.jpg", overwrite=False)
+            except OSError:
+                log.exception("cleanup: cover promote failed for %s", best)
+        # Quarantine the remaining loser images (all but a promoted `best`).
+        for img in loser_images:
+            if apply and promote and img == best:
+                continue
+            if apply:
+                if _quarantine_file(img, lib_root, qroot, run_ts, ctx):
+                    counts["covers_deduped"] += 1
+            else:
+                counts["covers_deduped"] += 1
     return counts
 
 
@@ -1892,7 +1921,8 @@ def cleanup_library(folder_id: int, ctx=None, *, apply: bool = False) -> dict:
                         s, loser, target, lib_root, qroot, run_ts, pathmap,
                         apply, source_dirs, ctx,
                     )
-                    for k in ("audio_moved", "quarantined", "skipped_protected", "conflicts"):
+                    for k in ("audio_moved", "quarantined", "skipped_protected",
+                              "conflicts", "covers_deduped"):
                         result[k] += c[k]
                     if apply and c["quarantined"]:
                         quarantined_anything = True

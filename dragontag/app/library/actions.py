@@ -1732,23 +1732,26 @@ def _dedupe_covers_in_dir(
     if len(imgs) < 2:
         return 0
     canonical = _find_cover(d)
+    promoted_src: Path | None = None
     if canonical is None:
-        # Promote the widest candidate to cover.jpg.
-        canonical = max(imgs, key=lambda p: (_image_width(p) or 0, p.name))
+        # Promote the widest candidate to cover.jpg. Track its original path so
+        # the quarantine loop skips it by identity (it may have just moved).
+        promoted_src = max(imgs, key=lambda p: (_image_width(p) or 0, p.name))
+        canonical = promoted_src
         target = d / "cover.jpg"
-        if apply and canonical != target:
+        if apply and promoted_src != target:
             try:
-                with filelock.path_lock(canonical):
-                    res = _safe_move(canonical, target, overwrite=False)
+                with filelock.path_lock(promoted_src):
+                    res = _safe_move(promoted_src, target, overwrite=False)
                 if res.moved:
                     canonical = target
             except OSError:
-                log.exception("cleanup: cover promote failed for %s", canonical)
+                log.exception("cleanup: cover promote failed for %s", promoted_src)
         elif not apply:
-            ctx and ctx.log(f"would promote {canonical.name} -> cover.jpg in {d}")
+            ctx and ctx.log(f"would promote {promoted_src.name} -> cover.jpg in {d}")
     removed = 0
     for img in imgs:
-        if img.resolve() == canonical.resolve():
+        if img == promoted_src or img.resolve() == canonical.resolve():
             continue
         if apply:
             if _quarantine_file(img, lib_root, qroot, run_ts, ctx):
@@ -1774,6 +1777,8 @@ def _merge_twin_folder(
     loser_images: list[Path] = []
     for dp, _dn, fns in os.walk(loser):
         for fn in fns:
+            if ctx:
+                ctx.check_cancelled()
             src = Path(dp) / fn
             ext = src.suffix.lower()
             if ext in SUPPORTED_EXTS:
@@ -1830,7 +1835,7 @@ def _merge_twin_folder(
                 f"would elect cover for {target.name} "
                 f"({'loser' if promote else 'target'} wins)"
             )
-            counts["covers_deduped"] += len(loser_images)
+            # report count comes from the per-image loop below (avoid double count)
         elif promote:
             # Quarantine the target's narrower cover (if any), then move ours in.
             if target_cover is not None and _quarantine_file(
@@ -1843,14 +1848,17 @@ def _merge_twin_folder(
             except OSError:
                 log.exception("cleanup: cover promote failed for %s", best)
         # Quarantine the remaining loser images (all but a promoted `best`).
+        # Cover counting happens here only in apply mode; in report mode the
+        # loser's images haven't moved, so the per-folder cover dedupe pass
+        # (_dedupe_covers_in_dir) reports them instead — counting here too would
+        # double-count.
         for img in loser_images:
-            if apply and promote and img == best:
+            if promote and img == best:
                 continue
-            if apply:
-                if _quarantine_file(img, lib_root, qroot, run_ts, ctx):
-                    counts["covers_deduped"] += 1
-            else:
+            if apply and _quarantine_file(img, lib_root, qroot, run_ts, ctx):
                 counts["covers_deduped"] += 1
+            elif not apply:
+                ctx and ctx.log(f"would relocate/quarantine cover {img}")
     return counts
 
 
@@ -2019,7 +2027,7 @@ def reidentify_tracks(folder_id: int, ctx=None) -> dict:
             ctx.progress(i, len(items), item=p.name)
         try:
             cands, fingerprinted = candidates_for_file(
-                p, title=title, artist=artist, album=album
+                p, title=title, artist=artist, album=album, text_fallback=False
             )
         except Exception:
             log.exception("reidentify: lookup failed for %s", p)

@@ -70,6 +70,22 @@ def test_report_mode_changes_nothing(folder):
     assert not (root / ".dragontag-trash").exists()
 
 
+def test_report_covers_deduped_not_double_counted(folder):
+    fid, root = folder
+    # base album + a twin whose folder carries two cover images
+    _flac(root / "A" / "Album" / "01. Song.flac")
+    _flac(root / "A" / "Album - Single" / "01. Song.flac")
+    (root / "A" / "Album - Single" / "cover.jpg").write_bytes(b"i1")
+    (root / "A" / "Album - Single" / "folder.jpg").write_bytes(b"i2")
+
+    out = actions.cleanup_library(fid, apply=False)
+
+    # The loser folder's duplicate (folder.jpg beside cover.jpg) is reported once
+    # by the per-folder cover dedupe — not double-counted by the twin-merge pass.
+    assert out["covers_deduped"] == 1
+    assert not (root / ".dragontag-trash").exists()  # report changes nothing
+
+
 def test_apply_merges_twins_and_quarantines(folder):
     fid, root = folder
     _flac(root / "Future" / "Afraid" / "01. Afraid.flac", b"keep")

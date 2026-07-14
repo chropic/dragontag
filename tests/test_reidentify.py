@@ -49,7 +49,7 @@ def test_applies_only_fingerprint_matches(folder, monkeypatch):
     _track(fid, root / "c.flac", mb_track_id="X")         # already identified -> skipped
     _track(fid, root / "d.flac", protected=True)          # protected -> skipped
 
-    def fake_lookup(path, *, title=None, artist=None, album=None, limit=10):
+    def fake_lookup(path, *, title=None, artist=None, album=None, limit=10, text_fallback=True):
         if path.name == "a.flac":
             return [_cand()], True          # fingerprinted
         return [_cand()], False             # text fallback (not confident)
@@ -68,6 +68,24 @@ def test_applies_only_fingerprint_matches(folder, monkeypatch):
     assert out["no_match"] == 1                 # b was text-only
     assert out["skipped_protected"] == 1
     assert len(applied_calls) == 1 and applied_calls[0][1:] == ("rec1", "rel1")
+
+
+def test_text_fallback_false_skips_mb_search(monkeypatch, tmp_path):
+    """candidates_for_file(text_fallback=False) must not hit MB text search when
+    the fingerprint yields no recording match — the batch discards fuzzy guesses."""
+    from dragontag.app.identify import acoustid
+    from dragontag.app.identify import musicbrainz as mbq
+
+    monkeypatch.setattr(acoustid, "lookup", lambda p: [])
+
+    def _boom(*a, **k):
+        raise AssertionError("search_candidates must not be called")
+
+    monkeypatch.setattr(mbq, "search_candidates", _boom)
+    cands, fp = relookup.candidates_for_file(
+        tmp_path / "x.flac", title="t", artist="a", album="b", text_fallback=False
+    )
+    assert cands == [] and fp is False
 
 
 def test_failed_apply_is_counted(folder, monkeypatch):

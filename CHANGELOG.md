@@ -4,7 +4,16 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
-### Added (batch re-identify — 2026-07-14)
+### Fixed (cleanup/reidentify review — 2026-07-14)
+- **Re-identify no longer burns a MusicBrainz text search per unmatched track.**
+  The batch applies fingerprint-confirmed matches only, so `candidates_for_file`
+  gained a `text_fallback` flag (the batch passes `False`) and skips the
+  rate-limited MB search when the AcoustID fingerprint finds nothing — the
+  interactive Identify route keeps the fallback. (`identify/relookup.py`,
+  `library/actions.py`)
+- **Cleanup report mode no longer double-counts deduped covers**, the twin-merge
+  per-file loop is now cancellable, and the cover-promote path no longer attempts
+  to quarantine an already-moved image. (`library/actions.py`)
 - **New "Re-identify untagged tracks" library action** (`reidentify`, first step
   of the Re-tag batch, and in the Nuclear batch after album-split repair) —
   AcoustID-fingerprints every track that has no MusicBrainz recording id and

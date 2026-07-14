@@ -21,6 +21,7 @@ def candidates_for_file(
     artist: str | None = None,
     album: str | None = None,
     limit: int = 10,
+    text_fallback: bool = True,
 ) -> tuple[list, bool]:
     """Return ``(candidates, fingerprinted)``.
 
@@ -29,11 +30,18 @@ def candidates_for_file(
     refuse to auto-apply a fuzzy guess. Network errors are swallowed to an empty
     list (``acoustid.lookup`` and ``search_candidates`` both degrade to ``[]``),
     matching the interactive Identify route.
+
+    ``text_fallback=False`` skips the MusicBrainz text search entirely when the
+    fingerprint yields nothing — used by the batch re-identify, which only ever
+    applies fingerprint-confirmed matches and would otherwise burn a rate-limited
+    MB search per unmatched file for a result it discards.
     """
     matches = acoustid.lookup(path)
     if matches and matches[0].recording_id:
         cands = mbq.candidates_from_mbid(matches[0].recording_id)
         if cands:
             return cands, True
+    if not text_fallback:
+        return [], False
     cands = mbq.search_candidates(title=title, artist=artist, album=album, limit=limit)
     return cands, False

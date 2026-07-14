@@ -142,6 +142,26 @@
     {% endfor %}
   </div>
 
+  {# Cleanup (apply) + re-identify. The registry "run" buttons above trigger the
+     safe report-only cleanup and the re-identify; these explicit forms add the
+     confirm-gated apply/quarantine and re-tag-in-place variants. #}
+  <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 lg:col-span-2 space-y-3">
+    <span class="dt-label">cleanup &amp; re-identify</span>
+    <form method="post" action="/library/cleanup"
+          onsubmit="return this.apply.checked ? confirm('Apply cleanup? Edition-suffix twin album folders (X / X - Single / X (Deluxe)) will be merged and leftover files moved to the quarantine folder (<library>/.dragontag-trash). Nothing is deleted and audio is never quarantined.') : true;">
+      <input type="hidden" name="folder_id" value="{{ active_id }}">
+      <label class="flex items-center gap-2 text-xs text-[#cfcfcf]">
+        <input type="checkbox" name="apply"> Apply (merge twins + quarantine leftovers) — unchecked = report only
+      </label>
+      <button class="mt-2 px-3 py-1 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f] text-xs">[ run cleanup ]</button>
+    </form>
+    <form method="post" action="/library/reidentify"
+          onsubmit="return confirm('Fingerprint and re-tag every track with no MusicBrainz id? Tags are rewritten in place (files are not moved).');">
+      <input type="hidden" name="folder_id" value="{{ active_id }}">
+      <button class="px-3 py-1 border border-[#2a2a2a] text-[#8a8a8a] hover:text-white hover:border-[#3a3a3a] text-xs">[ re-identify untagged tracks ]</button>
+    </form>
+  </div>
+
 </div>
 
 {# Track table with checkboxes #}

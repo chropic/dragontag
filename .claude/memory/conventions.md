@@ -65,6 +65,15 @@ identifiers, keep `folder` / `folder_id`.
   `feat./ft./featuring …` guests, and only reduces a multi-artist credit ("A & B") to its first
   artist when the user sets `settings().folder_artist_split_separators` (empty by default).
   Slashes (`/`, `//`) are never split. Don't reintroduce feat./guest strings into folder names.
+- **Convergence beats canonical naming.** `_reuse_folded_dir` makes ingest reuse whatever album
+  folder already exists — a case/punct variant, or (album level, `edition_fold=True`, gated on
+  `settings().fold_edition_suffixes`) an edition-suffix twin (`Afraid - Single` → existing
+  `Afraid`). It never *renames* to a canonical form; the `cleanup_library` action merges/renames
+  twins on disk later. Artist folders are never edition-folded ("The EP" is a real name).
+- **Quarantine layout.** `cleanup_library` never deletes: dead folders and leftover non-audio go to
+  `<quarantine_root>/<utc-ts>/<path-relative-to-library-root>` (`quarantine_root` =
+  `settings().quarantine_path` or `<lib>/.dragontag-trash`), and that root is appended to
+  `settings().scan_exclude_dirs`. Audio files are never quarantined.
 - Cover art is per-release: the release-group fallback (`fetch_for_release_group`) is gated
   behind `settings().cover_allow_release_group_fallback` (default off) to avoid one shared image
   bleeding across editions.

@@ -12,12 +12,22 @@ from dragontag.app.tagging.schema import TrackTags
 
 
 class _FakeSettings:
-    def __init__(self, seps=""):
+    def __init__(self, seps="", fold_edition=True):
         self.folder_artist_split_separators = seps
+        self.fold_edition_suffixes = fold_edition
+        self.filename_template_single = "{track:02d}. {title}.{ext}"
+        self.filename_template_multidisc = "{track:02d}. {title}.{ext}"
+        self.multidisc_folder_template = "Disc {disc}"
 
 
 def _patch_seps(monkeypatch, seps):
     monkeypatch.setattr(paths_mod, "settings", lambda: _FakeSettings(seps))
+
+
+def _patch_settings(monkeypatch, *, seps="", fold_edition=True):
+    monkeypatch.setattr(
+        paths_mod, "settings", lambda: _FakeSettings(seps, fold_edition)
+    )
 
 
 def test_primary_artist_strips_feat(monkeypatch):
@@ -170,3 +180,83 @@ def test_build_destination_reuse_still_guards_root_escape(tmp_path):
     # the resolved path must remain under the root regardless.
     dest = build_destination(t, ".flac", library_root=tmp_path)
     dest.resolve().relative_to(tmp_path.resolve())
+
+
+# --- edition-suffix stripping + folding (prevention) -----------------------
+
+
+def test_strip_edition_suffixes_cases():
+    from dragontag.app.library.paths import strip_edition_suffixes, album_fold_key
+    assert strip_edition_suffixes("Afraid - Single") == "Afraid"
+    assert strip_edition_suffixes("DS2 (Deluxe)") == "DS2"
+    assert strip_edition_suffixes("X – EP") == "X"          # en dash
+    assert strip_edition_suffixes("Afraid") == "Afraid"     # plain unchanged
+    assert strip_edition_suffixes("(Deluxe)") == ""         # only an edition marker
+    # album_fold_key collapses the variants to one key, empty for pure markers
+    assert album_fold_key("Afraid") == album_fold_key("Afraid - Single") \
+        == album_fold_key("Afraid (Deluxe)") == "afraid"
+    assert album_fold_key("(Deluxe)") == ""
+
+
+def _album_track(album, artist="Future"):
+    return TrackTags(
+        title="Afraid", artist_display=artist, album=album,
+        album_artist_display=artist, track=1, track_total=1, disc=1, disc_total=1,
+    )
+
+
+def test_build_destination_folds_suffix_into_existing_base(tmp_path, monkeypatch):
+    _patch_settings(monkeypatch)
+    (tmp_path / "Future" / "Afraid").mkdir(parents=True)
+    (tmp_path / "Future" / "Afraid" / "01. Afraid.flac").write_bytes(b"x")
+    dest = build_destination(_album_track("Afraid - Single"), ".flac", library_root=tmp_path)
+    assert dest.parts[-3:-1] == ("Future", "Afraid")
+
+
+def test_build_destination_folds_into_existing_suffixed_folder(tmp_path, monkeypatch):
+    # Reverse: base tag, only a suffixed folder exists → reuse the suffixed one.
+    _patch_settings(monkeypatch)
+    (tmp_path / "Future" / "Afraid - Single").mkdir(parents=True)
+    (tmp_path / "Future" / "Afraid - Single" / "01. Afraid.flac").write_bytes(b"x")
+    dest = build_destination(_album_track("Afraid"), ".flac", library_root=tmp_path)
+    assert dest.parent.name == "Afraid - Single"
+
+
+def test_build_destination_prefers_audio_bearing_candidate(tmp_path, monkeypatch):
+    _patch_settings(monkeypatch)
+    (tmp_path / "Future" / "Afraid").mkdir(parents=True)               # empty
+    (tmp_path / "Future" / "Afraid - Single").mkdir(parents=True)
+    (tmp_path / "Future" / "Afraid - Single" / "01. Afraid.flac").write_bytes(b"x")
+    # album that matches neither exactly, so election runs
+    dest = build_destination(_album_track("Afraid (Deluxe)"), ".flac", library_root=tmp_path)
+    assert dest.parent.name == "Afraid - Single"
+
+
+def test_build_destination_prefers_base_name_when_both_have_audio(tmp_path, monkeypatch):
+    _patch_settings(monkeypatch)
+    for name in ("Afraid", "Afraid - Single"):
+        (tmp_path / "Future" / name).mkdir(parents=True)
+        (tmp_path / "Future" / name / "01. Afraid.flac").write_bytes(b"x")
+    dest = build_destination(_album_track("Afraid (Deluxe)"), ".flac", library_root=tmp_path)
+    assert dest.parent.name == "Afraid"
+
+
+def test_build_destination_setting_off_mints_separate_folder(tmp_path, monkeypatch):
+    _patch_settings(monkeypatch, fold_edition=False)
+    (tmp_path / "Future" / "Afraid").mkdir(parents=True)
+    (tmp_path / "Future" / "Afraid" / "01. Afraid.flac").write_bytes(b"x")
+    dest = build_destination(_album_track("Afraid - Single"), ".flac", library_root=tmp_path)
+    assert dest.parent.name == "Afraid - Single"
+
+
+def test_build_destination_never_edition_folds_artist(tmp_path, monkeypatch):
+    # Artist folders must not edition-fold: "Wanderer - Single" as an album
+    # artist must not merge into an existing "Wanderer" artist directory.
+    _patch_settings(monkeypatch)
+    (tmp_path / "Wanderer").mkdir(parents=True)
+    t = TrackTags(
+        title="Song", artist_display="Wanderer - Single", album="Album",
+        album_artist_display="Wanderer - Single", track=1, track_total=1, disc=1, disc_total=1,
+    )
+    dest = build_destination(t, ".flac", library_root=tmp_path)
+    assert dest.parts[-3] == "Wanderer - Single"

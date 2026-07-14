@@ -19,10 +19,20 @@ from sqlmodel import select
 
 from ..db import session
 from ..models import LibraryFolder, Track
+from ..timeutil import now_utc
 from . import filelock
+from .mover import _image_width
 from .mover import move as _safe_move
 from .mover import move_lyric_sidecar as _move_lyric_sidecar
-from .paths import artist_fold_key, fold_text, primary_artist, sanitize_segment
+from .paths import (
+    album_fold_key,
+    artist_fold_key,
+    fold_text,
+    primary_artist,
+    sanitize_segment,
+    strip_edition_suffixes,
+    unique_path,
+)
 
 log = logging.getLogger(__name__)
 
@@ -577,31 +587,6 @@ def find_missing_tracks(folder_id: int, ctx=None) -> dict:
 # Album/folder consistency checker
 # ---------------------------------------------------------------------------
 
-_EDITION_SUFFIX_RE = re.compile(
-    r"\s*[\(\[]\s*(deluxe|remaster(?:ed)?|expanded|anniversary|bonus track|special|"
-    r"explicit|clean|single|ep|mono|stereo)[^)\]]*[\)\]]\s*$",
-    re.IGNORECASE,
-)
-
-# iTunes-style *unparenthesized* trailing edition markers: "Album - Single",
-# "Album - EP" (any dash flavour). MusicBrainz names the same release group
-# without the suffix, so these are the same album under two source spellings.
-_TRAILING_EDITION_RE = re.compile(r"\s*[-–—]\s*(single|ep)\s*$", re.IGNORECASE)
-
-# A dash left dangling by sanitization ("…Friends–", "Album -").
-_DANGLING_DASH_RE = re.compile(r"\s*[-–—]+\s*$")
-
-
-def _strip_edition_suffixes(album: str) -> str:
-    """Remove parenthesized and iTunes-style trailing edition markers plus any
-    dangling dash. Applied before folding so the offline album key groups the
-    ``X`` / ``X - Single`` / ``X (Deluxe)`` / ``…Friends–`` variants together."""
-    a = _EDITION_SUFFIX_RE.sub("", album)
-    a = _TRAILING_EDITION_RE.sub("", a)
-    a = _DANGLING_DASH_RE.sub("", a)
-    return a
-
-
 def _normalize_album_key(album: str | None, album_artist: str | None) -> tuple[str, str] | None:
     """Fold an (album, album_artist) pair into a deterministic grouping key.
 
@@ -614,7 +599,7 @@ def _normalize_album_key(album: str | None, album_artist: str | None) -> tuple[s
     """
     if not album or not album_artist:
         return None
-    a = fold_text(_strip_edition_suffixes(album))
+    a = fold_text(strip_edition_suffixes(album))
     a = re.sub(r"[^\w\s]", "", a)
     a = re.sub(r"\s+", " ", a).strip()
     artist = re.sub(r"[^\w\s]", "", fold_text(album_artist))
@@ -1526,23 +1511,20 @@ _JUNK_NAMES = {"thumbs.db", ".ds_store", "desktop.ini", "albumartsmall.jpg"}
 _JUNK_SUFFIXES = {".tmp", ".part", ".crdownload"}
 
 
-def _report_dead_folders(lib_root: Path, ctx=None) -> int:
-    """Report (never delete) two classes of suspicious directory:
-
-    * folders with no audio anywhere below them but leftover files (a
-      ``cover.jpg`` / orphan ``.lrc`` left by a manual move);
-    * album folders that contain only ``Disc NN`` subfolders with disc 1
-      absent — the orphan-disc symptom (the real fix is finding the missing
-      discs via ``find_missing_tracks``).
-
-    Report-only: deleting these is a judgement call the maintainer should make.
-    """
+def _find_dead_folders(lib_root: Path, qroot: Path | None = None, ctx=None) -> list[Path]:
+    """Return directories under ``lib_root`` that hold leftover files but no
+    audio anywhere below them (a ``cover.jpg`` / orphan ``.lrc`` left by a manual
+    move). Logs each when ``ctx`` is given; skips the quarantine root. Shared by
+    ``prune_library`` (report) and ``cleanup_library`` (quarantine)."""
     from ..ingest.pipeline import SUPPORTED_EXTS
 
-    reported = 0
+    dead: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(lib_root):
         d = Path(dirpath)
         if d == lib_root:
+            continue
+        if qroot is not None and _is_under(d, qroot):
+            dirnames[:] = []
             continue
         subtree_files: list[str] = []
         subtree_has_audio = False
@@ -1555,8 +1537,28 @@ def _report_dead_folders(lib_root: Path, ctx=None) -> int:
             if ctx:
                 sample = ", ".join(sorted(set(subtree_files))[:5])
                 ctx.log(f"dead folder (no audio below, leftover files: {sample}): {d}")
-            reported += 1
-            dirnames[:] = []  # don't also report this dead subtree's children
+            dead.append(d)
+            dirnames[:] = []  # don't also descend into this dead subtree
+    return dead
+
+
+def _report_dead_folders(lib_root: Path, ctx=None) -> int:
+    """Report (never delete) two classes of suspicious directory:
+
+    * folders with no audio anywhere below them but leftover files (via
+      :func:`_find_dead_folders`);
+    * album folders that contain only ``Disc NN`` subfolders with disc 1
+      absent — the orphan-disc symptom (the real fix is finding the missing
+      discs via ``find_missing_tracks``).
+
+    Report-only: deleting these is a judgement call the maintainer should make.
+    """
+    from ..ingest.pipeline import SUPPORTED_EXTS
+
+    reported = len(_find_dead_folders(lib_root, ctx=ctx))
+    for dirpath, dirnames, filenames in os.walk(lib_root):
+        d = Path(dirpath)
+        if d == lib_root:
             continue
         disc_subs = [c for c in dirnames if _DISC_RE.match(c)]
         direct_audio = any(Path(fn).suffix.lower() in SUPPORTED_EXTS for fn in filenames)
@@ -1619,6 +1621,439 @@ def prune_library(folder_id: int, ctx=None) -> dict:
         folder_id, removed, dirs_removed, dead_reported,
     )
     return {"junk_removed": removed, "dirs_removed": dirs_removed, "dead_reported": dead_reported}
+
+
+# ---------------------------------------------------------------------------
+# Cleanup: merge edition-suffix twin folders, dedupe covers, quarantine dead
+# folders/leftovers. Report-only by default; the apply variant moves files but
+# NEVER deletes anything — leftovers go to a quarantine (trash) directory.
+# ---------------------------------------------------------------------------
+
+_QUARANTINE_DIRNAME = ".dragontag-trash"
+
+# Image files that plausibly hold album cover art (case-insensitive), including
+# duplicate spellings ("cover (1).jpg", "Folder.png", "front.jpeg").
+_COVER_RE = re.compile(
+    r"^(cover|folder|front|album ?art)(\s*\(\d+\))?\.(jpe?g|png)$", re.IGNORECASE
+)
+
+
+def _is_under(p: Path, root: Path) -> bool:
+    """True if ``p`` is ``root`` or lives beneath it."""
+    try:
+        p.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def _quarantine_root(lib_root: Path) -> Path:
+    from ..config import settings
+
+    q = (settings().quarantine_path or "").strip()
+    return Path(q) if q else lib_root / _QUARANTINE_DIRNAME
+
+
+def _skip_trash(parent: Path, dirnames: list[str], qroot: Path) -> None:
+    """In-place prune ``dirnames`` of the quarantine root and any .dragontag-trash."""
+    dirnames[:] = [
+        dn for dn in dirnames
+        if not dn.startswith(_QUARANTINE_DIRNAME) and not _is_under(parent / dn, qroot)
+    ]
+
+
+def _count_audio(d: Path) -> int:
+    from ..ingest.pipeline import SUPPORTED_EXTS
+
+    n = 0
+    for _dp, _dn, fns in os.walk(d):
+        n += sum(1 for f in fns if Path(f).suffix.lower() in SUPPORTED_EXTS)
+    return n
+
+
+def _quarantine_file(
+    f: Path, lib_root: Path, qroot: Path, run_ts: str, ctx=None
+) -> bool:
+    """Move non-audio ``f`` into ``qroot/<run_ts>/<rel-to-lib_root>`` (unique on
+    collision). Audio is never quarantined. Returns True when moved."""
+    from ..ingest.pipeline import SUPPORTED_EXTS
+
+    if f.suffix.lower() in SUPPORTED_EXTS:
+        return False  # invariant: audio is never trashed
+    try:
+        dest = qroot / run_ts / f.relative_to(lib_root)
+    except ValueError:
+        dest = qroot / run_ts / f.name
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest = unique_path(dest)
+        with filelock.path_lock(f):
+            res = _safe_move(f, dest, overwrite=False)
+    except OSError:
+        log.exception("cleanup: quarantine failed for %s", f)
+        return False
+    if not res.moved:
+        if ctx:
+            ctx.log(f"cleanup: could not quarantine {f} (conflict)")
+        return False
+    return True
+
+
+def _find_cover(d: Path) -> Path | None:
+    """The canonical ``cover.jpg`` in ``d`` (case-insensitive), if present."""
+    try:
+        for entry in os.scandir(d):
+            if entry.is_file() and entry.name.lower() == "cover.jpg":
+                return Path(entry.path)
+    except OSError:
+        pass
+    return None
+
+
+def _cover_images(d: Path) -> list[Path]:
+    """Cover-art candidate images directly in ``d`` (not recursive)."""
+    out: list[Path] = []
+    try:
+        for entry in os.scandir(d):
+            if entry.is_file() and _COVER_RE.match(entry.name):
+                out.append(Path(entry.path))
+    except OSError:
+        pass
+    return out
+
+
+def _dedupe_covers_in_dir(
+    d: Path, lib_root: Path, qroot: Path, run_ts: str, apply: bool, ctx=None
+) -> int:
+    """Keep one canonical ``cover.jpg`` in ``d`` (prefer an existing one, else
+    promote the widest candidate) and quarantine the rest. Returns the number of
+    duplicate images removed (quarantined). No-op when 0/1 candidates exist."""
+    imgs = _cover_images(d)
+    if len(imgs) < 2:
+        return 0
+    canonical = _find_cover(d)
+    promoted_src: Path | None = None
+    if canonical is None:
+        # Promote the widest candidate to cover.jpg. Track its original path so
+        # the quarantine loop skips it by identity (it may have just moved).
+        promoted_src = max(imgs, key=lambda p: (_image_width(p) or 0, p.name))
+        canonical = promoted_src
+        target = d / "cover.jpg"
+        if apply and promoted_src != target:
+            try:
+                with filelock.path_lock(promoted_src):
+                    res = _safe_move(promoted_src, target, overwrite=False)
+                if res.moved:
+                    canonical = target
+            except OSError:
+                log.exception("cleanup: cover promote failed for %s", promoted_src)
+        elif not apply:
+            ctx and ctx.log(f"would promote {promoted_src.name} -> cover.jpg in {d}")
+    removed = 0
+    for img in imgs:
+        if img == promoted_src or img.resolve() == canonical.resolve():
+            continue
+        if apply:
+            if _quarantine_file(img, lib_root, qroot, run_ts, ctx):
+                removed += 1
+        else:
+            ctx and ctx.log(f"would quarantine duplicate cover {img}")
+            removed += 1
+    return removed
+
+
+def _merge_twin_folder(
+    s, loser: Path, target: Path, lib_root: Path, qroot: Path, run_ts: str,
+    pathmap: dict, apply: bool, source_dirs: set[Path], ctx=None,
+) -> dict:
+    """Move every file out of ``loser`` into ``target``: audio preserves its
+    relative sub-path, the loser's cover art is elected against the target's
+    (the wider ``cover.jpg`` wins), and everything else is quarantined. Track
+    rows are repointed and committed per move. Returns per-loser counters."""
+    from ..ingest.pipeline import SUPPORTED_EXTS
+
+    counts = {"audio_moved": 0, "quarantined": 0, "skipped_protected": 0,
+              "conflicts": 0, "covers_deduped": 0}
+    loser_images: list[Path] = []
+    for dp, _dn, fns in os.walk(loser):
+        for fn in fns:
+            if ctx:
+                ctx.check_cancelled()
+            src = Path(dp) / fn
+            ext = src.suffix.lower()
+            if ext in SUPPORTED_EXTS:
+                t = pathmap.get(str(src))
+                if t is not None and t.protected:
+                    counts["skipped_protected"] += 1
+                    ctx and ctx.log(f"cleanup: skip protected {src}")
+                    continue
+                dest = target / src.relative_to(loser)
+                if not apply:
+                    ctx and ctx.log(f"would move {src} -> {dest}")
+                    counts["audio_moved"] += 1
+                    continue
+                try:
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    with filelock.path_lock(src):
+                        res = _safe_move(src, dest, overwrite=False)
+                        if res.conflict:
+                            counts["conflicts"] += 1
+                            dest = unique_path(dest)
+                            res = _safe_move(src, dest, overwrite=False)
+                        if res.moved:
+                            _move_lyric_sidecar(src, dest)
+                except OSError:
+                    log.exception("cleanup: audio move failed for %s", src)
+                    continue
+                if not res.moved:
+                    ctx and ctx.log(f"cleanup: could not move {src} -> {dest}")
+                    continue
+                _update_track_path(s, str(src), str(dest))
+                source_dirs.add(src.parent)
+                s.commit()
+                counts["audio_moved"] += 1
+            elif _COVER_RE.match(fn):
+                loser_images.append(src)  # elected after the walk
+            else:
+                if apply:
+                    if _quarantine_file(src, lib_root, qroot, run_ts, ctx):
+                        counts["quarantined"] += 1
+                else:
+                    ctx and ctx.log(f"would quarantine {src}")
+                    counts["quarantined"] += 1
+
+    # Cover election: keep the widest cover.jpg between the loser and the target;
+    # quarantine every other loser image (a duplicate or a losing candidate).
+    if loser_images:
+        best = max(loser_images, key=lambda p: (_image_width(p) or 0, p.name))
+        target_cover = _find_cover(target)
+        promote = target_cover is None or (
+            (_image_width(best) or 0) > (_image_width(target_cover) or 0)
+        )
+        if not apply:
+            ctx and ctx.log(
+                f"would elect cover for {target.name} "
+                f"({'loser' if promote else 'target'} wins)"
+            )
+            # report count comes from the per-image loop below (avoid double count)
+        elif promote:
+            # Quarantine the target's narrower cover (if any), then move ours in.
+            if target_cover is not None and _quarantine_file(
+                target_cover, lib_root, qroot, run_ts, ctx
+            ):
+                counts["covers_deduped"] += 1
+            try:
+                with filelock.path_lock(best):
+                    _safe_move(best, target / "cover.jpg", overwrite=False)
+            except OSError:
+                log.exception("cleanup: cover promote failed for %s", best)
+        # Quarantine the remaining loser images (all but a promoted `best`).
+        # Cover counting happens here only in apply mode; in report mode the
+        # loser's images haven't moved, so the per-folder cover dedupe pass
+        # (_dedupe_covers_in_dir) reports them instead — counting here too would
+        # double-count.
+        for img in loser_images:
+            if promote and img == best:
+                continue
+            if apply and _quarantine_file(img, lib_root, qroot, run_ts, ctx):
+                counts["covers_deduped"] += 1
+            elif not apply:
+                ctx and ctx.log(f"would relocate/quarantine cover {img}")
+    return counts
+
+
+def cleanup_library(folder_id: int, ctx=None, *, apply: bool = False) -> dict:
+    """Merge edition-suffix twin album folders, dedupe cover art and quarantine
+    dead folders/leftovers. **Report-only by default**; ``apply=True`` moves
+    files and quarantines leftovers into ``<library>/.dragontag-trash`` (or the
+    configured ``quarantine_path``) but never deletes anything.
+
+    Twin folders (``Afraid`` / ``Afraid - Single`` / ``Afraid (Deluxe)``) are
+    merged into one elected target, preserving each file's ``Disc N`` sub-path;
+    tag values are left untouched (``check_album_consistency`` /
+    ``fix_album_splits`` own tag agreement). Protected tracks are never moved.
+    """
+    mode = "apply" if apply else "report"
+    with session() as s:
+        folder = s.get(LibraryFolder, folder_id)
+        if not folder:
+            return {"mode": mode, "twin_groups": 0}
+        lib_root = Path(folder.path)
+        pathmap = {
+            t.path: t
+            for t in s.exec(select(Track).where(Track.library_folder_id == folder_id)).all()
+        }
+
+    qroot = _quarantine_root(lib_root)
+    run_ts = now_utc().strftime("%Y%m%dT%H%M%SZ")
+    result = {
+        "mode": mode, "twin_groups": 0, "audio_moved": 0, "quarantined": 0,
+        "covers_deduped": 0, "dead_folders": 0, "dirs_removed": 0,
+        "skipped_protected": 0, "conflicts": 0,
+    }
+    source_dirs: set[Path] = set()
+    quarantined_anything = False
+
+    if not lib_root.exists():
+        ctx and ctx.log(f"library root does not exist: {lib_root}")
+        return result
+
+    # 1. Twin-folder merge, grouped per artist directory.
+    with session() as s:
+        for artist_dir in sorted(p for p in lib_root.iterdir() if p.is_dir()):
+            if _is_under(artist_dir, qroot) or artist_dir.name.startswith(_QUARANTINE_DIRNAME):
+                continue
+            if ctx:
+                ctx.check_cancelled()
+            albums = [p for p in artist_dir.iterdir() if p.is_dir()]
+            groups: dict[str, list[Path]] = {}
+            for a in albums:
+                key = album_fold_key(a.name)
+                if key:
+                    groups.setdefault(key, []).append(a)
+            for key, group in groups.items():
+                if len(group) < 2:
+                    continue
+                result["twin_groups"] += 1
+                target = sorted(
+                    group,
+                    key=lambda d: (-_count_audio(d), strip_edition_suffixes(d.name) != d.name, d.name),
+                )[0]
+                if ctx:
+                    ctx.log(f"twin album group -> keep {target.name}: "
+                            f"{[d.name for d in group if d != target]}")
+                for loser in group:
+                    if loser == target:
+                        continue
+                    c = _merge_twin_folder(
+                        s, loser, target, lib_root, qroot, run_ts, pathmap,
+                        apply, source_dirs, ctx,
+                    )
+                    for k in ("audio_moved", "quarantined", "skipped_protected",
+                              "conflicts", "covers_deduped"):
+                        result[k] += c[k]
+                    if apply and c["quarantined"]:
+                        quarantined_anything = True
+
+    # 2. Cover dedupe across every album directory (post-merge).
+    for dp, dirnames, _fns in os.walk(lib_root):
+        d = Path(dp)
+        _skip_trash(d, dirnames, qroot)
+        if d == lib_root:
+            continue
+        n = _dedupe_covers_in_dir(d, lib_root, qroot, run_ts, apply, ctx)
+        result["covers_deduped"] += n
+        if apply and n:
+            quarantined_anything = True
+
+    # 3. Dead folders (no audio anywhere below): quarantine their leftovers.
+    dead = _find_dead_folders(lib_root, qroot, ctx)
+    result["dead_folders"] = len(dead)
+    for dd in dead:
+        for dp, _dn, fns in os.walk(dd):
+            for fn in fns:
+                src = Path(dp) / fn
+                if apply:
+                    if _quarantine_file(src, lib_root, qroot, run_ts, ctx):
+                        result["quarantined"] += 1
+                        quarantined_anything = True
+                else:
+                    ctx and ctx.log(f"would quarantine (dead folder) {src}")
+                    result["quarantined"] += 1
+        source_dirs.add(dd)
+
+    # 4. Prune emptied directories (apply only).
+    if apply and source_dirs:
+        from .organizer import _prune_empty_dirs
+        result["dirs_removed"] = _prune_empty_dirs(source_dirs, lib_root)
+
+    # 5. Keep the quarantine root out of future scans/ingests.
+    if quarantined_anything:
+        from ..config import settings, store
+        qstr = str(qroot)
+        if qstr not in settings().scan_exclude_dirs:
+            def _add(cur):
+                dirs = list(cur.scan_exclude_dirs)
+                if qstr not in dirs:
+                    dirs.append(qstr)
+                return {"scan_exclude_dirs": dirs}
+            store().transact(_add)
+
+    if ctx:
+        summary = (
+            f"Cleanup [{mode}]: {result['twin_groups']} twin group(s), "
+            f"{result['audio_moved']} audio moved, {result['covers_deduped']} cover(s) deduped, "
+            f"{result['dead_folders']} dead folder(s), {result['quarantined']} file(s) quarantined, "
+            f"{result['dirs_removed']} dir(s) pruned, {result['skipped_protected']} protected skipped"
+        )
+        if quarantined_anything:
+            summary += f" — quarantine dir: {qroot}"
+        ctx.log(summary)
+    log.info("cleanup_library(%d)[%s]: %s", folder_id, mode, result)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Re-identify untagged tracks (AcoustID fingerprint, fingerprint matches only)
+# ---------------------------------------------------------------------------
+
+
+def reidentify_tracks(folder_id: int, ctx=None) -> dict:
+    """AcoustID-re-identify tracks that have no MusicBrainz recording id.
+
+    Applies only fingerprint-confirmed matches; text-search fallbacks are logged
+    for manual review, never auto-applied unattended. Skips protected tracks.
+    Writes tags in place — does not move files (run Organize/the batch afterwards
+    to reshape folders). Network work is done outside any open DB write txn.
+    """
+    from ..identify.relookup import candidates_for_file
+    from . import retag
+
+    with session() as s:
+        tracks = s.exec(select(Track).where(Track.library_folder_id == folder_id)).all()
+    untagged = [t for t in tracks if t.mb_track_id is None and Path(t.path).exists()]
+    skipped_protected = sum(1 for t in untagged if t.protected)
+    items = [
+        (t.id, t.title, t.artist, t.album, Path(t.path))
+        for t in untagged if not t.protected
+    ]
+    if ctx:
+        ctx.progress(0, len(items))
+
+    applied = no_match = failed = 0
+    for i, (tid, title, artist, album, p) in enumerate(items, start=1):
+        if ctx:
+            ctx.check_cancelled()
+            ctx.progress(i, len(items), item=p.name)
+        try:
+            cands, fingerprinted = candidates_for_file(
+                p, title=title, artist=artist, album=album, text_fallback=False
+            )
+        except Exception:
+            log.exception("reidentify: lookup failed for %s", p)
+            failed += 1
+            continue
+        c = cands[0] if cands else None
+        if not fingerprinted or c is None or not (c.recording_id and c.release_id):
+            no_match += 1
+            ctx and ctx.log(f"no confident match: {p.name}")
+            continue
+        ok, msg = retag.apply_match(tid, c.recording_id, c.release_id)
+        if ok:
+            applied += 1
+        else:
+            failed += 1
+        ctx and ctx.log(f"{p.name}: {msg}")
+    if ctx:
+        ctx.log(
+            f"Re-identified {applied}/{len(items)} untagged track(s); "
+            f"{no_match} no confident match, {failed} failed, "
+            f"{skipped_protected} protected skipped"
+        )
+    return {
+        "candidates_checked": len(items), "applied": applied,
+        "no_match": no_match, "failed": failed, "skipped_protected": skipped_protected,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1739,7 +2174,7 @@ def validate_tags(folder_id: int, ctx=None) -> dict:
         # or "_" with no base album name.
         alb = (t.album or "").strip()
         if alb and alb not in seen_bad_albums:
-            base = _strip_edition_suffixes(alb).strip(" ()[]{}-–—_")
+            base = strip_edition_suffixes(alb).strip(" ()[]{}-–—_")
             if not base:
                 seen_bad_albums.add(alb)
                 problems.append(f"{name}: suspicious album name {alb!r} (edition marker / punctuation only)")
@@ -1809,10 +2244,22 @@ LIBRARY_ACTIONS: dict[str, tuple[str, str, Any]] = {
         "Prune junk & empty folders",
         "Delete OS litter (Thumbs.db, .DS_Store, *.tmp …) and completely empty folders. Audio is never touched.",
         prune_library),
+    "cleanup": (
+        "Cleanup (report)",
+        "Report edition-suffix twin album folders (X / X - Single / X (Deluxe)), duplicate "
+        "cover art and dead folders. Report only — the apply variant on the Library page merges "
+        "twins and quarantines leftovers into the trash folder; nothing is ever deleted.",
+        cleanup_library),
     "find_missing_tracks": (
         "Find missing tracks",
         "Compare each album's local track count to MusicBrainz and list incomplete albums on the Incomplete tab.",
         find_missing_tracks),
+    "reidentify": (
+        "Re-identify untagged tracks",
+        "AcoustID-fingerprint tracks that have no MusicBrainz recording id and apply the match "
+        "in place (tags + cover). Fingerprint matches only — fuzzy text matches are reported, "
+        "not applied. Skips protected tracks. Does not move files.",
+        reidentify_tracks),
     "fix_album_splits": (
         "Fix album splits",
         "Re-unify albums whose tracks were matched to different MusicBrainz editions "
@@ -1849,9 +2296,9 @@ LIBRARY_ACTIONS: dict[str, tuple[str, str, Any]] = {
 BATCH_ORGANIZE = [
     "fix_disc_folders", "normalize_filenames", "unify_artist_folders",
     "check_album_consistency",
-    "extract_covers", "prune", "find_duplicates", "find_missing_tracks",
+    "extract_covers", "prune", "cleanup", "find_duplicates", "find_missing_tracks",
 ]
-BATCH_RETAG = ["validate_tags", "tag_advisories", "fix_genres", "replaygain"]
+BATCH_RETAG = ["reidentify", "validate_tags", "tag_advisories", "fix_genres", "replaygain"]
 
 # Nuclear option: the full identify -> tag -> move pipeline runs first (added
 # manually by the route layer, since it lives in ingest.bulk), then this list
@@ -1864,10 +2311,14 @@ BATCH_NUCLEAR = [
     # several MB editions, and everything downstream (covers, disc folders,
     # consistency, ReplayGain's album gain) should see the unified state.
     "fix_album_splits",
+    # reidentify mops up files the pipeline left un-identified (only those that
+    # exited review — tracks parked in needs_review keep their state).
+    "reidentify",
     "validate_tags", "fetch_covers", "fetch_lyrics", "tag_advisories",
     "fix_disc_folders", "normalize_filenames", "unify_artist_folders",
     "check_album_consistency",
     "extract_covers", "replaygain", "find_duplicates", "find_missing_tracks", "prune",
+    "cleanup",
     "verify_integrity",
 ]
 

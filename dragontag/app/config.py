@@ -145,6 +145,22 @@ class UserSettings(BaseModel):
         _check_template(v, disc=1, disctotal=1)
         return v
 
+    # Reuse an existing album folder whose name matches after stripping edition
+    # suffixes, so "Afraid - Single"/"Afraid (Deluxe)" ingest into an existing
+    # "Afraid" instead of minting a suffixed twin (library/paths._reuse_folded_dir).
+    fold_edition_suffixes: bool = True
+    # Where the Cleanup action quarantines leftover files. Empty =
+    # <library_root>/.dragontag-trash. Must be absolute when set.
+    quarantine_path: str = ""
+
+    @field_validator("quarantine_path")
+    @classmethod
+    def _validate_quarantine_path(cls, v: str) -> str:
+        # A relative value would resolve against the CWD and scatter trash dirs.
+        if v and not Path(v).is_absolute():
+            raise ValueError("quarantine_path must be an absolute path")
+        return v
+
     # ----- watcher -----
     watcher_enabled: bool = True
     # fnmatch patterns ignored on top of the always-on extension whitelist

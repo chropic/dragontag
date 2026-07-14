@@ -36,7 +36,7 @@ Queue page like any other task. Times are interpreted in the display timezone ({
       </label>
     </div>
     <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
-      <label class="block" x-show="['scan','organize','batch_organize','batch_retag','fetch_lyrics','fetch_covers'].includes(type)">
+      <label class="block" x-show="['scan','organize','batch_organize','batch_retag','fetch_lyrics','fetch_covers','cleanup'].includes(type)">
         <span class="text-[#8a8a8a] text-xs">Library folder</span>
         <select name="folder_id" class="mt-1 w-full p-2 bg-black border border-[#2a2a2a] focus:outline-none">
           {% for f in folders %}
@@ -50,6 +50,9 @@ Queue page like any other task. Times are interpreted in the display timezone ({
       </label>
       <label class="flex items-end gap-2 text-xs text-[#8a8a8a] pb-1" x-show="['bulk_retag','batch_retag'].includes(type)">
         <input type="checkbox" name="dry_run"> Dry run
+      </label>
+      <label class="flex items-end gap-2 text-xs text-[#8a8a8a] pb-1" x-show="type === 'cleanup'">
+        <input type="checkbox" name="apply"> Apply (merge + quarantine)
       </label>
     </div>
     <div class="text-xs text-[#5a5a5a]">

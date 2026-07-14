@@ -932,6 +932,8 @@ def settings_update(
     filename_template_multidisc: str = Form(...),
     multidisc_folder_template: str = Form(...),
     folder_artist_split_separators: str = Form(""),
+    fold_edition_suffixes: str | None = Form(None),
+    quarantine_path: str = Form(""),
     cover_allow_release_group_fallback: str | None = Form(None),
     replaygain_tool_path: str = Form(""),
     watcher_enabled: str | None = Form(None),
@@ -985,6 +987,8 @@ def settings_update(
         "filename_template_multidisc": filename_template_multidisc,
         "multidisc_folder_template": multidisc_folder_template,
         "folder_artist_split_separators": folder_artist_split_separators,
+        "fold_edition_suffixes": bool(fold_edition_suffixes),
+        "quarantine_path": quarantine_path.strip(),
         "cover_allow_release_group_fallback": bool(cover_allow_release_group_fallback),
         "replaygain_tool_path": replaygain_tool_path.strip(),
         "watcher_enabled": bool(watcher_enabled),
@@ -1604,7 +1608,7 @@ def library_track_identify(track_id: int, request: Request, _: None = Depends(re
     """AcoustID fingerprint lookup (falling back to a plain MB text search on
     the track's current tags) — renders the same candidate-picker list used
     by the manual search box, into the track-edit modal."""
-    from .identify import acoustid
+    from .identify.relookup import candidates_for_file
 
     with session() as s:
         track = s.get(Track, track_id)
@@ -1613,13 +1617,9 @@ def library_track_identify(track_id: int, request: Request, _: None = Depends(re
     p = Path(track.path)
     cands = []
     if p.exists():
-        matches = acoustid.lookup(p)
-        if matches and matches[0].recording_id:
-            cands = mbq.candidates_from_mbid(matches[0].recording_id)
-        if not cands:
-            cands = mbq.search_candidates(
-                title=track.title, artist=track.artist, album=track.album, limit=10
-            )
+        cands, _ = candidates_for_file(
+            p, title=track.title, artist=track.artist, album=track.album, limit=10
+        )
     return templates.TemplateResponse(request, "_track_mb_results.html", {
         "request": request, "track_id": track_id, "searched": True,
         "cands": [
@@ -1695,69 +1695,13 @@ def library_track_apply_match(
         track = s.get(Track, track_id)
         if not track:
             raise HTTPException(404)
-        p = Path(track.path)
-        if not p.exists():
-            return _toast_response("/library", f"{p.name}: file not found on disk.", "error")
         folder_id = track.library_folder_id
 
-    from .identify import existing_tags as _existing
-    from .tagging import snapshot as _snapshot
-    from .tagging.coverart import fetch_for_release
-    from .tagging.partial import read_lyrics
-    from .tagging.writers import write_tags
-    from .ingest.pipeline import _tags_to_dict, _upsert_track, prepare_tags
-
-    try:
-        tags = mbq.assemble_tags(release_id=rel, recording_id=rec)
-    except Exception as e:
-        # A deleted/redirected MB id must land as a toast, not a raw 500
-        # (parity with review_apply's handling).
-        return _toast_response("/library", f"MusicBrainz lookup failed: {e}", "error")
-    # Same schema guarantees as the pipeline / review-apply paths (formatting,
-    # RELEASETYPE inference, RELEASESTATUS default).
-    prepare_tags(None, tags)
-    cover = fetch_for_release(tags.mb_album_id) if tags.mb_album_id else None
-    if cover:
-        tags.cover_bytes = cover.data
-        tags.cover_mime = cover.mime
-    try:
-        from .library.filelock import path_lock
-        with path_lock(p):
-            # This is a full canonical rewrite (every writer clears the
-            # existing tag set), so: snapshot first so the write is auditable
-            # and revertable via /changes, and carry the file's own embedded
-            # lyrics/advisory onto the outgoing tags — this route is a
-            # metadata correction, not a re-ingest, and assemble_tags brings
-            # no lyrics of its own.
-            original_snapshot = _snapshot.capture(p)
-            info = _existing.read(p)
-            if tags.advisory is None:
-                tags.advisory = info.get("advisory")
-            if info.get("has_lyrics"):
-                try:
-                    tags.lyrics = read_lyrics(p) or None
-                except Exception:
-                    pass
-            write_tags(p, tags)
-    except Exception as e:
-        return _toast_response("/library", f"{p.name}: tag write failed: {e}", "error")
-
-    with session() as s:
-        # Audit row so the rewrite shows in /changes and can be reverted.
-        # job_id=None: no pipeline job backs this manual correction.
-        s.add(FileChange(
-            job_id=None,
-            file_path=str(p),
-            original_path=str(p),
-            original_name=p.name,
-            original_tags_json=original_snapshot or {},
-            new_tags_json=_tags_to_dict(tags),
-            cover_jpg_created=False,
-        ))
-        folder = s.get(LibraryFolder, folder_id) if folder_id else None
-        lib_root = Path(folder.path) if folder else env().library_path
-        _upsert_track(s, p, tags, lib_root)
-    return _toast_response(f"/library?folder_id={folder_id or ''}", f"Updated {p.name} from MusicBrainz.")
+    from .library.retag import apply_match
+    ok, msg = apply_match(track_id, rec, rel)
+    return _toast_response(
+        f"/library?folder_id={folder_id or ''}", msg, "success" if ok else "error"
+    )
 
 
 @app.post("/library/tracks/{track_id}/fetch-lyrics")
@@ -1916,6 +1860,40 @@ def library_prune(request: Request, _: None = Depends(require_auth), folder_id: 
     tasks.run_task("prune", f"Prune junk & empty folders (folder {folder_id})",
                    lambda ctx: prune_library(folder_id, ctx=ctx))
     return _toast_response("/library", "Prune started — junk files and empty folders will be removed.")
+
+
+@app.post("/library/cleanup")
+def library_cleanup(
+    request: Request,
+    _: None = Depends(require_auth),
+    folder_id: int = Form(...),
+    apply: str | None = Form(None),
+):
+    """Report (default) or apply library cleanup: merge edition-suffix twin
+    folders, dedupe covers, quarantine dead folders/leftovers. Nothing deleted."""
+    from .library.actions import cleanup_library
+    do_apply = bool(apply)
+    if do_apply and (msg := _batch_guard()):
+        return _toast_response("/library", msg, "error")
+    mode = "apply" if do_apply else "report"
+    tasks.run_task("cleanup", f"Library cleanup [{mode}] (folder {folder_id})",
+                   lambda ctx: cleanup_library(folder_id, ctx=ctx, apply=do_apply))
+    return _toast_response(
+        "/library",
+        "Cleanup (apply) started — twins merged, leftovers quarantined, nothing deleted."
+        if do_apply else "Cleanup report started — see the job log; nothing is changed.",
+    )
+
+
+@app.post("/library/reidentify")
+def library_reidentify(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
+    """AcoustID re-identify tracks with no MusicBrainz recording id, in place."""
+    from .library.actions import reidentify_tracks
+    if msg := _batch_guard():
+        return _toast_response("/library", msg, "error")
+    tasks.run_task("reidentify", f"Re-identify untagged tracks (folder {folder_id})",
+                   lambda ctx: reidentify_tracks(folder_id, ctx=ctx))
+    return _toast_response("/library", "Re-identify started — fingerprint matches are applied in place.")
 
 
 @app.post("/library/normalize-filenames")
@@ -2322,6 +2300,7 @@ def schedule_create(
     folder_id: str = Form(default=""),
     source_path: str = Form(default=""),
     dry_run: str | None = Form(None),
+    apply: str | None = Form(None),
 ):
     cron = cron.strip()
     if task_type not in scheduler.TASK_TYPES:
@@ -2329,7 +2308,7 @@ def schedule_create(
     if not scheduler.is_valid_cron(cron):
         return _toast_response("/schedule", f"Invalid cron expression: {cron}", "error")
     params: dict = {}
-    if task_type in ("scan", "organize", "batch_organize", "batch_retag", "fetch_lyrics", "fetch_covers"):
+    if task_type in ("scan", "organize", "batch_organize", "batch_retag", "fetch_lyrics", "fetch_covers", "cleanup"):
         if not folder_id.strip().isdigit():
             return _toast_response("/schedule", "Pick a library folder for this task type.", "error")
         params["folder_id"] = int(folder_id)
@@ -2339,6 +2318,8 @@ def schedule_create(
         params["source_path"] = source_path.strip()
     if task_type in ("bulk_retag", "batch_retag"):
         params["dry_run"] = bool(dry_run)
+    if task_type == "cleanup":
+        params["apply"] = bool(apply)
     with session() as s:
         t = ScheduledTask(
             name=name.strip() or scheduler.TASK_TYPES[task_type],

@@ -4,6 +4,63 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Fixed (cleanup/reidentify review — 2026-07-14)
+- **Re-identify no longer burns a MusicBrainz text search per unmatched track.**
+  The batch applies fingerprint-confirmed matches only, so `candidates_for_file`
+  gained a `text_fallback` flag (the batch passes `False`) and skips the
+  rate-limited MB search when the AcoustID fingerprint finds nothing — the
+  interactive Identify route keeps the fallback. (`identify/relookup.py`,
+  `library/actions.py`)
+- **Cleanup report mode no longer double-counts deduped covers**, the twin-merge
+  per-file loop is now cancellable, and the cover-promote path no longer attempts
+  to quarantine an already-moved image. (`library/actions.py`)
+- **New "Re-identify untagged tracks" library action** (`reidentify`, first step
+  of the Re-tag batch, and in the Nuclear batch after album-split repair) —
+  AcoustID-fingerprints every track that has no MusicBrainz recording id and
+  applies the match in place (tags + cover). **Fingerprint matches only** —
+  fuzzy text-search fallbacks are logged for manual review, never auto-applied.
+  Skips protected tracks; writes tags in place without moving files. The
+  per-track Identify lookup and apply-match write were refactored into shared
+  helpers (`identify/relookup.candidates_for_file`, `library/retag.apply_match`)
+  reused by both the route and the batch; the apply path keeps its
+  network-before-write ordering and auditable `FileChange`/lyrics-carry
+  semantics. (`identify/relookup.py`, `library/retag.py`, `library/actions.py`,
+  `main.py`)
+
+### Added (library cleanup with quarantine — 2026-07-14)
+- **New "Cleanup" library action** (`cleanup`, `POST /library/cleanup`) — merges
+  edition-suffix twin album folders (`Afraid` / `Afraid - Single` / `Afraid
+  (Deluxe)`) into one elected target preserving each file's `Disc N` sub-path,
+  dedupes cover art (keeps the widest `cover.jpg`), and **quarantines** dead
+  folders and leftover non-audio files into `<library>/.dragontag-trash/<utc-ts>/`
+  (or a configured `quarantine_path`). **Nothing is ever deleted and audio is
+  never quarantined.** Report-only by default (safe in the Organize/Nuclear
+  batches); the apply variant on the Library page moves files and is
+  confirm-gated. The quarantine root is auto-excluded from future scans. Tag
+  values are left untouched (`check_album_consistency`/`fix_album_splits` own
+  tag agreement). Protected tracks are never moved; every move holds `path_lock`,
+  branches on `MoveResult`, and commits `Track.path` per move. The dead-folder
+  detection was refactored into a shared `_find_dead_folders`. Exposed on the
+  Library page (report run + a confirm-gated apply card), as a schedulable task
+  type (`cleanup`, with an apply toggle), and via two new settings
+  (`quarantine_path`, `fold_edition_suffixes`) on the settings form.
+  (`library/actions.py`, `config.py`, `main.py`, `scheduler.py`,
+  `web/templates/library.html`, `web/templates/settings.html`,
+  `web/templates/schedule.html`)
+
+### Changed (edition-suffix folder folding — 2026-07-14)
+- **Ingest now folds edition suffixes onto an existing base folder.** A file
+  tagged `Afraid - Single` or `Afraid (Deluxe)` reuses an existing `Afraid`
+  album folder instead of minting a suffixed twin next to it — the same
+  convergence `_reuse_folded_dir` already did for case/punctuation variants,
+  now extended with an edition-aware second pass gated on the new
+  `fold_edition_suffixes` setting (default on). Among matching folders it
+  prefers one that already holds audio, then the unsuffixed "base" name. The
+  edition-suffix stripping primitives moved from `library/actions.py` to
+  `library/paths.py` (`strip_edition_suffixes`, `album_fold_key`) as the shared
+  home. Artist folders are never edition-folded. (`library/paths.py`,
+  `library/actions.py`, `config.py`)
+
 ### Added (genre backfill — 2026-07-14)
 - **New "Fix genres" library action** (`fix_genres`, `POST /library/fix-genres`,
   queued in the Re-tag batch) — backfills missing genres from MusicBrainz

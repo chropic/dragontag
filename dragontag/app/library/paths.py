@@ -68,6 +68,39 @@ def artist_fold_key(name: str) -> str:
     """
     return fold_text(primary_artist(name))
 
+
+_EDITION_SUFFIX_RE = re.compile(
+    r"\s*[\(\[]\s*(deluxe|remaster(?:ed)?|expanded|anniversary|bonus track|special|"
+    r"explicit|clean|single|ep|mono|stereo)[^)\]]*[\)\]]\s*$",
+    re.IGNORECASE,
+)
+
+# iTunes-style *unparenthesized* trailing edition markers: "Album - Single",
+# "Album - EP" (any dash flavour). MusicBrainz names the same release group
+# without the suffix, so these are the same album under two source spellings.
+_TRAILING_EDITION_RE = re.compile(r"\s*[-–—]\s*(single|ep)\s*$", re.IGNORECASE)
+
+# A dash left dangling by sanitization ("…Friends–", "Album -").
+_DANGLING_DASH_RE = re.compile(r"\s*[-–—]+\s*$")
+
+
+def strip_edition_suffixes(album: str) -> str:
+    """Remove parenthesized and iTunes-style trailing edition markers plus any
+    dangling dash. Applied before folding so the offline album key groups the
+    ``X`` / ``X - Single`` / ``X (Deluxe)`` / ``…Friends–`` variants together."""
+    a = _EDITION_SUFFIX_RE.sub("", album)
+    a = _TRAILING_EDITION_RE.sub("", a)
+    a = _DANGLING_DASH_RE.sub("", a)
+    return a
+
+
+def album_fold_key(name: str) -> str:
+    """Fold an album name after stripping edition suffixes — ``Afraid``,
+    ``Afraid - Single`` and ``Afraid (Deluxe)`` share one key. Returns an empty
+    string when the name is only an edition marker (``(Deluxe)``), so callers
+    can refuse to merge such folders into an arbitrary sibling."""
+    return fold_text(strip_edition_suffixes(name))
+
 # Featured-guest markers: everything from "feat./ft./featuring" onward is cut.
 # The marker must be preceded by whitespace or an opening bracket so we never
 # clip artists whose names merely contain the letters (e.g. "Daft Punk", where
@@ -112,7 +145,17 @@ def sanitize_segment(name: str) -> str:
     return cleaned or "_"
 
 
-def _reuse_folded_dir(parent: Path, wanted: str) -> str:
+def _dir_has_audio(d: Path) -> bool:
+    """True if any supported audio file exists anywhere beneath ``d``."""
+    from ..ingest.pipeline import SUPPORTED_EXTS  # lazy: pipeline imports paths at module level
+
+    for _dp, _dn, fns in os.walk(d):
+        if any(Path(f).suffix.lower() in SUPPORTED_EXTS for f in fns):
+            return True
+    return False
+
+
+def _reuse_folded_dir(parent: Path, wanted: str, *, edition_fold: bool = False) -> str:
     """Return an existing sibling of ``parent/wanted`` that folds equal to it.
 
     When the exact ``wanted`` directory is absent but a sibling directory
@@ -122,6 +165,17 @@ def _reuse_folded_dir(parent: Path, wanted: str) -> str:
     rather than minting a second case-variant next to it (``Afraid`` beside
     ``afraid``). Fold-equality only — never fuzzy — because a false merge would
     move a file into the wrong artist's folder.
+
+    When ``edition_fold`` is set and ``settings().fold_edition_suffixes`` is on,
+    a second pass also reuses a sibling that matches after edition suffixes are
+    stripped (:func:`album_fold_key`), so ``Afraid - Single`` ingests into an
+    existing ``Afraid``. This is convergence, not canonicalization: we reuse
+    whatever folder already exists even if its name carries a suffix — the
+    Cleanup action merges/renames twins later. Among several suffix-fold
+    candidates, prefer one that actually contains audio, then the "base" folder
+    whose name equals its own stripped form, then the lexicographically
+    smallest for determinism. Never applied to artist folders ("The EP",
+    "Single" are legitimate artist-name substrings).
 
     One ``os.scandir`` per level; nothing is cached (single-user, cheap). Any
     filesystem error (parent doesn't exist yet — the common case on a fresh
@@ -133,14 +187,27 @@ def _reuse_folded_dir(parent: Path, wanted: str) -> str:
         target = fold_text(wanted)
         if not target:
             return wanted
+        do_edition = edition_fold and settings().fold_edition_suffixes
+        wanted_ekey = album_fold_key(wanted) if do_edition else ""
+        edition_candidates: list[str] = []
         with os.scandir(parent) as it:
             for entry in it:
-                if (
-                    entry.name != wanted
-                    and entry.is_dir()
-                    and fold_text(entry.name) == target
-                ):
-                    return entry.name
+                if entry.name == wanted or not entry.is_dir():
+                    continue
+                if fold_text(entry.name) == target:
+                    return entry.name  # exact case/punct fold wins immediately
+                if wanted_ekey and album_fold_key(entry.name) == wanted_ekey:
+                    edition_candidates.append(entry.name)
+        if edition_candidates:
+            best = min(
+                edition_candidates,
+                key=lambda n: (
+                    not _dir_has_audio(parent / n),          # audio-bearing first
+                    strip_edition_suffixes(n) != n,          # base (unsuffixed) name next
+                    n,                                       # then deterministic
+                ),
+            )
+            return best
     except OSError:
         pass
     return wanted
@@ -196,7 +263,7 @@ def build_destination(
     # Windows-side duplicate-listing problem). Artist level first, then album
     # under the (possibly reused) artist directory.
     artist_seg = _reuse_folded_dir(base, artist_seg)
-    album_seg = _reuse_folded_dir(base / artist_seg, album_seg)
+    album_seg = _reuse_folded_dir(base / artist_seg, album_seg, edition_fold=True)
 
     parts = [base, artist_seg, album_seg]
     if (tags.disc_total or 1) > 1 and tags.disc is not None:

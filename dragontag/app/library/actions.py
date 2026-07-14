@@ -22,7 +22,13 @@ from ..models import LibraryFolder, Track
 from . import filelock
 from .mover import move as _safe_move
 from .mover import move_lyric_sidecar as _move_lyric_sidecar
-from .paths import artist_fold_key, fold_text, primary_artist, sanitize_segment
+from .paths import (
+    artist_fold_key,
+    fold_text,
+    primary_artist,
+    sanitize_segment,
+    strip_edition_suffixes,
+)
 
 log = logging.getLogger(__name__)
 
@@ -577,31 +583,6 @@ def find_missing_tracks(folder_id: int, ctx=None) -> dict:
 # Album/folder consistency checker
 # ---------------------------------------------------------------------------
 
-_EDITION_SUFFIX_RE = re.compile(
-    r"\s*[\(\[]\s*(deluxe|remaster(?:ed)?|expanded|anniversary|bonus track|special|"
-    r"explicit|clean|single|ep|mono|stereo)[^)\]]*[\)\]]\s*$",
-    re.IGNORECASE,
-)
-
-# iTunes-style *unparenthesized* trailing edition markers: "Album - Single",
-# "Album - EP" (any dash flavour). MusicBrainz names the same release group
-# without the suffix, so these are the same album under two source spellings.
-_TRAILING_EDITION_RE = re.compile(r"\s*[-–—]\s*(single|ep)\s*$", re.IGNORECASE)
-
-# A dash left dangling by sanitization ("…Friends–", "Album -").
-_DANGLING_DASH_RE = re.compile(r"\s*[-–—]+\s*$")
-
-
-def _strip_edition_suffixes(album: str) -> str:
-    """Remove parenthesized and iTunes-style trailing edition markers plus any
-    dangling dash. Applied before folding so the offline album key groups the
-    ``X`` / ``X - Single`` / ``X (Deluxe)`` / ``…Friends–`` variants together."""
-    a = _EDITION_SUFFIX_RE.sub("", album)
-    a = _TRAILING_EDITION_RE.sub("", a)
-    a = _DANGLING_DASH_RE.sub("", a)
-    return a
-
-
 def _normalize_album_key(album: str | None, album_artist: str | None) -> tuple[str, str] | None:
     """Fold an (album, album_artist) pair into a deterministic grouping key.
 
@@ -614,7 +595,7 @@ def _normalize_album_key(album: str | None, album_artist: str | None) -> tuple[s
     """
     if not album or not album_artist:
         return None
-    a = fold_text(_strip_edition_suffixes(album))
+    a = fold_text(strip_edition_suffixes(album))
     a = re.sub(r"[^\w\s]", "", a)
     a = re.sub(r"\s+", " ", a).strip()
     artist = re.sub(r"[^\w\s]", "", fold_text(album_artist))
@@ -1739,7 +1720,7 @@ def validate_tags(folder_id: int, ctx=None) -> dict:
         # or "_" with no base album name.
         alb = (t.album or "").strip()
         if alb and alb not in seen_bad_albums:
-            base = _strip_edition_suffixes(alb).strip(" ()[]{}-–—_")
+            base = strip_edition_suffixes(alb).strip(" ()[]{}-–—_")
             if not base:
                 seen_bad_albums.add(alb)
                 problems.append(f"{name}: suspicious album name {alb!r} (edition marker / punctuation only)")

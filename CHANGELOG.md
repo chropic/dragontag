@@ -4,6 +4,19 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Changed (edition-suffix folder folding — 2026-07-14)
+- **Ingest now folds edition suffixes onto an existing base folder.** A file
+  tagged `Afraid - Single` or `Afraid (Deluxe)` reuses an existing `Afraid`
+  album folder instead of minting a suffixed twin next to it — the same
+  convergence `_reuse_folded_dir` already did for case/punctuation variants,
+  now extended with an edition-aware second pass gated on the new
+  `fold_edition_suffixes` setting (default on). Among matching folders it
+  prefers one that already holds audio, then the unsuffixed "base" name. The
+  edition-suffix stripping primitives moved from `library/actions.py` to
+  `library/paths.py` (`strip_edition_suffixes`, `album_fold_key`) as the shared
+  home. Artist folders are never edition-folded. (`library/paths.py`,
+  `library/actions.py`, `config.py`)
+
 ### Added (genre backfill — 2026-07-14)
 - **New "Fix genres" library action** (`fix_genres`, `POST /library/fix-genres`,
   queued in the Re-tag batch) — backfills missing genres from MusicBrainz

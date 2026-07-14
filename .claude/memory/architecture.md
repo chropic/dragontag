@@ -80,7 +80,10 @@ dragontag/app/
                            on unreadable headers. Knows TXXX:/UFID:/MP4-freeform MBID aliases.
     filename_parse.py      "Artist - Title" / "NN - Title" heuristics.
     musicbrainz.py         search_candidates (progressive fallback) + assemble_tags (accepts a
-                           prefetched rel doc for bulk repairs). MEDIA + release_track_total
+                           prefetched rel doc for bulk repairs). derive_genres (shared genre
+                           ranking/whitelist/casing) + fetch_release_group (RG tags need a
+                           dedicated fetch — a nested release-group carries no tag-list, so
+                           assemble_tags falls back to it only via this call). MEDIA + release_track_total
                            are normalized release-wide (_release_media/_release_track_total) —
                            never write per-medium values into album-level tags. _mb_retry
                            wrapper; _credit_names/_sorts/_ids/_phrase all guard malformed
@@ -93,8 +96,9 @@ dragontag/app/
     schema.py              TrackTags dataclass + to_vorbis(sep) → dict[str, str | list[str]]
                            (native multi-value). Totals of 0 mean "unknown" and are NOT written.
     formatter.py           Smart formatting (Title Case, qualifier parens, grammar fixes).
-    partial.py             Single-field write helpers (lyrics, cover, advisory, basic tags,
-                           write_album_link_tags) — all through atomic_inplace.
+    partial.py             Single-field write helpers (lyrics, cover, advisory, genre, basic
+                           tags, write_album_link_tags) — all through atomic_inplace.
+                           read_genre/read_lyrics read one field without a full parse.
     snapshot.py            capture/restore a file's text tags (powers revert). Handles MP4
                            bool/int atoms explicitly. No embedded art / binary frames.
     coverart.py            Cover Art Archive fetcher (release; release-group behind setting).
@@ -178,7 +182,7 @@ read-then-write on a file's tags or location must hold it. Current holders:
 5. **Library actions** — every file-touching function in `library/actions.py`
    (album-consistency tag patch + move, album-split full re-tag + move, artist-folder
    unification tag patch + move, disc-folder flatten, filename normalize, fetch lyrics/covers,
-   advisory re-tag) locks each per-file mutate/move section. Artist-folder unification also
+   advisory re-tag, genre backfill) locks each per-file mutate/move section. Artist-folder unification also
    renames whole artist directories (`_rename_artist_dir`); that rename re-points every
    `Track.path` beneath it and commits per rename.
 6. **Per-track edit routes** — `main.py` manual tag edit, link-album, apply-match, and

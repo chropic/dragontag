@@ -3,7 +3,7 @@
 Unlike the full TrackTags writers that replace all tags, these helpers update
 a single field while leaving every other tag on the file untouched. Used by
 the Library individual-action routes (fetch lyrics only, tag advisories only,
-fetch cover art only).
+fetch cover art only, backfill genres only).
 
 All mutations go through ``atomic_inplace`` so a crash mid-save can never
 corrupt the original audio file.
@@ -322,6 +322,65 @@ def write_advisory(path: Path, advisory: int) -> None:
                 f.add_tags()
             f.tags["rtng"] = [advisory_to_rtng(advisory)]
             f.save()
+
+
+def write_genre(path: Path, genres: list[str]) -> None:
+    """Write only the multi-value GENRE field, leaving every other tag intact.
+
+    Blank/whitespace values are dropped; an empty result is a no-op (we never
+    clear an existing genre from here — the "Fix genres" action only backfills).
+    """
+    genres = [g for g in (v.strip() for v in genres) if g]
+    if not genres:
+        return
+    s = _suffix(path)
+    with atomic_inplace(path) as tmp:
+        if s == ".flac":
+            from mutagen.flac import FLAC
+            f = FLAC(str(tmp))
+            f["GENRE"] = genres
+            f.save()
+        elif s in (".mp3", ".wav"):
+            import mutagen.id3 as _id3
+            from mutagen.mp3 import MP3
+            from mutagen.wave import WAVE
+            cls = MP3 if s == ".mp3" else WAVE
+            f = cls(str(tmp))
+            if f.tags is None:
+                f.add_tags()
+            f.tags.delall("TCON")
+            f.tags.add(_id3.TCON(encoding=3, text=genres))
+            f.save()
+        elif s in (".m4a", ".mp4"):
+            from mutagen.mp4 import MP4
+            f = MP4(str(tmp))
+            if f.tags is None:
+                f.add_tags()
+            f.tags["\xa9gen"] = genres
+            f.save()
+
+
+def read_genre(path: Path) -> list[str]:
+    """Read embedded GENRE values from ``path``; blank/whitespace count as absent."""
+    s = _suffix(path)
+    raw: list[str] = []
+    if s == ".flac":
+        from mutagen.flac import FLAC
+        f = FLAC(str(path))
+        raw = list(f.get("GENRE") or [])
+    elif s in (".mp3", ".wav"):
+        from mutagen.mp3 import MP3
+        from mutagen.wave import WAVE
+        cls = MP3 if s == ".mp3" else WAVE
+        f = cls(str(path))
+        if f.tags:
+            for frame in f.tags.getall("TCON"):
+                raw.extend(frame.text)
+    elif s in (".m4a", ".mp4"):
+        from mutagen.mp4 import MP4
+        f = MP4(str(path))
+        raw = list((f.tags or {}).get("\xa9gen") or [])
+    return [g for g in (str(x).strip() for x in raw) if g]
 
 
 def read_lyrics(path: Path) -> str | None:

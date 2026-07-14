@@ -1385,6 +1385,78 @@ def tag_advisories_for_folder(folder_id: int, ctx=None) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Genre backfill (only fills tracks that currently have no genre)
+# ---------------------------------------------------------------------------
+
+
+def fix_genres_for_folder(folder_id: int, ctx=None) -> dict:
+    """Backfill missing genres from MusicBrainz for tracks that have none.
+
+    Only tracks whose embedded genre is empty are touched — an existing genre is
+    never overwritten. Genres come from the recording's community tags, falling
+    back to the release-group's (which is far more often tagged). Tracks with no
+    MusicBrainz id, and those whose MB entries carry no usable tags, are left as
+    they are and counted separately in the summary.
+    """
+    from ..identify import musicbrainz as mbq
+    from ..tagging.partial import read_genre, write_genre
+
+    with session() as s:
+        tracks = s.exec(select(Track).where(Track.library_folder_id == folder_id)).all()
+    items = [
+        (t.mb_track_id, t.mb_release_group_id, Path(t.path))
+        for t in tracks
+        if not t.protected
+        and (t.mb_track_id or t.mb_release_group_id)
+        and Path(t.path).exists()
+    ]
+    if ctx:
+        ctx.progress(0, len(items))
+
+    filled = 0
+    had_genre = 0
+    no_data = 0
+    for i, (mb_track_id, mb_rg_id, p) in enumerate(items, start=1):
+        if ctx:
+            ctx.check_cancelled()
+            ctx.progress(i, len(items), item=p.name)
+        try:
+            if read_genre(p):
+                had_genre += 1
+                continue
+            # The network fetch happens outside the file lock (like fetch_covers):
+            # the derived genres depend only on MusicBrainz, not on file state, so
+            # there is no read-then-write pair to protect until the actual save.
+            genres: list[str] = []
+            if mb_track_id:
+                try:
+                    rec = mbq.fetch_recording(mb_track_id)
+                    genres = mbq.derive_genres(rec.get("tag-list") or [])
+                except Exception:
+                    log.exception("fix-genres: recording fetch failed for %s", p)
+            if not genres and mb_rg_id:
+                try:
+                    rg = mbq.fetch_release_group(mb_rg_id)
+                    genres = mbq.derive_genres(rg.get("tag-list") or [])
+                except Exception:
+                    log.exception("fix-genres: release-group fetch failed for %s", p)
+            if not genres:
+                no_data += 1
+                continue
+            with filelock.path_lock(p):
+                write_genre(p, genres)
+            filled += 1
+        except Exception:
+            log.exception("fix-genres: failed for %s", p)
+    if ctx:
+        ctx.log(
+            f"Genres filled for {filled}/{len(items)} track(s) "
+            f"({had_genre} already had a genre, {no_data} had no MusicBrainz genre available)"
+        )
+    return {"processed": len(items), "tagged": filled}
+
+
+# ---------------------------------------------------------------------------
 # Duplicate finder (report-only)
 # ---------------------------------------------------------------------------
 
@@ -1712,6 +1784,11 @@ LIBRARY_ACTIONS: dict[str, tuple[str, str, Any]] = {
         "Tag advisories",
         "Re-run the explicit-content classifier on embedded lyrics and update the advisory flag.",
         tag_advisories_for_folder),
+    "fix_genres": (
+        "Fix genres",
+        "Backfill missing genres from MusicBrainz community tags (recording, then release-group) "
+        "for tracks that have none. Only fills empty genres; never overwrites an existing one.",
+        fix_genres_for_folder),
     "replaygain": (
         "Recompute ReplayGain",
         "Compute ReplayGain album + track tags per album using rsgain or loudgain (skips if neither is installed).",
@@ -1774,7 +1851,7 @@ BATCH_ORGANIZE = [
     "check_album_consistency",
     "extract_covers", "prune", "find_duplicates", "find_missing_tracks",
 ]
-BATCH_RETAG = ["validate_tags", "tag_advisories", "replaygain"]
+BATCH_RETAG = ["validate_tags", "tag_advisories", "fix_genres", "replaygain"]
 
 # Nuclear option: the full identify -> tag -> move pipeline runs first (added
 # manually by the route layer, since it lives in ingest.bulk), then this list

@@ -4,6 +4,22 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Added (library cleanup with quarantine — 2026-07-14)
+- **New "Cleanup" library action** (`cleanup`, `POST /library/cleanup`) — merges
+  edition-suffix twin album folders (`Afraid` / `Afraid - Single` / `Afraid
+  (Deluxe)`) into one elected target preserving each file's `Disc N` sub-path,
+  dedupes cover art (keeps the widest `cover.jpg`), and **quarantines** dead
+  folders and leftover non-audio files into `<library>/.dragontag-trash/<utc-ts>/`
+  (or a configured `quarantine_path`). **Nothing is ever deleted and audio is
+  never quarantined.** Report-only by default (safe in the Organize/Nuclear
+  batches); the apply variant on the Library page moves files and is
+  confirm-gated. The quarantine root is auto-excluded from future scans. Tag
+  values are left untouched (`check_album_consistency`/`fix_album_splits` own
+  tag agreement). Protected tracks are never moved; every move holds `path_lock`,
+  branches on `MoveResult`, and commits `Track.path` per move. The dead-folder
+  detection was refactored into a shared `_find_dead_folders`.
+  (`library/actions.py`, `config.py`)
+
 ### Changed (edition-suffix folder folding — 2026-07-14)
 - **Ingest now folds edition suffixes onto an existing base folder.** A file
   tagged `Afraid - Single` or `Afraid (Deluxe)` reuses an existing `Afraid`

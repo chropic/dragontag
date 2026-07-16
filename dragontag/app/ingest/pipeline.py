@@ -83,7 +83,13 @@ _PROCESSABLE_STATUSES = {
 _enqueue_lock = threading.Lock()
 
 
-def enqueue(path: Path, *, dry_run: bool | None = None, requeue_reviews: bool = False) -> Job:
+def enqueue(
+    path: Path,
+    *,
+    dry_run: bool | None = None,
+    requeue_reviews: bool = False,
+    group_key: str | None = None,
+) -> Job:
     """Persist a new ``Job`` and return it. Doesn't submit to the worker —
     callers call :func:`submit` after committing so the worker can see the row.
 
@@ -101,6 +107,11 @@ def enqueue(path: Path, *, dry_run: bool | None = None, requeue_reviews: bool = 
     counted as "queued" but silently skipped by ``process()``. The watcher and
     upload paths keep the default ``False``: a re-fired filesystem event must
     not discard a review the user hasn't resolved yet.
+
+    ``group_key`` marks this job as part of an album group (see
+    ``ingest/album.py``): jobs sharing a key are identified against ONE
+    elected MusicBrainz release so their release-level tags can't drift
+    apart. ``None`` keeps the per-track path.
     """
     with _enqueue_lock, session() as s:
         existing = s.exec(
@@ -117,16 +128,21 @@ def enqueue(path: Path, *, dry_run: bool | None = None, requeue_reviews: bool = 
                     review_reason=None,
                     error=None,
                     dry_run_override=dry_run,
+                    group_key=group_key,
                 )
                 s.add(existing)
                 s.commit()
                 s.refresh(existing)
+                if group_key:
+                    from . import album as album_grouping
+                    album_grouping.invalidate(group_key)
             return existing
         job = Job(
             source_path=str(path),
             original_name=path.name,
             status=JobStatus.queued,
             dry_run_override=dry_run,
+            group_key=group_key,
         )
         s.add(job)
         s.commit()
@@ -286,6 +302,87 @@ def _process_inner(s: Session, job: Job) -> None:
     _append_log(job, f"Clues: {clues}")
     s.add(job)
     s.commit()
+
+    # ----- step 0: album-group election -----
+    # Files enqueued together from one album folder are identified as a unit:
+    # one release is elected for the whole group (ingest/album.py) and every
+    # member is assembled from that single release document, so release-level
+    # tags cannot scatter across editions. This branch comes BEFORE the MBID
+    # short-circuit on purpose — a per-file album id that disagrees with its
+    # siblings is exactly the drift that split albums, so inside a group it is
+    # demoted to a strongly-weighted election candidate.
+    if job.group_key:
+        from . import album as album_grouping
+
+        election = None
+        try:
+            election = album_grouping.get_or_elect(job.group_key)
+        except Exception:
+            log.exception("album election failed for %s", job.group_key)
+        if election is not None:
+            if job.id in election.recording_by_job:
+                job.candidates_json = {
+                    "items": [
+                        {
+                            "recording_id": election.recording_by_job[job.id],
+                            "release_id": election.release_id,
+                            "score": election.score,
+                            "title": None,
+                            "album": election.release_doc.get("title"),
+                        }
+                    ]
+                }
+                _append_log(
+                    job,
+                    f"Album group elected release {election.release_id} "
+                    f"('{election.release_doc.get('title')}') score={election.score:.3f}",
+                )
+                if election.score >= settings().score_threshold:
+                    try:
+                        tags = mbq.assemble_tags(
+                            release_id=election.release_id,
+                            recording_id=election.recording_by_job[job.id],
+                            rel=election.release_doc,
+                        )
+                    except Exception as e:
+                        _append_log(job, f"group assemble_tags failed: {e}")
+                    else:
+                        _finalize_and_commit(s, job, src, tags, score=election.score)
+                        return
+                else:
+                    # Whole group goes to review with the elected candidate
+                    # first in candidates_json, so one review click can apply
+                    # the group's consensus.
+                    _append_log(job, "Group score below threshold — review")
+                    _set(
+                        job,
+                        status=JobStatus.needs_review,
+                        review_reason=ReviewReason.low_score,
+                        score=election.score,
+                    )
+                    s.add(job)
+                    s.commit()
+                    return
+            else:
+                # The rest of the folder matched a release this file isn't on
+                # (compilation stray, edition-exclusive bonus track…). Never
+                # silently force it onto the album — surface it for review.
+                _append_log(
+                    job,
+                    f"Not on the group's elected release {election.release_id} "
+                    f"('{election.release_doc.get('title')}')",
+                )
+                _set(
+                    job,
+                    status=JobStatus.needs_review,
+                    review_reason=ReviewReason.album_mismatch,
+                )
+                s.add(job)
+                s.commit()
+                return
+        # No election possible (MB down / zero candidates) — fall through to
+        # the per-track path below.
+        _append_log(job, "Album group election unavailable — per-track fallback")
 
     # ----- step 1: short-circuit on existing MBIDs -----
     # If the file was already tagged by Picard (or by us), the MB IDs are the

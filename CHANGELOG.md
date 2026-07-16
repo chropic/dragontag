@@ -4,6 +4,28 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Added (album-first identification — 2026-07-16)
+- **Files ingested from one album folder are now identified as a unit.** Jobs
+  enqueued together share a new `Job.group_key` (the album folder's resolved
+  path; set by bulk re-tag for folders with ≥2 audio files and by the drop
+  watcher for files arriving in a dropped subfolder — loose singles stay
+  per-track). The pipeline elects ONE MusicBrainz release for the whole group
+  (new `ingest/album.py`: per-file search candidates + pre-existing album ids
+  — demoted from per-file short-circuit to weighted candidates — matched
+  against full release documents; election ladder: coverage → Official →
+  library-majority edition → larger edition → deterministic id) and assembles
+  every member from that single release document, so ALBUMID/RELEASEGROUPID/
+  ALBUMARTIST(+ID)/DATE/ORIGINALDATE/RELEASETYPE/RELEASESTATUS/MEDIA are
+  identical across the album by construction — the root fix for albums
+  splitting into multiple player listings. A group below the score threshold
+  routes every member to review with the elected candidate pre-selected; a
+  file not on the elected release routes to review with new reason
+  `album_mismatch` instead of being silently forced onto the album; if no
+  election is possible (MB down) the per-track path still runs. The election
+  is memoized per group and recomputed when new members arrive (watcher
+  settles files one at a time). (`ingest/album.py`, `ingest/pipeline.py`,
+  `ingest/bulk.py`, `ingest/watcher.py`, `models.py`, `db.py`)
+
 ### Fixed (naming safety: case-twin prevention + unicode normalization — 2026-07-16)
 - **Destination resolution is now race-proof and fail-closed.** The
   case-insensitive sibling reuse in `build_destination` and the directory

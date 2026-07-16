@@ -182,6 +182,13 @@ class Job(SQLModel, table=True):
     # Final landing path, or the would-be path when blocked on a conflict.
     destination_path: str | None = None
 
+    # Album-group key: jobs enqueued together from one album folder share the
+    # resolved path of that folder here, and the pipeline elects ONE MusicBrainz
+    # release for the whole group (see ingest/album.py) so every release-level
+    # tag is identical across the album. None = loose single, identified
+    # per-track as before.
+    group_key: str | None = Field(default=None, index=True)
+
     # FK to the Track row created/updated when this job completed.
     track_id: int | None = Field(default=None, foreign_key="track.id")
 

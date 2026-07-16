@@ -33,7 +33,7 @@ def enqueue_folder(source_path: Path, *, dry_run: bool | None = None) -> list[in
         raise ValueError(f"Not a directory: {source_path}")
 
     cfg = settings()
-    job_ids: list[int] = []
+    files: list[Path] = []
     for p in sorted(source_path.rglob("*")):
         if not p.is_file() or p.suffix.lower() not in SUPPORTED_EXTS:
             continue
@@ -41,9 +41,21 @@ def enqueue_folder(source_path: Path, *, dry_run: bool | None = None) -> list[in
             p, cfg.scan_filter_patterns, cfg.scan_exclude_dirs, cfg.scan_exclude_files
         ):
             continue
+        files.append(p)
+
+    # Album grouping: files sharing a parent directory are one album — the
+    # pipeline elects a single MusicBrainz release for the group so their
+    # release-level tags can't scatter across editions. Loose singles (only
+    # file in their directory) keep the per-track path.
+    from collections import Counter
+    per_parent = Counter(p.parent for p in files)
+
+    job_ids: list[int] = []
+    for p in files:
+        group_key = str(p.parent.resolve()) if per_parent[p.parent] >= 2 else None
         # requeue_reviews: an explicit re-tag should reprocess files whose
         # previous run got stuck in needs_review, not silently skip them.
-        job = enqueue(p, dry_run=dry_run, requeue_reviews=True)
+        job = enqueue(p, dry_run=dry_run, requeue_reviews=True, group_key=group_key)
         submit(job.id)
         job_ids.append(job.id)
         log.info("bulk: enqueued %s (job %d)", p.name, job.id)

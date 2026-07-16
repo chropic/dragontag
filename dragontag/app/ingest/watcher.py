@@ -137,7 +137,7 @@ class _Handler(FileSystemEventHandler):
                 if not p.exists():
                     continue
                 try:
-                    job = pipeline.enqueue(p)
+                    job = pipeline.enqueue(p, group_key=_group_key_for(p))
                     pipeline.submit(job.id)
                     log.info("Enqueued from watcher: %s (job %d)", p, job.id)
                 except Exception:
@@ -146,6 +146,25 @@ class _Handler(FileSystemEventHandler):
                     # strand the file in the drop folder until a restart.
                     log.exception("Failed to enqueue %s (will retry)", p)
                     self._touch(p)
+
+
+def _group_key_for(p: Path) -> str | None:
+    """Album-group key for a settled drop file.
+
+    A file inside a *subdirectory* of the drop root arrived as part of a
+    dropped album folder — every sibling that lands in the same directory
+    shares the directory's resolved path as its group key, so the pipeline
+    identifies them against one elected release (the watcher fires per file
+    over time; the election memo recomputes as members arrive). Files sitting
+    directly in the drop root are loose singles and stay per-track.
+    """
+    try:
+        parent = p.parent.resolve()
+        if parent == env().drop_path.resolve():
+            return None
+        return str(parent)
+    except OSError:
+        return None
 
 
 _observer: Observer | None = None

@@ -445,18 +445,3 @@ def test_tag_advisories_holds_path_lock(tmp_path, monkeypatch):
     assert p in locked
 
 
-def test_normalize_filenames_holds_path_lock(tmp_path, monkeypatch):
-    from dragontag.app.library import actions
-
-    folder_id, track_id, p = _make_folder_with_track(tmp_path, "Song  Name.wav")
-    locked: list[Path] = []
-    with _recording_lock(locked) as fake:
-        monkeypatch.setattr(actions.filelock, "path_lock", fake)
-        result = actions.normalize_filenames(folder_id)
-
-    assert result["renamed"] == 1
-    assert p in locked
-    target = tmp_path / "Song Name.wav"
-    assert target.exists()
-    with session() as s:
-        assert s.get(Track, track_id).path == str(target)

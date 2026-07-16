@@ -66,13 +66,25 @@ recurring. When writing new code in one of these areas, check the pattern first.
   re-tag that changes the canonical destination leaves a phantom Track row (and loses
   `protected`) at the old path until the next scan prunes it.
 - **Case-only directory rename must gate the two-step temp dance on `os.path.samefile`,
-  not on `str(a).lower() == str(b).lower()`.** `unify_artist_folders._rename_artist_dir`
-  renames `Fakemink`→`fakemink`; on a case-insensitive mount the target "exists" (same inode)
-  so a direct rename is a no-op and you must go through a temp name. But on case-sensitive
-  ext4 two genuinely distinct dirs can share a case-insensitive name — doing the temp dance
-  there renames `Fakemink`→`Fakemink.dgtmp` then fails to `tmp.rename(fakemink)` (dir not
-  empty) and strands the files. Only do the two-step when `dst.exists()` **and**
-  `os.path.samefile(src, dst)`; otherwise refuse and let the per-file move / prune merge it.
+  not on `str(a).lower() == str(b).lower()`.** (Historical: `_rename_artist_dir` was removed
+  in the 2026-07 scope cut — dragontag no longer renames directories just to change case —
+  but the pattern stands for any future rename code.) On a case-insensitive mount the target
+  "exists" (same inode) so a direct rename is a no-op and you must go through a temp name;
+  on case-sensitive ext4 two genuinely distinct dirs can share a case-insensitive name and
+  the temp dance strands files. Only do the two-step when `dst.exists()` **and**
+  `os.path.samefile(src, dst)`; otherwise refuse and merge per-file instead.
+- **Destination-directory resolution must be fail-closed and atomic (fixed class, 2026-07-16).**
+  Two bugs in `paths._reuse_folded_dir`/`build_destination` minted case-twin artist dirs
+  (`fakemink`/`Fakemink`) that became phantom files on a case-insensitive SMB view of the
+  case-sensitive library volume: (a) TOCTOU — the scandir-based case-insensitive reuse check
+  and the later `mkdir` were not atomic, and `path_lock` keys on the FILE path so same-artist
+  files in different threads never serialize; (b) fail-open — `except OSError: pass` around
+  the scan meant one transient share error ⇒ "no sibling exists" ⇒ twin created. Fixes:
+  resolve+mkdir under the module-global `_dir_resolve_lock` (`build_destination(...,
+  ensure_dirs=True)`), and an OSError scanning an EXISTING parent raises
+  `DestinationUnresolved` — pipeline routes to review (`destination_unresolved`, recording
+  the in-place write's FileChange), organizer skips. Never "pretend and create" on a scan
+  failure, and never rely on `path_lock` to serialize directory creation.
 
 ## mutagen / tag-writing traps
 
@@ -114,12 +126,15 @@ recurring. When writing new code in one of these areas, check the pattern first.
   `derive_genres`), not merely when its raw tag-list is absent, so junk-only recording tags still
   reach the release-group.
 - **Per-file identification must not pick releases in isolation.** Near-tied candidates (within
-  `_CONSENSUS_EPSILON`) of one release group scattered an album's tracks over 4 editions
-  (different `MUSICBRAINZ_ALBUMID`/`TALB`/totals ⇒ split albums). `pipeline._select_candidate`
-  applies the consensus preference; `library/actions.fix_album_splits` repairs existing
-  libraries. Note the MBID short-circuit in `_process_inner` trusts a file's existing (possibly
-  drifted) album id — bulk re-tags alone never heal a split, which is why the nuclear chain runs
-  `fix_album_splits` afterwards.
+  `_CONSENSUS_EPSILON`) of one release group scattered an album's tracks over several editions
+  (different `MUSICBRAINZ_ALBUMID`/DATE/RELEASESTATUS/MEDIA ⇒ split albums — ~18% of a real
+  4,000-file library). The real fix (2026-07-16) is **album-first identification**: jobs from
+  one album folder share `Job.group_key` and `ingest/album.py` elects ONE release for the
+  whole group; the per-file MBID short-circuit is demoted to a weighted candidate inside a
+  group, because trusting a file's existing (possibly drifted) album id is exactly what locked
+  splits in. `_select_candidate`'s consensus preference remains the per-track safety net for
+  loose singles. A member not on the elected release goes to review (`album_mismatch`), never
+  silently forced onto the album.
 
 ## Threading / background tasks
 

@@ -17,6 +17,8 @@ def test_describe_invalid_returns_none():
     assert scheduler.describe_cron("") is None
 
 
-def test_batch_task_types_registered():
-    assert "batch_organize" in scheduler.TASK_TYPES
-    assert "batch_retag" in scheduler.TASK_TYPES
+def test_task_types_registered():
+    assert "retag" in scheduler.TASK_TYPES
+    # The batch compositions were retired on purpose.
+    assert "batch_organize" not in scheduler.TASK_TYPES
+    assert "batch_retag" not in scheduler.TASK_TYPES

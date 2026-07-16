@@ -77,11 +77,12 @@ behavior is observable (both sweeps followed one-test-file-per-bug-or-theme nami
 - **Identify**: `test_scoring.py`, `test_scoring_unicode.py`, `test_musicbrainz.py`,
   `test_musicbrainz_credits.py`, `test_existing_tags*.py`, `test_filename_parse_titles.py`,
   `test_artist_split*.py`, `test_genre_*.py`, `test_infer_release_type.py`,
-  `test_acoustid_timeout.py`, `test_album_consistency*.py`, `test_incomplete_album.py`,
+  `test_acoustid_timeout.py`, `test_incomplete_album.py`,
   `test_release_consensus.py` (near-tie release preference; seeds real Track rows for the
-  library-majority check), `test_fix_album_splits.py` (wav fixtures + monkeypatched
-  `mbq.fetch_release`/`assemble_tags`/`coverart.fetch_for_release` — the pattern for testing
-  any MB-backed library action offline)
+  library-majority check), `test_album_election.py` (album-first group election: wav fixtures
+  + monkeypatched `mbq.search_candidates`/`fetch_release`/`assemble_tags` — the pattern for
+  testing any MB-backed identification offline; NB the tests-shared library dir means
+  canonical filenames must be uniquified per test)
 - **Ingest**: `test_watcher_settle.py`, `test_pipeline_dry_run_shortcircuit.py`,
   `test_pipeline_guard.py`, `test_routes_upload_retag.py`
 - **Library ops**: `test_mover*.py`, `test_organize_cleanup.py`, `test_scan_filters.py`,

@@ -39,6 +39,10 @@ Jinja2 + HTMX/Alpine UI, SQLite + threads (deliberately no Postgres/celery/multi
    (`library/organizer.py`), every file-touching function in `library/actions.py`
    (including `cleanup_library`'s twin-merge/quarantine moves), and
    `library/retag.apply_match` (shared in-place re-tag). If you add another, lock it.
+   Canonical destination directories are created ONLY via
+   `paths.build_destination(..., ensure_dirs=True)` (resolve+mkdir under one global lock,
+   fail-closed via `DestinationUnresolved`) — never mkdir a library destination yourself, and
+   never swallow a directory-scan error into "create it anyway" (that minted case-twin dirs).
 3. **`library/mover.move(..., overwrite=False)` does NOT raise on conflict** — it returns
    `MoveResult(moved=False, conflict=True)`. Always check `.moved` / `.conflict`; ignoring the
    result has twice produced "reported success, file actually elsewhere" bugs.

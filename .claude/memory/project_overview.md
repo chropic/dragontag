@@ -33,7 +33,7 @@ album-artist, featured guests stripped from folder names).
 - `/queue` Jobs + Review in one page (old `/review` and `/jobs` 308-redirect here); per-job
   detail at `/jobs/{id}`
 - `/library` browse (tabs per LibraryFolder, sortable/paginated track table), individual +
-  batch actions, `/library/incomplete` (persisted missing-track results)
+  helper/report actions, `/library/incomplete` (persisted missing-track results)
 - `/changes` tag-change history — revert tags in place, or move a file back to its original dir
 - `/schedule` cron scheduling of tasks (croniter; expressions read in the display timezone)
 - `/settings` everything user-editable, backup/restore, log verbosity 0–4

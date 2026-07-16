@@ -50,10 +50,10 @@ High-confidence matches flow through hands-free. Low-confidence files land in a 
 |---|---|
 | **Organize** | Moves all tracks to their canonical paths based on current filename templates; picks up manual edits after a scan |
 | **Library scan** | Indexes existing on-disk files into the DB — useful after editing tags outside dragontag |
-| **Batch operations** | One-click chained runs: **Organize batch** (organize + fix disc folders + normalize + covers + prune + cleanup + dedupe + find missing), **Re-tag batch** (re-identify + validate + advisories + fix genres + ReplayGain + full pipeline), and the **Nuclear option** (both, with an album-split repair pass right after the re-tag pipeline) |
-| **Library actions** | 17 individual actions (fetch lyrics/covers, extract covers, ReplayGain, verify integrity, validate tags, fix disc folders, normalize filenames, find duplicates, prune junk, cleanup, find missing tracks, tag advisories, fix genres, re-identify untagged, fix album splits, fix album/folder consistency) — run one or multi-select to chain |
-| **Cleanup & quarantine** | The **Cleanup** action merges edition-suffix twin album folders (`Afraid` / `Afraid - Single` / `Afraid (Deluxe)`), keeps the widest cover, and moves dead folders + leftover non-audio into a quarantine folder (`<library>/.dragontag-trash`). Report-only by default; the apply variant never deletes and never touches audio. Ingest also folds edition suffixes onto an existing base folder to prevent new twins |
-| **Album-split repair** | "Fix album splits" re-unifies albums whose tracks were matched to different MusicBrainz editions (multiple album IDs / titles / track totals / covers shown as several albums by players): elects the edition covering the most of your tracks and fully re-tags every track against it, preserving lyrics and existing art, then merges the files into one folder |
+| **One tagging pass** | **Retag** runs every file through the same identify → tag → move pipeline as the drop folder. Album folders are identified **as a unit**: one MusicBrainz release is elected per folder and every track is tagged from it, so release-level tags (album ID, release group, album artist, date, media, type/status) can never scatter across editions and split the album in players. Uncertain groups and files not on the elected release land in review |
+| **Helpers & reports** | Individual per-folder actions: fetch lyrics/covers, extract covers, tag advisories, fix genres, ReplayGain (in-place, single-field, never move files), plus read-only reports (verify integrity, validate tags, find duplicates, find missing tracks), prune junk, and cleanup |
+| **Cleanup & quarantine** | The **Cleanup** action merges case-twin artist folders (`fakemink`/`Fakemink` — strict case/punctuation equality, never fuzzy) and edition-suffix twin album folders (`Afraid` / `Afraid - Single` / `Afraid (Deluxe)`), and moves dead folders + leftover non-audio into a quarantine folder (`<library>/.dragontag-trash`). Cover art is conservative: only byte-identical duplicates are quarantined — distinct images always stay with their album. Report-only by default; the apply variant never deletes and never touches audio. Ingest also reuses existing case-variant/edition folders (race-proof, fail-closed on I/O errors) to prevent new twins |
+| **Damaged-library recovery** | `Scan → Retag → Cleanup (apply)`: the retag pass unifies split albums and produces clean names; cleanup merges leftover twin folders |
 | **Incomplete albums** | Persisted results of "find missing tracks": albums with fewer local tracks than the MB total, with missing titles, MB links, and per-row dismiss |
 | **Library table** | Column sorting and pagination (10 / 25 / 50 / 100 / 200); explicit advisory badge on each row |
 
@@ -71,7 +71,7 @@ High-confidence matches flow through hands-free. Low-confidence files land in a 
 
 | Feature | Description |
 |---|---|
-| **Scheduling** | Standard cron expressions for scans, organizes, batches, lyrics/cover fetches, and backups — with run-now, next-run display, and live plain-English descriptions. Expressions are read in your display timezone (`TZ` / in-app setting), so "At 06:00 AM" fires at 6 AM your time |
+| **Scheduling** | Standard cron expressions for scans, organizes, folder re-tags, lyrics/cover fetches, cleanup, and backups — with run-now, next-run display, and live plain-English descriptions. Expressions are read in your display timezone (`TZ` / in-app setting), so "At 06:00 AM" fires at 6 AM your time |
 | **Webhooks** | Discord-compatible webhook on job completion or error |
 | **Universal progress bar** | Live progress line under the nav on every page: percentage, item counts, and current file |
 

@@ -4,6 +4,106 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Changed (docs + agent memory for the new shape — 2026-07-16)
+- **Docs describe the one-pass tagger.** README feature tables, the in-app manual
+  (`docs.html`: Library section rewritten around Retag/Organize/helpers, new
+  `destination_unresolved`/`album_mismatch`/`missing_releasetype` review-reason
+  entries, schedule kinds updated) and stale batch references in templates. The
+  damaged-library recovery recipe is documented as `Scan → Retag → Cleanup
+  (apply)`. Agent memory (`.claude/memory/architecture.md`, `gotchas.md`,
+  `testing.md`, `project_overview.md`) and `CLAUDE.md` hard rules updated:
+  destination dirs are created only via `build_destination(ensure_dirs=True)`.
+  (`README.md`, `web/templates/docs.html`, `web/templates/_track_edit_modal.html`,
+  `web/templates/library_incomplete.html`, `CLAUDE.md`, `.claude/memory/*`)
+
+### Fixed (cleanup: artist case-twins merged, covers never lost — 2026-07-16)
+- **Cleanup now repairs artist-level case twins.** A new pass 0 groups
+  top-level artist directories by strict `fold_text` equality (case, curly
+  quotes, dash flavour — never fuzzy, so `jonatan leandoer96` and
+  `Jonatan Leandoer127` stay separate) and merges `fakemink`/`Fakemink`-style
+  twin trees into one elected target (most audio → majority `album_artist`
+  spelling → deterministic), using the existing twin-merge machinery
+  (relative sub-paths preserved, Track rows repointed per move, protected
+  tracks skipped). Previously these twins — the source of the phantom-file
+  breakage on case-insensitive share views — were unfixable by Cleanup.
+  (`library/actions.py`)
+- **Cleanup no longer quarantines visually distinct cover art.** Both the
+  cover-dedupe pass and the twin-merge cover election now hash images and
+  quarantine **only byte-identical duplicates** of the elected `cover.jpg`;
+  a distinct losing image stays in (or moves into) the album folder under a
+  unique name (`cover.old.jpg`, `img-1.png`, …). The old widest-wins
+  quarantine emptied a real library's covers into `.dragontag-trash`.
+  (`library/actions.py`)
+
+### Removed (scope cut: one tagging pass — 2026-07-16)
+- **The batch compositions and structural repair actions are gone.** Removed
+  `BATCH_ORGANIZE` / `BATCH_RETAG` / `BATCH_NUCLEAR`, `build_chain_steps`, and
+  the actions `fix_album_splits`, `check_album_consistency`,
+  `unify_artist_folders`, `fix_disc_folders`, `normalize_filenames`,
+  `reidentify_tracks` (plus their private helpers), along with their routes
+  (`/library/batch/*`, `/library/run-selected`, `/library/fix-album-splits`,
+  `/library/unify-artist-folders`, `/library/fix-disc-folders`,
+  `/library/normalize-filenames`, `/library/reidentify`) and the Library page
+  batch cards / multi-select chain UI. These were unattended file-movers with
+  no dry-run — the class of tooling that nuked a real library. The ONE tagging
+  pass is now the ingest pipeline: `/library/bulk-retag` (which also accepts a
+  `folder_id`, powering the new Retag card) runs identify → tag → move with
+  album-first identification and the review queue; `fix_album_splits`' release
+  election lives on inside it (`ingest/album.py`). `LIBRARY_ACTIONS` shrinks
+  to single-field backfills (covers/lyrics/advisories/genres/ReplayGain),
+  read-only reports (validate/duplicates/missing/integrity), prune and
+  cleanup. (`library/actions.py`, `main.py`, `web/templates/library.html`)
+- **Scheduler kinds shrunk.** `TASK_TYPES` is now scan / organize / retag /
+  fetch_lyrics / fetch_covers / cleanup / backup. The `batch_organize` and
+  `batch_retag` kinds are retired: existing schedule rows are disabled (never
+  deleted) at boot with an explanatory status; `bulk_retag` is accepted as a
+  legacy alias for `retag` at dispatch. (`scheduler.py`, `main.py`,
+  `web/templates/schedule.html`)
+
+### Added (album-first identification — 2026-07-16)
+- **Files ingested from one album folder are now identified as a unit.** Jobs
+  enqueued together share a new `Job.group_key` (the album folder's resolved
+  path; set by bulk re-tag for folders with ≥2 audio files and by the drop
+  watcher for files arriving in a dropped subfolder — loose singles stay
+  per-track). The pipeline elects ONE MusicBrainz release for the whole group
+  (new `ingest/album.py`: per-file search candidates + pre-existing album ids
+  — demoted from per-file short-circuit to weighted candidates — matched
+  against full release documents; election ladder: coverage → Official →
+  library-majority edition → larger edition → deterministic id) and assembles
+  every member from that single release document, so ALBUMID/RELEASEGROUPID/
+  ALBUMARTIST(+ID)/DATE/ORIGINALDATE/RELEASETYPE/RELEASESTATUS/MEDIA are
+  identical across the album by construction — the root fix for albums
+  splitting into multiple player listings. A group below the score threshold
+  routes every member to review with the elected candidate pre-selected; a
+  file not on the elected release routes to review with new reason
+  `album_mismatch` instead of being silently forced onto the album; if no
+  election is possible (MB down) the per-track path still runs. The election
+  is memoized per group and recomputed when new members arrive (watcher
+  settles files one at a time). (`ingest/album.py`, `ingest/pipeline.py`,
+  `ingest/bulk.py`, `ingest/watcher.py`, `models.py`, `db.py`)
+
+### Fixed (naming safety: case-twin prevention + unicode normalization — 2026-07-16)
+- **Destination resolution is now race-proof and fail-closed.** The
+  case-insensitive sibling reuse in `build_destination` and the directory
+  creation that follows now run inside one global critical section
+  (`ensure_dirs=True`), so two concurrent ingests of differently-cased artist
+  spellings can no longer mint case-variant twin directories
+  (`fakemink`/`Fakemink` — the failure that produced phantom files on
+  case-insensitive views of a case-sensitive network share). An I/O error
+  while scanning an existing library directory now raises
+  `DestinationUnresolved` instead of silently pretending no sibling exists:
+  the ingest pipeline routes the job to review (new reason
+  `destination_unresolved`, with the in-place tag write recorded as a
+  revertable `FileChange`) and the organizer skips the file. (`library/paths.py`,
+  `library/mover.py`, `ingest/pipeline.py`, `library/organizer.py`, `models.py`)
+- **Generated folder/file names are unicode-normalized.** `sanitize_segment`
+  now applies NFC, strips zero-width/soft-hyphen characters, maps exotic
+  dashes (U+2010/‑/–/—/−) and curly quotes to their ASCII equivalents, and
+  defuses Windows reserved device names (`CON`, `COM1`…). Diacritics and
+  non-Latin scripts are untouched — no ASCII folding. Stops MusicBrainz
+  credit strings from materializing U+2010 hyphens in folder names
+  (`Tay‐K`, Spider‐Man soundtracks). (`library/paths.py`)
+
 ### Fixed (cleanup/reidentify review — 2026-07-14)
 - **Re-identify no longer burns a MusicBrainz text search per unmatched track.**
   The batch applies fingerprint-confirmed matches only, so `candidates_for_file`

@@ -81,12 +81,16 @@ def test_cleanup_dispatch_runs_chain_with_apply(monkeypatch, tmp_path):
         s.delete(s.get(LibraryFolder, fid)); s.commit()
 
 
-def test_registry_and_batches_sanity():
-    from dragontag.app.library.actions import (
-        LIBRARY_ACTIONS, BATCH_ORGANIZE, BATCH_NUCLEAR, BATCH_RETAG,
-    )
-    assert "cleanup" in LIBRARY_ACTIONS and "reidentify" in LIBRARY_ACTIONS
-    assert BATCH_RETAG[0] == "reidentify"
-    assert "cleanup" in BATCH_ORGANIZE and "cleanup" in BATCH_NUCLEAR
-    # The registry's default cleanup fn is the safe report mode.
+def test_registry_sanity():
+    """The registry stays small on purpose: helpers, reports, prune, cleanup.
+    The batch compositions and structural repair actions were removed — the
+    single retag pass through the pipeline replaced them."""
+    from dragontag.app.library.actions import LIBRARY_ACTIONS
+    assert "cleanup" in LIBRARY_ACTIONS
+    for gone in ("reidentify", "fix_album_splits", "unify_artist_folders",
+                 "check_album_consistency", "fix_disc_folders", "normalize_filenames"):
+        assert gone not in LIBRARY_ACTIONS
     assert "cleanup" in scheduler.TASK_TYPES
+    assert "retag" in scheduler.TASK_TYPES
+    for gone in ("batch_organize", "batch_retag", "bulk_retag"):
+        assert gone not in scheduler.TASK_TYPES

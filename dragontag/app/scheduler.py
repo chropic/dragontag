@@ -34,14 +34,18 @@ _POLL_SECONDS = 30.0
 TASK_TYPES = {
     "scan": "Scan library folder",
     "organize": "Organize library folder",
-    "batch_organize": "Organize batch (organize + cleanup actions)",
-    "bulk_retag": "Full re-tag of a folder",
-    "batch_retag": "Re-tag batch (QA + advisories + ReplayGain + pipeline)",
+    "retag": "Re-tag a folder (full identify → tag → move pass)",
     "fetch_lyrics": "Fetch lyrics for folder",
     "fetch_covers": "Fetch cover art for folder",
     "cleanup": "Library cleanup (report or quarantine)",
     "backup": "Create config backup",
 }
+
+# Removed task kinds (the old batch compositions). Rows with these types are
+# disabled at boot instead of deleted, so the user's schedule history survives
+# and nothing compound ever runs unattended again. "bulk_retag" is accepted as
+# a legacy alias for "retag" at dispatch time.
+_RETIRED_TASK_TYPES = {"batch_organize", "batch_retag"}
 
 
 def is_valid_cron(expr: str) -> bool:
@@ -124,21 +128,6 @@ def run_task_by_type(task: ScheduledTask) -> int | None:
         fid = f.id
         return tasks.run_task("organize", name, lambda ctx: organize_folder(fid, ctx=ctx))
 
-    if kind == "batch_organize":
-        f = _folder(int(params.get("folder_id", 0)))
-        if not f:
-            raise ValueError("library folder not found")
-        from .library.actions import BATCH_ORGANIZE, build_chain_steps
-        from .library.organizer import organize_folder
-        fid = f.id
-        # Scan first, mirroring the route layer's unconditional prepend — the
-        # organizer moves files based on the Track table, so a scheduled run
-        # against stale rows would misfile anything edited since the last scan.
-        steps = _scan_step(f)
-        steps += [("Organize files", lambda ctx: organize_folder(fid, ctx=ctx))]
-        steps += build_chain_steps(BATCH_ORGANIZE, fid)
-        return tasks.run_chain("batch_organize", name, steps)
-
     if kind == "cleanup":
         f = _folder(int(params.get("folder_id", 0)))
         if not f:
@@ -153,25 +142,7 @@ def run_task_by_type(task: ScheduledTask) -> int | None:
         ]
         return tasks.run_chain("cleanup", name, steps)
 
-    if kind == "batch_retag":
-        f = _folder(int(params.get("folder_id", 0)))
-        if not f:
-            raise ValueError("library folder not found")
-        from .ingest.bulk import enqueue_folder
-        from .library.actions import BATCH_RETAG, build_chain_steps
-        fid, fpath = f.id, Path(f.path)
-        dry = params.get("dry_run")
-
-        def _enqueue(ctx):
-            ids = enqueue_folder(fpath, dry_run=bool(dry))
-            ctx.log(f"Enqueued {len(ids)} file(s) for identify → tag → move")
-            return {"enqueued": len(ids)}
-
-        # Scan first for the same stale-Track-data reason as batch_organize.
-        steps = _scan_step(f) + build_chain_steps(BATCH_RETAG, fid) + [("Re-tag pipeline", _enqueue)]
-        return tasks.run_chain("batch_retag", name, steps)
-
-    if kind == "bulk_retag":
+    if kind in ("retag", "bulk_retag"):  # bulk_retag: legacy alias
         src = str(params.get("source_path") or "").strip()
         if not src:
             raise ValueError("source_path required")
@@ -183,7 +154,7 @@ def run_task_by_type(task: ScheduledTask) -> int | None:
             ctx.log(f"Enqueued {len(ids)} file(s) from {src}")
             return f"{len(ids)} jobs enqueued"
 
-        return tasks.run_task("bulk_retag", name, _run)
+        return tasks.run_task("retag", name, _run)
 
     if kind == "fetch_lyrics":
         fid = int(params.get("folder_id", 0))
@@ -263,10 +234,37 @@ def _loop() -> None:
 _started = False
 
 
+def _disable_retired_tasks() -> None:
+    """Disable (never delete) schedule rows whose task type no longer exists.
+
+    The batch compositions were removed on purpose — a cron row must not keep
+    firing them. Rows survive so the user can see what was disabled and why.
+    """
+    with session() as s:
+        rows = s.exec(
+            select(ScheduledTask).where(ScheduledTask.task_type.in_(_RETIRED_TASK_TYPES))
+        ).all()
+        for row in rows:
+            if row.enabled:
+                row.enabled = False
+                row.next_run_at = None
+                row.last_status = "disabled: task type removed (batches retired)"
+                s.add(row)
+                log.warning(
+                    "schedule '%s' disabled: task type %r was removed",
+                    row.name, row.task_type,
+                )
+        s.commit()
+
+
 def start() -> None:
     """Idempotently start the scheduler thread (called from app startup)."""
     global _started
     if _started:
         return
+    try:
+        _disable_retired_tasks()
+    except Exception:
+        log.exception("failed to disable retired scheduled tasks")
     threading.Thread(target=_loop, name="dragontag-scheduler", daemon=True).start()
     _started = True

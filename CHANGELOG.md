@@ -4,6 +4,25 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Fixed (cleanup: artist case-twins merged, covers never lost — 2026-07-16)
+- **Cleanup now repairs artist-level case twins.** A new pass 0 groups
+  top-level artist directories by strict `fold_text` equality (case, curly
+  quotes, dash flavour — never fuzzy, so `jonatan leandoer96` and
+  `Jonatan Leandoer127` stay separate) and merges `fakemink`/`Fakemink`-style
+  twin trees into one elected target (most audio → majority `album_artist`
+  spelling → deterministic), using the existing twin-merge machinery
+  (relative sub-paths preserved, Track rows repointed per move, protected
+  tracks skipped). Previously these twins — the source of the phantom-file
+  breakage on case-insensitive share views — were unfixable by Cleanup.
+  (`library/actions.py`)
+- **Cleanup no longer quarantines visually distinct cover art.** Both the
+  cover-dedupe pass and the twin-merge cover election now hash images and
+  quarantine **only byte-identical duplicates** of the elected `cover.jpg`;
+  a distinct losing image stays in (or moves into) the album folder under a
+  unique name (`cover.old.jpg`, `img-1.png`, …). The old widest-wins
+  quarantine emptied a real library's covers into `.dragontag-trash`.
+  (`library/actions.py`)
+
 ### Removed (scope cut: one tagging pass — 2026-07-16)
 - **The batch compositions and structural repair actions are gone.** Removed
   `BATCH_ORGANIZE` / `BATCH_RETAG` / `BATCH_NUCLEAR`, `build_chain_steps`, and

@@ -857,6 +857,22 @@ def _quarantine_file(
     return True
 
 
+def _file_digest(p: Path) -> str | None:
+    """SHA-256 of a file's bytes, or None when unreadable. Used to tell a
+    byte-identical duplicate cover (safe to quarantine) from a genuinely
+    different image (must never leave the album folder)."""
+    import hashlib
+
+    try:
+        h = hashlib.sha256()
+        with p.open("rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except OSError:
+        return None
+
+
 def _find_cover(d: Path) -> Path | None:
     """The canonical ``cover.jpg`` in ``d`` (case-insensitive), if present."""
     try:
@@ -884,8 +900,11 @@ def _dedupe_covers_in_dir(
     d: Path, lib_root: Path, qroot: Path, run_ts: str, apply: bool, ctx=None
 ) -> int:
     """Keep one canonical ``cover.jpg`` in ``d`` (prefer an existing one, else
-    promote the widest candidate) and quarantine the rest. Returns the number of
-    duplicate images removed (quarantined). No-op when 0/1 candidates exist."""
+    promote the widest candidate). **Only byte-identical duplicates of the
+    canonical cover are quarantined** — a visually distinct image is never
+    moved out of its album folder (an earlier, more aggressive version of this
+    pass is how a real library lost its covers to the trash). Returns the
+    number of identical duplicates removed. No-op when 0/1 candidates exist."""
     imgs = _cover_images(d)
     if len(imgs) < 2:
         return 0
@@ -893,7 +912,7 @@ def _dedupe_covers_in_dir(
     promoted_src: Path | None = None
     if canonical is None:
         # Promote the widest candidate to cover.jpg. Track its original path so
-        # the quarantine loop skips it by identity (it may have just moved).
+        # the dedupe loop skips it by identity (it may have just moved).
         promoted_src = max(imgs, key=lambda p: (_image_width(p) or 0, p.name))
         canonical = promoted_src
         target = d / "cover.jpg"
@@ -908,26 +927,39 @@ def _dedupe_covers_in_dir(
         elif not apply:
             ctx and ctx.log(f"would promote {promoted_src.name} -> cover.jpg in {d}")
     removed = 0
+    canonical_digest = _file_digest(canonical)
     for img in imgs:
         if img == promoted_src or img.resolve() == canonical.resolve():
             continue
-        if apply:
-            if _quarantine_file(img, lib_root, qroot, run_ts, ctx):
+        if canonical_digest is not None and _file_digest(img) == canonical_digest:
+            if apply:
+                if _quarantine_file(img, lib_root, qroot, run_ts, ctx):
+                    removed += 1
+            else:
+                ctx and ctx.log(f"would quarantine byte-identical duplicate cover {img}")
                 removed += 1
         else:
-            ctx and ctx.log(f"would quarantine duplicate cover {img}")
-            removed += 1
+            ctx and ctx.log(f"cleanup: keeping distinct image {img} (not a duplicate)")
     return removed
 
 
 def _merge_twin_folder(
     s, loser: Path, target: Path, lib_root: Path, qroot: Path, run_ts: str,
     pathmap: dict, apply: bool, source_dirs: set[Path], ctx=None,
+    *, album_level: bool = True,
 ) -> dict:
     """Move every file out of ``loser`` into ``target``: audio preserves its
-    relative sub-path, the loser's cover art is elected against the target's
-    (the wider ``cover.jpg`` wins), and everything else is quarantined. Track
-    rows are repointed and committed per move. Returns per-loser counters."""
+    relative sub-path, cover art is handled conservatively (see below), and
+    everything else is quarantined. Track rows are repointed and committed per
+    move. Returns per-loser counters.
+
+    Cover handling depends on the merge level. ``album_level=True`` (album
+    twins): the loser's images are elected against the target's ``cover.jpg``
+    (widest wins, distinct losers stay in the album folder under unique
+    names, only byte-identical duplicates are quarantined).
+    ``album_level=False`` (artist twins): loser and target are whole artist
+    trees, so each image simply follows its relative sub-path into the target
+    — the same identical-duplicate/unique-name rules apply on collision."""
     from ..ingest.pipeline import SUPPORTED_EXTS
 
     counts = {"audio_moved": 0, "quarantined": 0, "skipped_protected": 0,
@@ -970,8 +1002,31 @@ def _merge_twin_folder(
                 source_dirs.add(src.parent)
                 s.commit()
                 counts["audio_moved"] += 1
-            elif _COVER_RE.match(fn):
+            elif _COVER_RE.match(fn) and album_level:
                 loser_images.append(src)  # elected after the walk
+            elif _COVER_RE.match(fn):
+                # Artist-level merge: the image belongs to an album subfolder —
+                # follow the relative sub-path into the target artist tree.
+                dest = target / src.relative_to(loser)
+                if not apply:
+                    ctx and ctx.log(f"would relocate cover {src} -> {dest}")
+                    if dest.exists() and _file_digest(src) == _file_digest(dest):
+                        counts["covers_deduped"] += 1
+                    continue
+                try:
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    if dest.exists():
+                        if _file_digest(src) == _file_digest(dest):
+                            if _quarantine_file(src, lib_root, qroot, run_ts, ctx):
+                                counts["covers_deduped"] += 1
+                            continue
+                        dest = unique_path(dest)
+                    with filelock.path_lock(src):
+                        res = _safe_move(src, dest, overwrite=False)
+                    if not res.moved:
+                        ctx and ctx.log(f"cleanup: could not relocate cover {src}")
+                except OSError:
+                    log.exception("cleanup: cover relocate failed for %s", src)
             else:
                 if apply:
                     if _quarantine_file(src, lib_root, qroot, run_ts, ctx):
@@ -980,8 +1035,12 @@ def _merge_twin_folder(
                     ctx and ctx.log(f"would quarantine {src}")
                     counts["quarantined"] += 1
 
-    # Cover election: keep the widest cover.jpg between the loser and the target;
-    # quarantine every other loser image (a duplicate or a losing candidate).
+    # Cover election: keep the widest cover.jpg between the loser and the
+    # target. **Nothing visually distinct ever goes to the trash**: only a
+    # byte-identical duplicate of the elected cover is quarantined; every
+    # other loser image is moved INTO the target album folder under a unique
+    # name so the user never loses art (the old quarantine-the-loser behavior
+    # emptied a real library's covers into .dragontag-trash).
     if loser_images:
         best = max(loser_images, key=lambda p: (_image_width(p) or 0, p.name))
         target_cover = _find_cover(target)
@@ -991,45 +1050,135 @@ def _merge_twin_folder(
         if not apply:
             ctx and ctx.log(
                 f"would elect cover for {target.name} "
-                f"({'loser' if promote else 'target'} wins)"
+                f"({'loser' if promote else 'target'} wins); distinct loser "
+                f"images move into {target.name}, identical duplicates to trash"
             )
             # report count comes from the per-image loop below (avoid double count)
         elif promote:
-            # Quarantine the target's narrower cover (if any), then move ours in.
-            if target_cover is not None and _quarantine_file(
-                target_cover, lib_root, qroot, run_ts, ctx
-            ):
-                counts["covers_deduped"] += 1
+            if target_cover is not None:
+                # The displaced target cover stays in its folder under a
+                # unique name unless it's byte-identical to the winner.
+                if _file_digest(target_cover) == _file_digest(best):
+                    if _quarantine_file(target_cover, lib_root, qroot, run_ts, ctx):
+                        counts["covers_deduped"] += 1
+                else:
+                    try:
+                        with filelock.path_lock(target_cover):
+                            _safe_move(
+                                target_cover,
+                                unique_path(target / f"cover.old{target_cover.suffix}"),
+                                overwrite=False,
+                            )
+                    except OSError:
+                        log.exception("cleanup: cover shuffle failed for %s", target_cover)
             try:
                 with filelock.path_lock(best):
                     _safe_move(best, target / "cover.jpg", overwrite=False)
             except OSError:
                 log.exception("cleanup: cover promote failed for %s", best)
-        # Quarantine the remaining loser images (all but a promoted `best`).
-        # Cover counting happens here only in apply mode; in report mode the
-        # loser's images haven't moved, so the per-folder cover dedupe pass
-        # (_dedupe_covers_in_dir) reports them instead — counting here too would
-        # double-count.
+        # Remaining loser images: identical duplicates of the elected cover
+        # are quarantined; distinct images move into the target folder.
+        elected = _find_cover(target)
+        elected_digest = _file_digest(elected) if elected else None
         for img in loser_images:
             if promote and img == best:
                 continue
-            if apply and _quarantine_file(img, lib_root, qroot, run_ts, ctx):
-                counts["covers_deduped"] += 1
-            elif not apply:
-                ctx and ctx.log(f"would relocate/quarantine cover {img}")
+            if not apply:
+                ctx and ctx.log(f"would keep/relocate cover {img} into {target.name}")
+                continue
+            if elected_digest is not None and _file_digest(img) == elected_digest:
+                if _quarantine_file(img, lib_root, qroot, run_ts, ctx):
+                    counts["covers_deduped"] += 1
+                continue
+            try:
+                with filelock.path_lock(img):
+                    res = _safe_move(img, unique_path(target / img.name), overwrite=False)
+                if not res.moved:
+                    ctx and ctx.log(f"cleanup: could not relocate cover {img}")
+            except OSError:
+                log.exception("cleanup: cover relocate failed for %s", img)
     return counts
 
 
-def cleanup_library(folder_id: int, ctx=None, *, apply: bool = False) -> dict:
-    """Merge edition-suffix twin album folders, dedupe cover art and quarantine
-    dead folders/leftovers. **Report-only by default**; ``apply=True`` moves
-    files and quarantines leftovers into ``<library>/.dragontag-trash`` (or the
-    configured ``quarantine_path``) but never deletes anything.
+def _merge_artist_twins(
+    s, lib_root: Path, qroot: Path, run_ts: str, pathmap: dict,
+    apply: bool, source_dirs: set[Path], result: dict, ctx=None,
+) -> None:
+    """Pass 0: merge top-level artist directories that fold equal
+    (``fakemink`` / ``Fakemink`` — case, curly-quote and dash variants only).
 
-    Twin folders (``Afraid`` / ``Afraid - Single`` / ``Afraid (Deluxe)``) are
-    merged into one elected target, preserving each file's ``Disc N`` sub-path;
-    tag values are left untouched (``check_album_consistency`` /
-    ``fix_album_splits`` own tag agreement). Protected tracks are never moved.
+    This is the repair for the case-twin trees that produced phantom files on
+    case-insensitive views of the library share. Grouping is **strict
+    ``fold_text`` equality — never edition folding, never fuzzy matching**: a
+    false artist merge would be catastrophic, so ``jonatan leandoer96`` and
+    ``Jonatan Leandoer127`` (different digits) correctly stay separate.
+
+    Target election: most audio, then the artist spelling the indexed tracks'
+    ``album_artist`` tags use most, then lexicographic for determinism. Losers
+    are merged with the same machinery as album twins
+    (:func:`_merge_twin_folder` — preserves relative sub-paths so whole album
+    directories nest correctly, repoints Track rows, skips protected tracks).
+    """
+    groups: dict[str, list[Path]] = {}
+    for d in sorted(p for p in lib_root.iterdir() if p.is_dir()):
+        if _is_under(d, qroot) or d.name.startswith(_QUARANTINE_DIRNAME):
+            continue
+        key = fold_text(d.name)
+        if key:
+            groups.setdefault(key, []).append(d)
+
+    for _key, group in groups.items():
+        if len(group) < 2:
+            continue
+        if ctx:
+            ctx.check_cancelled()
+        result["artist_twin_groups"] += 1
+
+        # Majority album_artist spelling among tracks indexed under the group.
+        spellings: Counter[str] = Counter()
+        for t in pathmap.values():
+            if not t.album_artist:
+                continue
+            p = Path(t.path)
+            if any(_is_under(p, d) for d in group):
+                spellings[t.album_artist] += 1
+
+        target = sorted(
+            group,
+            key=lambda d: (-_count_audio(d), -spellings.get(d.name, 0), d.name),
+        )[0]
+        losers = [d for d in group if d != target]
+        if ctx:
+            ctx.log(
+                f"artist twin group -> keep {target.name!r}: "
+                f"{[d.name for d in losers]}"
+                + ("" if apply else " (report only)")
+            )
+        for loser in losers:
+            c = _merge_twin_folder(
+                s, loser, target, lib_root, qroot, run_ts, pathmap,
+                apply, source_dirs, ctx, album_level=False,
+            )
+            for k in ("audio_moved", "quarantined", "skipped_protected",
+                      "conflicts", "covers_deduped"):
+                result[k] += c[k]
+            if apply:
+                source_dirs.add(loser)
+
+
+def cleanup_library(folder_id: int, ctx=None, *, apply: bool = False) -> dict:
+    """Merge case-twin artist folders and edition-suffix twin album folders,
+    dedupe byte-identical cover art and quarantine dead folders/leftovers.
+    **Report-only by default**; ``apply=True`` moves files and quarantines
+    leftovers into ``<library>/.dragontag-trash`` (or the configured
+    ``quarantine_path``) but never deletes anything and never quarantines a
+    visually distinct cover image.
+
+    Artist twins (``fakemink`` / ``Fakemink``) are merged first, then album
+    twins (``Afraid`` / ``Afraid - Single`` / ``Afraid (Deluxe)``) into one
+    elected target, preserving each file's ``Disc N`` sub-path; tag values are
+    left untouched (a Retag pass owns tag agreement). Protected tracks are
+    never moved.
     """
     mode = "apply" if apply else "report"
     with session() as s:
@@ -1045,7 +1194,8 @@ def cleanup_library(folder_id: int, ctx=None, *, apply: bool = False) -> dict:
     qroot = _quarantine_root(lib_root)
     run_ts = now_utc().strftime("%Y%m%dT%H%M%SZ")
     result = {
-        "mode": mode, "twin_groups": 0, "audio_moved": 0, "quarantined": 0,
+        "mode": mode, "twin_groups": 0, "artist_twin_groups": 0,
+        "audio_moved": 0, "quarantined": 0,
         "covers_deduped": 0, "dead_folders": 0, "dirs_removed": 0,
         "skipped_protected": 0, "conflicts": 0,
     }
@@ -1055,6 +1205,15 @@ def cleanup_library(folder_id: int, ctx=None, *, apply: bool = False) -> dict:
     if not lib_root.exists():
         ctx and ctx.log(f"library root does not exist: {lib_root}")
         return result
+
+    # 0. Artist-level case-twin merge (fakemink/Fakemink) — before the album
+    #    pass so album twins are then deduped inside the single merged artist.
+    with session() as s:
+        _merge_artist_twins(
+            s, lib_root, qroot, run_ts, pathmap, apply, source_dirs, result, ctx
+        )
+        if apply and result["quarantined"]:
+            quarantined_anything = True
 
     # 1. Twin-folder merge, grouped per artist directory.
     with session() as s:
@@ -1139,7 +1298,8 @@ def cleanup_library(folder_id: int, ctx=None, *, apply: bool = False) -> dict:
 
     if ctx:
         summary = (
-            f"Cleanup [{mode}]: {result['twin_groups']} twin group(s), "
+            f"Cleanup [{mode}]: {result['artist_twin_groups']} artist twin group(s), "
+            f"{result['twin_groups']} album twin group(s), "
             f"{result['audio_moved']} audio moved, {result['covers_deduped']} cover(s) deduped, "
             f"{result['dead_folders']} dead folder(s), {result['quarantined']} file(s) quarantined, "
             f"{result['dirs_removed']} dir(s) pruned, {result['skipped_protected']} protected skipped"

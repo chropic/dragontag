@@ -1312,7 +1312,12 @@ def library_bulk_retag(
 ):
     """THE re-tag entry point: every file goes through the one tagging pass
     (identify → tag → move, album-first). Takes either an explicit server
-    path (dashboard form) or a library folder id (Library page card)."""
+    path (dashboard form) or a library folder id (Library page card).
+
+    The enqueue walk runs as a background task — a large folder means
+    thousands of per-file DB inserts, and doing them in the request thread
+    hung the browser until the walk finished. Path validation stays
+    in-request so a typo still gets an immediate error toast."""
     from .ingest.bulk import enqueue_folder
     # source_path is optional at the API layer so a blank submit surfaces a
     # friendly toast instead of a raw 422 validation page.
@@ -1324,13 +1329,25 @@ def library_bulk_retag(
                 sp = f.path
     if not sp:
         return _toast("Enter a folder path first.", "error")
+    src = Path(sp)
+    if not src.exists() or not src.is_dir():
+        return _toast(f"Not a directory: {src}", "error")
     # Per-request dry-run only — the checkbox never mutates the global setting.
     # An unchecked box submits nothing, which means an explicit "not dry run".
-    try:
-        ids = enqueue_folder(Path(sp), dry_run=bool(dry_run))
-    except ValueError as e:
-        return _toast(str(e), "error")
-    return _toast(f"Full library re-tag queued — {len(ids)} file(s).")
+    use_dry_run = bool(dry_run)
+
+    def _run(ctx) -> str:
+        ids = enqueue_folder(src, dry_run=use_dry_run, ctx=ctx)
+        return f"{len(ids)} file(s) enqueued"
+
+    job_id = tasks.run_task("retag", f"Re-tag {sp}", _run)
+    msg = "Re-tag queued — files are being enqueued in the background; track progress on the Queue page."
+    if request.headers.get("hx-request"):
+        # Dashboard form posts via htmx with hx-swap="none": a 303 would be
+        # followed by the XHR and its HX-Trigger toast lost — return the
+        # no-navigation toast instead.
+        return _toast(msg)
+    return _toast_response("/library", msg, job_id=job_id)
 
 
 @app.post("/library/retag-selected")
@@ -1882,11 +1899,14 @@ def _batch_guard() -> str | None:
     """Refuse a new batch while another background task is running.
 
     Batches move files around; two running at once on the same folder could
-    race. Ingest jobs are fine — the pipeline worker is independent.
+    race. Ingest jobs are fine — the pipeline worker is independent — and so
+    is a running "retag" job: it only *enqueues* ingest rows (the file work
+    happens in the pipeline worker, which this guard already ignores).
     """
     with session() as s:
         running = s.exec(select(Job).where(
-            Job.status == JobStatus.running, Job.kind != "ingest"
+            Job.status == JobStatus.running,
+            Job.kind.not_in(["ingest", "retag"]),
         )).first()
     if running:
         return f"'{running.original_name}' is still running — wait for it to finish first."

@@ -4,6 +4,16 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Fixed (retag no longer hangs the browser — 2026-07-16)
+- **`POST /library/bulk-retag` returns immediately.** The folder walk and
+  per-file job inserts now run as a background `retag` task (with progress +
+  cancel on the Queue page) instead of inside the HTTP request thread, which
+  stalled the browser for the duration of the walk on large folders. Path
+  validation stays in-request for an instant error toast; htmx posts (the
+  dashboard form) get a no-navigation toast, plain form posts a redirect.
+  `_batch_guard` ignores running `retag` jobs — they only enqueue ingest rows.
+  (`main.py`, `ingest/bulk.py`, `scheduler.py`)
+
 ### Changed (docs + agent memory for the new shape — 2026-07-16)
 - **Docs describe the one-pass tagger.** README feature tables, the in-app manual
   (`docs.html`: Library section rewritten around Retag/Organize/helpers, new

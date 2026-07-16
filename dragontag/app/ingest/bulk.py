@@ -5,10 +5,9 @@ it had been dropped into the drop folder.  The pipeline's serial worker queue
 handles backpressure — all jobs are enqueued immediately but processed one at
 a time.
 
-Known limitation: for very large folders the rglob walk and DB inserts happen
-in the HTTP request thread before the redirect.  At ~1 ms per insert this is
-acceptable for typical library sizes; a background-thread solution can be
-added later if needed.
+Callers run this inside ``tasks.run_task`` (the walk + per-file DB inserts on
+a large folder take long enough to hang a browser if done in the request
+thread); pass the task's ``ctx`` for progress reporting and cancellation.
 """
 from __future__ import annotations
 
@@ -22,10 +21,11 @@ from .pipeline import SUPPORTED_EXTS, enqueue, submit
 log = logging.getLogger(__name__)
 
 
-def enqueue_folder(source_path: Path, *, dry_run: bool | None = None) -> list[int]:
+def enqueue_folder(source_path: Path, *, dry_run: bool | None = None, ctx=None) -> list[int]:
     """Enqueue all supported audio files under source_path for re-tagging.
 
     ``dry_run`` is passed through as a per-job override (see ``pipeline.enqueue``).
+    ``ctx`` is an optional ``tasks.TaskCtx`` for progress/cancellation.
     Raises ``ValueError`` if source_path is not an existing directory.
     Returns the list of created job IDs.
     """
@@ -51,7 +51,12 @@ def enqueue_folder(source_path: Path, *, dry_run: bool | None = None) -> list[in
     per_parent = Counter(p.parent for p in files)
 
     job_ids: list[int] = []
-    for p in files:
+    if ctx:
+        ctx.progress(0, len(files))
+    for i, p in enumerate(files, start=1):
+        if ctx:
+            ctx.check_cancelled()
+            ctx.progress(i, len(files), item=p.name)
         group_key = str(p.parent.resolve()) if per_parent[p.parent] >= 2 else None
         # requeue_reviews: an explicit re-tag should reprocess files whose
         # previous run got stuck in needs_review, not silently skip them.

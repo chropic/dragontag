@@ -150,7 +150,7 @@ def run_task_by_type(task: ScheduledTask) -> int | None:
         from .ingest.bulk import enqueue_folder
 
         def _run(ctx):
-            ids = enqueue_folder(Path(src), dry_run=dry)
+            ids = enqueue_folder(Path(src), dry_run=dry, ctx=ctx)
             ctx.log(f"Enqueued {len(ids)} file(s) from {src}")
             return f"{len(ids)} jobs enqueued"
 

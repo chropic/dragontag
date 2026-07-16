@@ -212,6 +212,25 @@ class IncompleteAlbum(SQLModel, table=True):
     checked_at: datetime = Field(default_factory=now_utc)
 
 
+class HealthItem(SQLModel, table=True):
+    """One library-health finding, snapshot-style (Completions page).
+
+    Used for checks that must read files/disk (categories today:
+    ``missing_cover``, ``missing_genre``) and are therefore refreshed by a
+    background job rather than queried live. Written delete-then-insert per
+    (folder, category) by ``library.actions.scan_health`` — same idiom as
+    ``IncompleteAlbum``. Rows are advisory only; dismissing never touches files.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    category: str = Field(index=True)
+    library_folder_id: int | None = Field(default=None, foreign_key="libraryfolder.id", index=True)
+    track_id: int | None = Field(default=None, foreign_key="track.id")
+    path: str = ""  # audio file (or album dir) the finding is about
+    detail_json: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    checked_at: datetime = Field(default_factory=now_utc)
+
+
 class ScheduledTask(SQLModel, table=True):
     """A cron-scheduled recurring task (see ``scheduler.py``).
 

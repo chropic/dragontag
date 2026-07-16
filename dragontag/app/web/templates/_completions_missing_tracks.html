@@ -1,0 +1,50 @@
+{# Snapshot: IncompleteAlbum rows (refreshed by "Find missing tracks"). #}
+<table class="w-full text-sm">
+  <thead>
+    <tr class="text-left text-[10px] uppercase tracking-widest text-[#5a5a5a] border-b border-[#1f1f1f]">
+      <th class="py-2 pr-3">album</th>
+      <th class="py-2 pr-3">artist</th>
+      <th class="py-2 pr-3">folder</th>
+      <th class="py-2 pr-3">tracks</th>
+      <th class="py-2 pr-3">checked</th>
+      <th class="py-2"></th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for r in rows %}
+    <tr class="border-b border-[#141414] hover:bg-[#0d0d0d] align-top">
+      <td class="py-2 pr-3">
+        <div class="text-[#e6e6e6]">{{ r.album }}</div>
+        {% if r.missing_titles_json %}
+        <details class="mt-1">
+          <summary class="text-xs text-[#8a8a8a] cursor-pointer hover:text-white">
+            {{ r.missing_titles_json|length }} missing track(s)
+          </summary>
+          <ul class="text-xs text-[#8a8a8a] mt-1 pl-4 list-disc">
+            {% for t in r.missing_titles_json %}<li>{{ t }}</li>{% endfor %}
+          </ul>
+        </details>
+        {% endif %}
+      </td>
+      <td class="py-2 pr-3 text-[#cfcfcf]">{{ r.artist }}</td>
+      <td class="py-2 pr-3 text-[#8a8a8a] text-xs">{{ folder_labels.get(r.library_folder_id, "—") }}</td>
+      <td class="py-2 pr-3">
+        <span class="text-[#ffb4b4]">{{ r.local_count }}</span><span class="text-[#5a5a5a]">/{{ r.expected_count }}</span>
+      </td>
+      <td class="py-2 pr-3 text-[#5a5a5a] text-xs">{{ format_local(r.checked_at) }}</td>
+      <td class="py-2 text-right">
+        <a href="https://musicbrainz.org/release/{{ r.mb_album_id }}" target="_blank"
+           class="text-xs text-[#cfcfcf] hover:underline mr-2">MB</a>
+        <form method="post" action="/library/incomplete/{{ r.id }}/delete" class="inline">
+          <button class="text-xs text-[#8a8a8a] hover:text-[#ffb4b4]">dismiss</button>
+        </form>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td class="py-3 text-xs text-[#8a8a8a]" colspan="6">
+      Nothing here. Run a <span class="text-[#cfcfcf]">missing tracks</span> refresh above to check against MusicBrainz.
+    </td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% include "_completions_pager.html" %}

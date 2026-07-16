@@ -1731,8 +1731,18 @@ def library_track_apply_match(
 
 
 @app.post("/library/tracks/{track_id}/fetch-lyrics")
-def library_track_fetch_lyrics(track_id: int, request: Request, _: None = Depends(require_auth)):
-    """Fetch synced/plain lyrics from LRCLIB for this one track."""
+def library_track_fetch_lyrics(
+    track_id: int,
+    request: Request,
+    _: None = Depends(require_auth),
+    next: str = Form(default=""),
+):
+    """Fetch synced/plain lyrics from LRCLIB for this one track.
+
+    ``next`` optionally overrides the redirect target so pages other than the
+    Library (the Completions page's per-row button) return to themselves;
+    only local paths are honored.
+    """
     from .tagging import lyrics_fetcher
     from .tagging.advisory import is_explicit
     from .tagging.partial import write_lyrics
@@ -1745,11 +1755,12 @@ def library_track_fetch_lyrics(track_id: int, request: Request, _: None = Depend
         folder_id = track.library_folder_id
         title, artist, album = track.title, track.artist, track.album
 
+    back = next if next.startswith("/") and not next.startswith("//") else ""
     if not p.exists():
-        return _toast_response("/library", f"{p.name}: file not found on disk.", "error")
+        return _toast_response(back or "/library", f"{p.name}: file not found on disk.", "error")
     fetched = lyrics_fetcher.fetch(artist=artist, title=title, album=album)
     if not fetched:
-        return _toast_response(f"/library?folder_id={folder_id or ''}", "No lyrics found on LRCLIB.", "error")
+        return _toast_response(back or f"/library?folder_id={folder_id or ''}", "No lyrics found on LRCLIB.", "error")
     advisory = 1 if is_explicit(fetched) else 0
     from .library.filelock import path_lock
     with path_lock(p):
@@ -1761,7 +1772,7 @@ def library_track_fetch_lyrics(track_id: int, request: Request, _: None = Depend
             track.advisory = advisory
             s.add(track)
             s.commit()
-    return _toast_response(f"/library?folder_id={folder_id or ''}", f"Lyrics fetched for {p.name}.")
+    return _toast_response(back or f"/library?folder_id={folder_id or ''}", f"Lyrics fetched for {p.name}.")
 
 
 @app.post("/library/fetch-lyrics")
@@ -1887,6 +1898,15 @@ def library_cleanup(
     )
 
 
+@app.post("/library/scan-health")
+def library_scan_health(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
+    """Refresh the Completions page's covers/genres snapshot (read-only)."""
+    from .library.actions import scan_health
+    job_id = tasks.run_task("health_scan", f"Health scan (folder {folder_id})",
+                            lambda ctx: scan_health(folder_id, ctx=ctx))
+    return _toast_response("/completions", "Health scan started — sections refresh when it finishes.", job_id=job_id)
+
+
 @app.post("/library/validate-tags")
 def library_validate_tags(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
     from .library.actions import validate_tags
@@ -1913,49 +1933,10 @@ def _batch_guard() -> str | None:
     return None
 
 
-@app.get("/library/incomplete", response_class=HTMLResponse)
-def library_incomplete(
-    request: Request,
-    _: None = Depends(require_auth),
-    q: str = "",
-    page: int = 1,
-    page_size: int = 50,
-):
-    """The Library page's Incomplete tab: albums with fewer local tracks than MB expects."""
-    from .models import IncompleteAlbum
-    q = q.strip()
-    page = max(1, page)
-    if page_size not in _LIBRARY_PAGE_SIZES:
-        page_size = 50
-    with session() as s:
-        folders = s.exec(select(LibraryFolder).order_by(LibraryFolder.priority, LibraryFolder.id)).all()
-        stmt = select(IncompleteAlbum)
-        count_stmt = select(func.count(IncompleteAlbum.id))
-        if q:
-            like = f"%{q}%"
-            cond = or_(IncompleteAlbum.album.ilike(like), IncompleteAlbum.artist.ilike(like))
-            stmt = stmt.where(cond)
-            count_stmt = count_stmt.where(cond)
-        total = s.exec(count_stmt).one() or 0
-        rows = s.exec(
-            stmt.order_by(IncompleteAlbum.artist, IncompleteAlbum.album)
-            .offset((page - 1) * page_size).limit(page_size)
-        ).all()
-    total_pages = max(1, (total + page_size - 1) // page_size)
-    folder_labels = {f.id: (f.label or f.path) for f in folders}
-    return templates.TemplateResponse(request, "library_incomplete.html", {
-        "request": request,
-        "folders": folders,
-        "folder_labels": folder_labels,
-        "rows": rows,
-        "q": q,
-        "page": page,
-        "page_size": page_size,
-        "page_sizes": _LIBRARY_PAGE_SIZES,
-        "total": total,
-        "total_pages": total_pages,
-        "active_page": "library",
-    })
+@app.get("/library/incomplete")
+def library_incomplete_redirect(request: Request, _: None = Depends(require_auth)):
+    """The old Incomplete tab lives on the Completions page now."""
+    return RedirectResponse("/completions#missing-tracks", status_code=308)
 
 
 @app.post("/library/incomplete/{row_id}/delete")
@@ -1966,7 +1947,183 @@ def library_incomplete_delete(row_id: int, request: Request, _: None = Depends(r
         if row:
             s.delete(row)
             s.commit()
-    return _toast_response("/library/incomplete", "Dismissed.")
+    return _toast_response("/completions", "Dismissed.")
+
+
+# ---------------------------------------------------------------------------
+# Completions page — library-health report
+# ---------------------------------------------------------------------------
+
+# Section name -> fragment template. Live sections query the DB on render;
+# snapshot sections read rows refreshed by background jobs (find_missing_tracks
+# for IncompleteAlbum, scan_health for HealthItem).
+_COMPLETIONS_SECTIONS = {
+    "missing-tracks": "_completions_missing_tracks.html",
+    "duplicates": "_completions_duplicates.html",
+    "no-lyrics": "_completions_no_lyrics.html",
+    "covers": "_completions_covers.html",
+    "genres": "_completions_genres.html",
+    "untagged": "_completions_untagged.html",
+    "tag-problems": "_completions_tag_problems.html",
+}
+
+
+def _completions_counts() -> dict:
+    """Cheap summary counts for the Completions tile row."""
+    from .models import HealthItem, IncompleteAlbum
+    with session() as s:
+        total = s.exec(select(func.count(Track.id))).one() or 0
+        with_lyrics = s.exec(
+            select(func.count(Track.id)).where(Track.has_lyrics == True)  # noqa: E712
+        ).one() or 0
+        untagged = s.exec(
+            select(func.count(Track.id)).where(
+                or_(Track.mb_track_id.is_(None), Track.mb_album_id.is_(None))
+            )
+        ).one() or 0
+        incomplete = s.exec(select(func.count(IncompleteAlbum.id))).one() or 0
+        missing_cover = s.exec(
+            select(func.count(HealthItem.id)).where(HealthItem.category == "missing_cover")
+        ).one() or 0
+        missing_genre = s.exec(
+            select(func.count(HealthItem.id)).where(HealthItem.category == "missing_genre")
+        ).one() or 0
+        health_checked_at = s.exec(select(func.max(HealthItem.checked_at))).one()
+        incomplete_checked_at = s.exec(select(func.max(IncompleteAlbum.checked_at))).one()
+        no_lyrics = total - with_lyrics
+
+        from .library.actions import duplicate_groups, tag_problems
+        tracks = s.exec(select(Track)).all()
+        dup_groups = duplicate_groups(tracks)
+        problems = tag_problems(tracks)
+
+    def pct(part: int) -> int:
+        return int(round(100 * part / total)) if total else 100
+
+    return {
+        "total": total,
+        "no_lyrics": no_lyrics,
+        "lyrics_pct": pct(with_lyrics),
+        "untagged": untagged,
+        "tagged_pct": pct(total - untagged),
+        "incomplete": incomplete,
+        "missing_cover": missing_cover,
+        "covers_pct": pct(total - missing_cover),
+        "missing_genre": missing_genre,
+        "genres_pct": pct(total - missing_genre),
+        "dup_groups": len(dup_groups),
+        "dup_files": sum(len(g) for g in dup_groups),
+        "tag_problems": len(problems),
+        "health_checked_at": health_checked_at,
+        "incomplete_checked_at": incomplete_checked_at,
+    }
+
+
+@app.get("/completions", response_class=HTMLResponse)
+def completions(request: Request, _: None = Depends(require_auth)):
+    """Library-health report: gaps and duplicates, live + snapshot sections."""
+    with session() as s:
+        folders = s.exec(
+            select(LibraryFolder).order_by(LibraryFolder.priority, LibraryFolder.id)
+        ).all()
+    return templates.TemplateResponse(request, "completions.html", {
+        "request": request,
+        "counts": _completions_counts(),
+        "folders": folders,
+        "sections": list(_COMPLETIONS_SECTIONS),
+        "active_page": "completions",
+    })
+
+
+@app.get("/completions/section/{name}", response_class=HTMLResponse)
+def completions_section(
+    name: str,
+    request: Request,
+    _: None = Depends(require_auth),
+    page: int = 1,
+    page_size: int = 50,
+):
+    """HTMX fragment: one Completions section, paginated."""
+    from .models import HealthItem, IncompleteAlbum
+    template = _COMPLETIONS_SECTIONS.get(name)
+    if template is None:
+        raise HTTPException(404)
+    page = max(1, page)
+    if page_size not in _LIBRARY_PAGE_SIZES:
+        page_size = 50
+    offset = (page - 1) * page_size
+    ctx: dict[str, Any] = {"request": request, "name": name, "page": page,
+                           "page_size": page_size}
+
+    with session() as s:
+        folders = s.exec(
+            select(LibraryFolder).order_by(LibraryFolder.priority, LibraryFolder.id)
+        ).all()
+        ctx["folders"] = folders
+        ctx["folder_labels"] = {f.id: (f.label or f.path) for f in folders}
+
+        if name == "missing-tracks":
+            total = s.exec(select(func.count(IncompleteAlbum.id))).one() or 0
+            ctx["rows"] = s.exec(
+                select(IncompleteAlbum)
+                .order_by(IncompleteAlbum.artist, IncompleteAlbum.album)
+                .offset(offset).limit(page_size)
+            ).all()
+        elif name in ("covers", "genres"):
+            cat = "missing_cover" if name == "covers" else "missing_genre"
+            total = s.exec(
+                select(func.count(HealthItem.id)).where(HealthItem.category == cat)
+            ).one() or 0
+            ctx["rows"] = s.exec(
+                select(HealthItem).where(HealthItem.category == cat)
+                .order_by(HealthItem.path)
+                .offset(offset).limit(page_size)
+            ).all()
+        elif name == "no-lyrics":
+            cond = Track.has_lyrics == False  # noqa: E712
+            total = s.exec(select(func.count(Track.id)).where(cond)).one() or 0
+            ctx["rows"] = s.exec(
+                select(Track).where(cond)
+                .order_by(Track.album_artist, Track.album, Track.track_num)
+                .offset(offset).limit(page_size)
+            ).all()
+        elif name == "untagged":
+            cond = or_(Track.mb_track_id.is_(None), Track.mb_album_id.is_(None))
+            total = s.exec(select(func.count(Track.id)).where(cond)).one() or 0
+            ctx["rows"] = s.exec(
+                select(Track).where(cond)
+                .order_by(Track.album_artist, Track.album, Track.track_num)
+                .offset(offset).limit(page_size)
+            ).all()
+        elif name == "duplicates":
+            from .library.actions import duplicate_album_groups, duplicate_groups
+            tracks = s.exec(select(Track)).all()
+            groups = duplicate_groups(tracks)
+            total = len(groups)
+            ctx["groups"] = groups[offset:offset + page_size]
+            ctx["album_groups"] = duplicate_album_groups(tracks)[:25]
+        else:  # tag-problems
+            from .library.actions import tag_problems
+            tracks = s.exec(select(Track)).all()
+            problems = tag_problems(tracks)
+            total = len(problems)
+            ctx["rows"] = problems[offset:offset + page_size]
+
+    ctx["total"] = total
+    ctx["total_pages"] = max(1, (total + page_size - 1) // page_size)
+    return templates.TemplateResponse(request, template, ctx)
+
+
+@app.post("/completions/item/{row_id}/delete")
+def completions_item_delete(row_id: int, request: Request, _: None = Depends(require_auth)):
+    """Dismiss one snapshot health finding (advisory only, never touches files)."""
+    from .models import HealthItem
+    with session() as s:
+        row = s.get(HealthItem, row_id)
+        if row:
+            s.delete(row)
+            s.commit()
+    return _toast_response("/completions", "Dismissed.")
 
 
 @app.get("/api/mb-search", response_class=HTMLResponse)

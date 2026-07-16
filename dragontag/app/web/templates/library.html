@@ -25,10 +25,10 @@
     {{ f.label or f.path }}
   </a>
   {% endfor %}
-  <a href="/library/incomplete"
+  <a href="/completions"
      class="px-3 py-1.5 border bg-[#0e0d08] border-[#4a4326] text-[#f2e5b5] hover:border-[#f2e5b5]"
-     title="Albums whose local track count is below what MusicBrainz expects. Populated by 'Find missing tracks'.">
-    &#9650; incomplete
+     title="Library health: missing tracks, duplicates, lyrics/cover/genre gaps, untagged files, tag problems.">
+    &#9650; completions
   </a>
 </div>
 

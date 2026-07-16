@@ -600,28 +600,24 @@ def fix_genres_for_folder(folder_id: int, ctx=None) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def find_duplicates(folder_id: int, ctx=None) -> dict:
-    """Report likely duplicate tracks. Never deletes anything.
+def duplicate_groups(tracks: list[Track]) -> list[list[Track]]:
+    """Group likely duplicate tracks. Pure — no disk or DB access.
 
     Two signals, checked in order of confidence:
     1. identical MusicBrainz recording IDs;
-    2. identical normalized (artist, title) with durations within 3 seconds.
-    """
-    with session() as s:
-        tracks = s.exec(select(Track).where(Track.library_folder_id == folder_id)).all()
-    tracks = [t for t in tracks if Path(t.path).exists()]
+    2. identical normalized (artist, title) with durations within 3 seconds
+       (live takes and remixes routinely share a title, so tag matches alone
+       don't count).
 
+    Shared by the ``find_duplicates`` action (job-log report) and the
+    Completions page's live duplicates section.
+    """
     def _norm(v: str | None) -> str:
         return re.sub(r"\s+", " ", (v or "").strip().lower())
 
     by_mbid: dict[str, list[Track]] = {}
     by_tags: dict[tuple[str, str], list[Track]] = {}
-    if ctx:
-        ctx.progress(0, len(tracks))
-    for i, t in enumerate(tracks, start=1):
-        if ctx:
-            ctx.check_cancelled()
-            ctx.progress(i, len(tracks), item=Path(t.path).name)
+    for t in tracks:
         if t.mb_track_id:
             by_mbid.setdefault(t.mb_track_id, []).append(t)
         if t.title and t.artist:
@@ -633,8 +629,6 @@ def find_duplicates(folder_id: int, ctx=None) -> dict:
         cand = [t for t in g if t.path not in seen_paths]
         if len(cand) < 2:
             continue
-        # Same artist/title is only a duplicate when durations agree too —
-        # live takes and remixes routinely share a title.
         cand.sort(key=lambda t: t.duration or 0)
         cluster: list[Track] = [cand[0]]
         for t in cand[1:]:
@@ -646,6 +640,35 @@ def find_duplicates(folder_id: int, ctx=None) -> dict:
                 cluster = [t]
         if len(cluster) > 1:
             groups.append(cluster)
+    return groups
+
+
+def duplicate_album_groups(tracks: list[Track]) -> list[list[str]]:
+    """Album-level duplicates: the same (artist, album) — folded for case,
+    punctuation and edition suffixes — living in more than one directory.
+    Returns groups of distinct album directory paths. Pure; read-only signal
+    for the Completions page (cleanup owns the actual merging)."""
+    dirs_by_key: dict[tuple[str, str], set[str]] = {}
+    for t in tracks:
+        if not t.album:
+            continue
+        key = (artist_fold_key(t.album_artist or t.artist or ""), album_fold_key(t.album))
+        if not key[0] or not key[1]:
+            continue
+        dirs_by_key.setdefault(key, set()).add(str(Path(t.path).parent))
+    return [sorted(dirs) for dirs in dirs_by_key.values() if len(dirs) > 1]
+
+
+def find_duplicates(folder_id: int, ctx=None) -> dict:
+    """Report likely duplicate tracks (see :func:`duplicate_groups`).
+    Never deletes anything."""
+    with session() as s:
+        tracks = s.exec(select(Track).where(Track.library_folder_id == folder_id)).all()
+    tracks = [t for t in tracks if Path(t.path).exists()]
+
+    if ctx:
+        ctx.progress(0, len(tracks))
+    groups = duplicate_groups(tracks)
 
     files = sum(len(g) for g in groups)
     if ctx:
@@ -1312,43 +1335,129 @@ def cleanup_library(folder_id: int, ctx=None, *, apply: bool = False) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Health scan (covers/genres snapshot for the Completions page, report-only)
+# ---------------------------------------------------------------------------
+
+
+def scan_health(folder_id: int, ctx=None) -> dict:
+    """Snapshot file-bound health gaps for the Completions page: tracks with
+    no genre in the file and albums/tracks with no cover art (neither embedded
+    art nor a ``cover.jpg`` beside the file). Read-only on audio files; results
+    are written delete-then-insert into ``HealthItem`` per category (same
+    idiom as ``find_missing_tracks``/``IncompleteAlbum``) so stale findings
+    disappear on every run."""
+    from ..models import HealthItem
+    from ..tagging.partial import read_genre
+
+    with session() as s:
+        folder = s.get(LibraryFolder, folder_id)
+        if not folder:
+            return {"ok": False, "reason": "Folder not found"}
+        tracks = s.exec(select(Track).where(Track.library_folder_id == folder_id)).all()
+
+    cover_jpg_cache: dict[Path, bool] = {}  # album dir -> has a cover.jpg
+
+    def _dir_has_cover(d: Path) -> bool:
+        if d not in cover_jpg_cache:
+            cover_jpg_cache[d] = _find_cover(d) is not None
+        return cover_jpg_cache[d]
+
+    missing_genre: list[Track] = []
+    missing_cover: list[tuple[Track, str]] = []  # (track, signal)
+    checked = 0
+    if ctx:
+        ctx.progress(0, len(tracks))
+    for i, t in enumerate(tracks, start=1):
+        if ctx:
+            ctx.check_cancelled()
+            ctx.progress(i, len(tracks), item=Path(t.path).name)
+        p = Path(t.path)
+        if not p.exists():
+            continue  # stale row; the scanner owns pruning
+        checked += 1
+        try:
+            if not read_genre(p):
+                missing_genre.append(t)
+        except Exception:
+            log.debug("scan_health: unreadable genre for %s", p)
+        has_sidecar = _dir_has_cover(p.parent)
+        if not has_sidecar:
+            try:
+                data, _ext = _read_embedded_picture(p)
+            except Exception:
+                data = None
+            if not data:
+                missing_cover.append((t, "no embedded art, no cover.jpg"))
+
+    # Delete-then-insert per (folder, category): stale rows for now-fixed
+    # files must disappear.
+    with session() as s:
+        for cat in ("missing_genre", "missing_cover"):
+            for row in s.exec(
+                select(HealthItem).where(
+                    HealthItem.library_folder_id == folder_id,
+                    HealthItem.category == cat,
+                )
+            ).all():
+                s.delete(row)
+        for t in missing_genre:
+            s.add(HealthItem(
+                category="missing_genre", library_folder_id=folder_id,
+                track_id=t.id, path=t.path,
+                detail_json={"artist": t.artist, "title": t.title, "album": t.album},
+            ))
+        for t, signal in missing_cover:
+            s.add(HealthItem(
+                category="missing_cover", library_folder_id=folder_id,
+                track_id=t.id, path=t.path,
+                detail_json={"artist": t.artist, "title": t.title,
+                             "album": t.album, "signal": signal},
+            ))
+        s.commit()
+
+    summary = {
+        "checked": checked,
+        "missing_genre": len(missing_genre),
+        "missing_cover": len(missing_cover),
+    }
+    if ctx:
+        ctx.log(
+            f"Health scan: {checked} file(s) checked — {len(missing_genre)} without a genre, "
+            f"{len(missing_cover)} without any cover art. See the Completions page."
+        )
+    log.info("scan_health(%d): %s", folder_id, summary)
+    return summary
+
+
+# ---------------------------------------------------------------------------
 # Tag validation (report-only)
 # ---------------------------------------------------------------------------
 
 _MOJIBAKE_RE = re.compile(r"Ã[\x80-\xbf]|â€|Ð[\x80-\xbf]|ï¿½")
 
 
-def validate_tags(folder_id: int, ctx=None) -> dict:
-    """Report tag-health problems without changing anything: missing core
-    fields, mojibake-looking values, and track numbers above the declared
-    track total."""
-    with session() as s:
-        tracks = s.exec(select(Track).where(Track.library_folder_id == folder_id)).all()
-    items = [t for t in tracks if Path(t.path).exists()]
-
-    problems: list[str] = []
+def tag_problems(tracks: list[Track]) -> list[tuple[Track, str]]:
+    """Detect tag-health problems. Pure — no disk or DB access. Returns
+    (track, message) pairs; the message excludes the filename prefix so
+    callers can render it however they like. Shared by the ``validate_tags``
+    action and the Completions page's live tag-problems section."""
+    problems: list[tuple[Track, str]] = []
     seen_bad_albums: set[str] = set()  # report each suspicious album name once
-    if ctx:
-        ctx.progress(0, len(items))
-    for i, t in enumerate(items, start=1):
-        name = Path(t.path).name
-        if ctx:
-            ctx.check_cancelled()
-            ctx.progress(i, len(items), item=name)
+    for t in tracks:
         if not t.title:
-            problems.append(f"{name}: missing title")
+            problems.append((t, "missing title"))
         if not t.artist:
-            problems.append(f"{name}: missing artist")
+            problems.append((t, "missing artist"))
         if not t.album_artist:
-            problems.append(f"{name}: missing album artist")
+            problems.append((t, "missing album artist"))
         for field in ("title", "artist", "album", "album_artist"):
             v = getattr(t, field) or ""
             if _MOJIBAKE_RE.search(v):
-                problems.append(f"{name}: {field} looks mis-encoded: {v!r}")
+                problems.append((t, f"{field} looks mis-encoded: {v!r}"))
         if t.track_num and t.track_total and t.track_num > t.track_total:
-            problems.append(f"{name}: track {t.track_num} > track total {t.track_total}")
+            problems.append((t, f"track {t.track_num} > track total {t.track_total}"))
         if t.disc_num and t.disc_total and t.disc_num > t.disc_total:
-            problems.append(f"{name}: disc {t.disc_num} > disc total {t.disc_total}")
+            problems.append((t, f"disc {t.disc_num} > disc total {t.disc_total}"))
         # Suspicious album folder names (class 9): an album that is only an
         # edition marker / punctuation with no real title, or one that
         # sanitizes to the "_" placeholder — the folder shows up as "(Deluxe)"
@@ -1358,10 +1467,24 @@ def validate_tags(folder_id: int, ctx=None) -> dict:
             base = strip_edition_suffixes(alb).strip(" ()[]{}-–—_")
             if not base:
                 seen_bad_albums.add(alb)
-                problems.append(f"{name}: suspicious album name {alb!r} (edition marker / punctuation only)")
+                problems.append((t, f"suspicious album name {alb!r} (edition marker / punctuation only)"))
             elif sanitize_segment(alb) == "_":
                 seen_bad_albums.add(alb)
-                problems.append(f"{name}: album name {alb!r} sanitizes to the '_' placeholder")
+                problems.append((t, f"album name {alb!r} sanitizes to the '_' placeholder"))
+    return problems
+
+
+def validate_tags(folder_id: int, ctx=None) -> dict:
+    """Report tag-health problems without changing anything: missing core
+    fields, mojibake-looking values, and track numbers above the declared
+    track total (see :func:`tag_problems`)."""
+    with session() as s:
+        tracks = s.exec(select(Track).where(Track.library_folder_id == folder_id)).all()
+    items = [t for t in tracks if Path(t.path).exists()]
+
+    if ctx:
+        ctx.progress(0, len(items))
+    problems = [f"{Path(t.path).name}: {msg}" for t, msg in tag_problems(items)]
     if ctx:
         for line in problems[:100]:
             ctx.log(line)
@@ -1432,6 +1555,11 @@ LIBRARY_ACTIONS: dict[str, tuple[str, str, Any]] = {
         cleanup_library),
     "find_missing_tracks": (
         "Find missing tracks",
-        "Compare each album's local track count to MusicBrainz and list incomplete albums on the Incomplete tab.",
+        "Compare each album's local track count to MusicBrainz and list incomplete albums on the Completions page.",
         find_missing_tracks),
+    "scan_health": (
+        "Scan health (covers/genres)",
+        "Snapshot which files lack a genre or any cover art (embedded or cover.jpg) "
+        "for the Completions page. Read-only; nothing is changed.",
+        scan_health),
 }

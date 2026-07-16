@@ -50,7 +50,7 @@
   <script>
     window.dtKeys = (() => {
       const handlers = [];
-      const goTo = { d: '/', l: '/library', q: '/queue', c: '/changes', h: '/schedule', s: '/settings', o: '/docs' };
+      const goTo = { d: '/', l: '/library', q: '/queue', c: '/changes', m: '/completions', h: '/schedule', s: '/settings', o: '/docs' };
       let gPending = false, gTimer = null;
 
       function isTyping(el) {
@@ -107,7 +107,7 @@
         }
         if (e.key === 'g') {
           gPending = true;
-          overlay('go to: (d)ashboard (l)ibrary (q)ueue (c)hanges sc(h)edule (s)ettings d(o)cs');
+          overlay('go to: (d)ashboard (l)ibrary (q)ueue (c)hanges co(m)pletions sc(h)edule (s)ettings d(o)cs');
           gTimer = setTimeout(() => { gPending = false; }, 1500);
           return;
         }
@@ -154,6 +154,7 @@
       ('/library', 'library', 'library'),
       ('/queue', 'queue', 'queue'),
       ('/changes', 'changes', 'changes'),
+      ('/completions', 'completions', 'completions'),
       ('/schedule', 'schedule', 'schedule'),
       ('/settings', 'settings', 'settings'),
       ('/docs', 'docs', 'docs'),
@@ -223,6 +224,7 @@
       <div class="flex justify-between"><span class="text-[#8a8a8a]">g l</span><span>library</span></div>
       <div class="flex justify-between"><span class="text-[#8a8a8a]">g q</span><span>queue</span></div>
       <div class="flex justify-between"><span class="text-[#8a8a8a]">g c</span><span>changes</span></div>
+      <div class="flex justify-between"><span class="text-[#8a8a8a]">g m</span><span>completions</span></div>
       <div class="flex justify-between"><span class="text-[#8a8a8a]">g h</span><span>schedule</span></div>
       <div class="flex justify-between"><span class="text-[#8a8a8a]">g s</span><span>settings</span></div>
       <div class="flex justify-between"><span class="text-[#8a8a8a]">g o</span><span>docs</span></div>

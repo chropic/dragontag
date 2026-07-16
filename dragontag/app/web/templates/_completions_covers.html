@@ -1,0 +1,34 @@
+{# Snapshot: HealthItem missing_cover rows (refreshed by "covers/genres" scan). #}
+<table class="w-full text-sm">
+  <thead>
+    <tr class="text-left text-[10px] uppercase tracking-widest text-[#5a5a5a] border-b border-[#1f1f1f]">
+      <th class="py-2 pr-3">file</th>
+      <th class="py-2 pr-3">artist / album</th>
+      <th class="py-2 pr-3">checked</th>
+      <th class="py-2"></th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for r in rows %}
+    <tr class="border-b border-[#141414] hover:bg-[#0d0d0d]">
+      <td class="py-1.5 pr-3 text-[#e6e6e6] text-xs truncate max-w-[22rem]" title="{{ r.path }}">{{ r.path }}</td>
+      <td class="py-1.5 pr-3 text-[#8a8a8a] text-xs">{{ r.detail_json.get("artist") or "?" }} · {{ r.detail_json.get("album") or "?" }}</td>
+      <td class="py-1.5 pr-3 text-[#5a5a5a] text-xs">{{ format_local(r.checked_at) }}</td>
+      <td class="py-1.5 text-right whitespace-nowrap">
+        <a href="/library?q={{ (r.detail_json.get("album") or '') | urlencode }}" class="text-xs text-[#cfcfcf] hover:underline mr-2">library</a>
+        <form method="post" action="/completions/item/{{ r.id }}/delete" class="inline">
+          <button class="text-xs text-[#8a8a8a] hover:text-[#ffb4b4]">dismiss</button>
+        </form>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td class="py-3 text-xs text-[#8a8a8a]" colspan="4">
+      No findings. Run a <span class="text-[#cfcfcf]">covers/genres</span> refresh above to scan the files.
+    </td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% if rows %}
+<div class="text-xs text-[#5a5a5a] mt-2">Fix: the <span class="text-[#cfcfcf]">Fetch cover art</span> helper on the Library page pulls art from the Cover Art Archive for tracks with a MusicBrainz album id.</div>
+{% endif %}
+{% include "_completions_pager.html" %}

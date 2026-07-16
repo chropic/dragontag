@@ -1,0 +1,17 @@
+{# Shared pager for Completions section fragments. Expects: name, page,
+   total, total_pages, page_size, rows-ish count already rendered above. #}
+{% if total_pages > 1 %}
+<div class="flex items-center justify-end gap-1 mt-3 text-xs text-[#5a5a5a]">
+  {% if page > 1 %}
+  <a href="#" hx-get="/completions/section/{{ name }}?page={{ page - 1 }}&page_size={{ page_size }}"
+     hx-target="#sec-{{ name }}" hx-swap="innerHTML"
+     class="px-2 py-0.5 border border-[#2a2a2a] hover:text-white">&#9666; prev</a>
+  {% endif %}
+  <span class="px-2 text-[#cfcfcf]">{{ page }} / {{ total_pages }}</span>
+  {% if page < total_pages %}
+  <a href="#" hx-get="/completions/section/{{ name }}?page={{ page + 1 }}&page_size={{ page_size }}"
+     hx-target="#sec-{{ name }}" hx-swap="innerHTML"
+     class="px-2 py-0.5 border border-[#2a2a2a] hover:text-white">next &#9656;</a>
+  {% endif %}
+</div>
+{% endif %}

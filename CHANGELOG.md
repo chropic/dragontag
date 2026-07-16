@@ -4,6 +4,27 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Added (Completions page — 2026-07-16)
+- **New `/completions` page: library health in one place.** Summary tiles
+  (lyrics/tagged/covers/genres coverage meters, incomplete-album and
+  duplicate counts) over seven lazy-loaded sections: incomplete albums
+  (missing tracks vs MusicBrainz — the old Incomplete tab, which now
+  redirects here), duplicate tracks (MB recording id, or same artist/title
+  with agreeing durations) plus twin-looking album folders, songs without
+  lyrics (per-row LRCLIB fetch), missing cover art and missing genres
+  (snapshot from the new read-only `scan_health` action / `health_scan`
+  job, stored in the new generic `HealthItem` table delete-then-insert per
+  folder), untagged files, and tag problems. Live sections query the index
+  on render; snapshot sections carry refresh buttons and per-row dismiss.
+  Every row links into fixes (library search, MusicBrainz, track lyrics
+  fetch, folder-level helpers) — nothing on the page moves or deletes
+  files. Nav item + `g m` shortcut. The `find_duplicates`/`validate_tags`
+  actions' logic moved into shared pure helpers (`duplicate_groups`,
+  `duplicate_album_groups`, `tag_problems`) with unchanged action output.
+  (`main.py`, `models.py`, `library/actions.py`,
+  `web/templates/completions.html` + `_completions_*.html`,
+  `web/templates/base.html`, `web/templates/library.html`)
+
 ### Fixed (retag no longer hangs the browser — 2026-07-16)
 - **`POST /library/bulk-retag` returns immediately.** The folder walk and
   per-file job inserts now run as a background `retag` task (with progress +

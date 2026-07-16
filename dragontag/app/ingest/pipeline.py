@@ -33,7 +33,7 @@ from ..identify import musicbrainz as mbq
 from ..identify.scoring import score_candidate
 from ..library import filelock
 from ..library.mover import move, move_lyric_sidecar, write_cover_jpg
-from ..library.paths import build_destination
+from ..library.paths import DestinationUnresolved, build_destination
 from ..models import FileChange, Job, JobStatus, ReviewReason, append_job_log
 from ..tagging import snapshot
 from ..tagging.coverart import fetch_for_release, fetch_for_release_group
@@ -484,7 +484,20 @@ def _finalize_and_commit(s: Session, job: Job, src: Path, tags: TrackTags, *, sc
     )
     if effective_dry_run:
         lib_root = _pick_library_folder()
-        dest = build_destination(tags, src.suffix, library_root=lib_root)
+        try:
+            dest = build_destination(tags, src.suffix, library_root=lib_root)
+        except DestinationUnresolved as e:
+            _append_log(job, f"Destination unresolved (library scan failed): {e}")
+            job.chosen_tags_json = _tags_to_dict(tags)
+            _set(
+                job,
+                score=score,
+                status=JobStatus.needs_review,
+                review_reason=ReviewReason.destination_unresolved,
+            )
+            s.add(job)
+            s.commit()
+            return
         job.chosen_tags_json = _tags_to_dict(tags)
         _set(
             job,
@@ -588,7 +601,32 @@ def _commit_tag_path(s: Session, job: Job, src: Path, tags: TrackTags, *, score:
 
         # ----- move into library -----
         lib_root = _pick_library_folder()
-        dest = build_destination(tags, src.suffix, library_root=lib_root)
+        try:
+            dest = build_destination(tags, src.suffix, library_root=lib_root, ensure_dirs=True)
+        except DestinationUnresolved as e:
+            # Moving anyway could mint a case-variant twin directory (the
+            # library-nuking failure mode on network shares) — leave the file
+            # where it is and let the user retry from review. The in-place tag
+            # write above is just as destructive as the happy path's, so it
+            # must stay auditable/revertible.
+            _append_log(job, f"Destination unresolved (library scan failed): {e}")
+            _set(
+                job,
+                status=JobStatus.needs_review,
+                review_reason=ReviewReason.destination_unresolved,
+            )
+            s.add(job)
+            s.commit()
+            _record_change(
+                s,
+                job,
+                original_path=original_path,
+                original_snapshot=original_snapshot,
+                dest=src,
+                new_tags=job.chosen_tags_json,
+                cover_jpg_created=False,
+            )
+            return
         # Persist the destination *before* the physical move. If the worker is hard
         # killed (OOM/SIGKILL) mid-move, the job row already records where the file
         # is headed, so crash recovery in ``_process_inner`` (which falls back to

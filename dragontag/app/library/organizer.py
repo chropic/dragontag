@@ -23,7 +23,7 @@ from sqlmodel import select
 from ..db import session
 from ..library import filelock
 from ..library.mover import move, move_lyric_sidecar
-from ..library.paths import build_destination
+from ..library.paths import DestinationUnresolved, build_destination
 from ..models import LibraryFolder, Track
 from ..tagging.schema import TrackTags
 
@@ -64,7 +64,7 @@ def organize_folder(folder_id: int, ctx=None) -> dict:
             continue
         try:
             tags = _track_to_tags(track)
-            dest = build_destination(tags, src.suffix, library_root=lib_root)
+            dest = build_destination(tags, src.suffix, library_root=lib_root, ensure_dirs=True)
             if dest == src:
                 skipped += 1
                 continue
@@ -111,6 +111,12 @@ def organize_folder(folder_id: int, ctx=None) -> dict:
                 move_lyric_sidecar(src, dest)
             moved += 1
             log.info("organize: %s -> %s", src.name, dest)
+        except DestinationUnresolved as e:
+            # Library scan failed mid-resolution — moving anyway could mint a
+            # case-variant twin directory. Skip the file; re-run organize once
+            # the share is healthy.
+            errors.append(f"destination unresolved (skipped): {src}: {e}")
+            log.warning("organize: destination unresolved for %s: %s", src, e)
         except Exception as e:
             errors.append(f"error moving {src}: {e}")
             log.exception("organize: failed on %s", src)

@@ -4,6 +4,28 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Fixed (naming safety: case-twin prevention + unicode normalization — 2026-07-16)
+- **Destination resolution is now race-proof and fail-closed.** The
+  case-insensitive sibling reuse in `build_destination` and the directory
+  creation that follows now run inside one global critical section
+  (`ensure_dirs=True`), so two concurrent ingests of differently-cased artist
+  spellings can no longer mint case-variant twin directories
+  (`fakemink`/`Fakemink` — the failure that produced phantom files on
+  case-insensitive views of a case-sensitive network share). An I/O error
+  while scanning an existing library directory now raises
+  `DestinationUnresolved` instead of silently pretending no sibling exists:
+  the ingest pipeline routes the job to review (new reason
+  `destination_unresolved`, with the in-place tag write recorded as a
+  revertable `FileChange`) and the organizer skips the file. (`library/paths.py`,
+  `library/mover.py`, `ingest/pipeline.py`, `library/organizer.py`, `models.py`)
+- **Generated folder/file names are unicode-normalized.** `sanitize_segment`
+  now applies NFC, strips zero-width/soft-hyphen characters, maps exotic
+  dashes (U+2010/‑/–/—/−) and curly quotes to their ASCII equivalents, and
+  defuses Windows reserved device names (`CON`, `COM1`…). Diacritics and
+  non-Latin scripts are untouched — no ASCII folding. Stops MusicBrainz
+  credit strings from materializing U+2010 hyphens in folder names
+  (`Tay‐K`, Spider‐Man soundtracks). (`library/paths.py`)
+
 ### Fixed (cleanup/reidentify review — 2026-07-14)
 - **Re-identify no longer burns a MusicBrainz text search per unmatched track.**
   The batch applies fingerprint-confirmed matches only, so `candidates_for_file`

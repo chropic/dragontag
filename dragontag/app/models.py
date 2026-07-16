@@ -130,6 +130,8 @@ class ReviewReason(str, Enum):
     cover_fetch_failed = "cover_fetch_failed"  # CAA unreachable (5xx/SSL); retriable
     missing_releasetype = "missing_releasetype"  # MB release-group has no primary-type
     dry_run = "dry_run"  # dry-run mode: preview without writing
+    destination_unresolved = "destination_unresolved"  # library dir scan failed; moving could mint a case twin
+    album_mismatch = "album_mismatch"  # file doesn't appear on the release its album folder matched
 
 
 class Job(SQLModel, table=True):

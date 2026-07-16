@@ -24,8 +24,12 @@ class MoveResult:
 def move(source: Path, destination: Path, *, overwrite: bool = False) -> MoveResult:
     """Move ``source`` to ``destination``.
 
-    Creates parent directories as needed. ``shutil.move`` handles same-FS
-    rename (fast) and cross-FS copy+delete (slow but correct) transparently.
+    Creates parent directories as needed (belt-and-braces only: canonical
+    library destinations are created inside ``paths.build_destination``'s
+    ``ensure_dirs=True`` critical section, which is what guarantees the
+    case-folded resolve and the mkdir happen atomically — this mkdir is
+    idempotent by then). ``shutil.move`` handles same-FS rename (fast) and
+    cross-FS copy+delete (slow but correct) transparently.
     """
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():

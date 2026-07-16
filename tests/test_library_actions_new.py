@@ -6,7 +6,6 @@ import pytest
 from dragontag.app.db import session
 from dragontag.app.library.actions import (
     find_duplicates,
-    normalize_filenames,
     prune_library,
     validate_tags,
 )
@@ -61,25 +60,6 @@ def test_prune_removes_junk_and_empty_dirs_only(folder):
     assert (album / "01. Song.flac").exists()      # audio untouched
     assert not (root / "Empty").exists()           # empty tree pruned
     assert album.exists()
-
-
-def test_normalize_filenames_fixes_extension_and_spaces(folder):
-    fid, root = folder
-    tid = _add_track(fid, root / "Album" / "01.  Song .FLAC")
-
-    out = normalize_filenames(fid)
-
-    assert out["renamed"] == 1
-    target = root / "Album" / "01. Song.flac"
-    assert target.exists()
-    with session() as s:
-        assert s.get(Track, tid).path == str(target)
-
-
-def test_normalize_skips_already_clean_names(folder):
-    fid, root = folder
-    _add_track(fid, root / "Album" / "01. Song.flac")
-    assert normalize_filenames(fid)["renamed"] == 0
 
 
 def test_validate_tags_reports_problems(folder):

@@ -1307,12 +1307,21 @@ def library_bulk_retag(
     request: Request,
     _: None = Depends(require_auth),
     source_path: str = Form(""),
+    folder_id: str = Form(""),
     dry_run: str | None = Form(None),
 ):
+    """THE re-tag entry point: every file goes through the one tagging pass
+    (identify → tag → move, album-first). Takes either an explicit server
+    path (dashboard form) or a library folder id (Library page card)."""
     from .ingest.bulk import enqueue_folder
     # source_path is optional at the API layer so a blank submit surfaces a
     # friendly toast instead of a raw 422 validation page.
     sp = source_path.strip()
+    if not sp and folder_id.strip().isdigit():
+        with session() as s:
+            f = s.get(LibraryFolder, int(folder_id))
+            if f:
+                sp = f.path
     if not sp:
         return _toast("Enter a folder path first.", "error")
     # Per-request dry-run only — the checkbox never mutates the global setting.
@@ -1814,30 +1823,6 @@ def library_verify_integrity(request: Request, _: None = Depends(require_auth), 
     return _toast_response("/library", "Integrity check started — track it on the Queue page.")
 
 
-@app.post("/library/fix-disc-folders")
-def library_fix_disc_folders(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
-    from .library.actions import fix_disc_folders
-    tasks.run_task("fix_disc_folders", f"Fix disc folders (folder {folder_id})",
-                   lambda ctx: fix_disc_folders(folder_id, ctx=ctx))
-    return _toast_response("/library", "Disc-folder normalization started.")
-
-
-@app.post("/library/fix-album-splits")
-def library_fix_album_splits(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
-    from .library.actions import fix_album_splits
-    tasks.run_task("fix_album_splits", f"Fix album splits (folder {folder_id})",
-                   lambda ctx: fix_album_splits(folder_id, ctx=ctx))
-    return _toast_response("/library", "Album-split repair started — split albums will be unified onto one release.")
-
-
-@app.post("/library/unify-artist-folders")
-def library_unify_artist_folders(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
-    from .library.actions import unify_artist_folders
-    tasks.run_task("unify_artist_folders", f"Fix artist folders (folder {folder_id})",
-                   lambda ctx: unify_artist_folders(folder_id, ctx=ctx))
-    return _toast_response("/library", "Artist-folder unification started — duplicate artist folders will be merged.")
-
-
 @app.post("/library/find-missing-tracks")
 def library_find_missing_tracks(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
     from .library.actions import find_missing_tracks
@@ -1885,37 +1870,12 @@ def library_cleanup(
     )
 
 
-@app.post("/library/reidentify")
-def library_reidentify(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
-    """AcoustID re-identify tracks with no MusicBrainz recording id, in place."""
-    from .library.actions import reidentify_tracks
-    if msg := _batch_guard():
-        return _toast_response("/library", msg, "error")
-    tasks.run_task("reidentify", f"Re-identify untagged tracks (folder {folder_id})",
-                   lambda ctx: reidentify_tracks(folder_id, ctx=ctx))
-    return _toast_response("/library", "Re-identify started — fingerprint matches are applied in place.")
-
-
-@app.post("/library/normalize-filenames")
-def library_normalize_filenames(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
-    from .library.actions import normalize_filenames
-    tasks.run_task("normalize_filenames", f"Normalize filenames (folder {folder_id})",
-                   lambda ctx: normalize_filenames(folder_id, ctx=ctx))
-    return _toast_response("/library", "Filename normalization started.")
-
-
 @app.post("/library/validate-tags")
 def library_validate_tags(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
     from .library.actions import validate_tags
     tasks.run_task("validate_tags", f"Validate tags (folder {folder_id})",
                    lambda ctx: validate_tags(folder_id, ctx=ctx))
     return _toast_response("/library", "Tag validation started (report only) — see the job log.")
-
-
-def _chain_steps_for(action_keys: list[str], folder_id: int) -> list[tuple[str, Any]]:
-    """Map LIBRARY_ACTIONS keys to (label, fn) steps bound to ``folder_id``."""
-    from .library.actions import build_chain_steps
-    return build_chain_steps(action_keys, folder_id)
 
 
 def _batch_guard() -> str | None:
@@ -1931,153 +1891,6 @@ def _batch_guard() -> str | None:
     if running:
         return f"'{running.original_name}' is still running — wait for it to finish first."
     return None
-
-
-def _scan_all_steps() -> list[tuple[str, Any]]:
-    """Steps that scan every library folder, unconditionally prepended to
-    every queued library action so it never runs against stale track data."""
-    from .library.scanner import scan_folder
-    with session() as s:
-        folders = s.exec(
-            select(LibraryFolder).order_by(LibraryFolder.priority, LibraryFolder.id)
-        ).all()
-    return [
-        (f"Scan {f.label or f.path}",
-         (lambda fp=Path(f.path), fid=f.id: (lambda ctx: scan_folder(fp, fid, ctx=ctx)))())
-        for f in folders
-    ]
-
-
-@app.post("/library/run-selected")
-def library_run_selected(
-    request: Request,
-    _: None = Depends(require_auth),
-    folder_id: int = Form(...),
-    actions: list[str] = Form(default=[]),
-):
-    """Queue several individual library actions as one sequential chain job."""
-    from .library.actions import LIBRARY_ACTIONS
-    # Run in registry (canonical) order regardless of checkbox order.
-    keys = [k for k in LIBRARY_ACTIONS if k in actions]
-    if not keys:
-        return _toast_response("/library", "Select at least one action first.", "error")
-    if msg := _batch_guard():
-        return _toast_response("/library", msg, "error")
-    steps = _scan_all_steps() + _chain_steps_for(keys, folder_id)
-    job_id = tasks.run_chain("library_chain", f"{len(steps)} library action(s) (folder {folder_id})", steps)
-    return _toast_response(
-        "/library", f"Queued {len(steps)} action(s) — track them on the Queue page.", job_id=job_id
-    )
-
-
-@app.post("/library/batch/organize")
-def library_batch_organize(request: Request, _: None = Depends(require_auth), folder_id: int = Form(...)):
-    """Organize batch: structural cleanup of an existing library folder."""
-    from .library.actions import BATCH_ORGANIZE
-    from .library.organizer import organize_folder
-    if msg := _batch_guard():
-        return _toast_response("/library", msg, "error")
-    steps: list[tuple[str, Any]] = _scan_all_steps() + [
-        ("Organize files", lambda ctx: organize_folder(folder_id, ctx=ctx)),
-    ] + _chain_steps_for(BATCH_ORGANIZE, folder_id)
-    job_id = tasks.run_chain("batch_organize", f"Organize library (folder {folder_id})", steps)
-    return _toast_response(
-        "/library",
-        "Organize batch started — covers, disc folders, junk, duplicates and missing tracks.",
-        job_id=job_id,
-    )
-
-
-@app.post("/library/batch/retag")
-def library_batch_retag(
-    request: Request,
-    _: None = Depends(require_auth),
-    folder_id: int = Form(...),
-    dry_run: str | None = Form(None),
-):
-    """Re-tag batch: tag QA + advisories + ReplayGain, then the full
-    identify → tag → move pipeline over the folder."""
-    from .library.actions import BATCH_RETAG
-    if msg := _batch_guard():
-        return _toast_response("/library", msg, "error")
-    with session() as s:
-        f = s.get(LibraryFolder, folder_id)
-        if not f:
-            raise HTTPException(404)
-        folder_path = Path(f.path)
-    use_dry_run = bool(dry_run)
-
-    def _enqueue(ctx) -> dict:
-        from .ingest.bulk import enqueue_folder
-        job_ids = enqueue_folder(folder_path, dry_run=use_dry_run)
-        ctx.log(f"Enqueued {len(job_ids)} file(s) for identify → tag → move")
-        return {"enqueued": True}
-
-    steps = _scan_all_steps() + _chain_steps_for(BATCH_RETAG, folder_id) + [("Re-tag pipeline", _enqueue)]
-    job_id = tasks.run_chain("batch_retag", f"Full library re-tag (folder {folder_id})", steps)
-    return _toast_response(
-        "/library",
-        "Re-tag batch started — validation, advisories, ReplayGain, then the full pipeline.",
-        job_id=job_id,
-    )
-
-
-@app.post("/library/batch/nuclear")
-def library_batch_nuclear(
-    request: Request,
-    _: None = Depends(require_auth),
-    folder_id: int = Form(...),
-    dry_run: str | None = Form(None),
-):
-    """Nuclear option: every action in dependency order, in one chain.
-
-    The identify -> tag -> move pipeline runs first (and the chain blocks
-    until every enqueued file finishes) so every later step — disc/filename
-    cleanup, ReplayGain, duplicate/missing-track reports — sees up-to-date
-    tags rather than racing the pipeline's background worker.
-    """
-    from .library.actions import BATCH_NUCLEAR
-    if msg := _batch_guard():
-        return _toast_response("/library", msg, "error")
-    with session() as s:
-        f = s.get(LibraryFolder, folder_id)
-        if not f:
-            raise HTTPException(404)
-        folder_path = Path(f.path)
-    use_dry_run = bool(dry_run)
-
-    def _enqueue_and_wait(ctx) -> dict:
-        from .ingest.bulk import enqueue_folder
-        job_ids = enqueue_folder(folder_path, dry_run=use_dry_run)
-        ctx.log(f"Enqueued {len(job_ids)} file(s) for identify → tag → move")
-        pending = set(job_ids)
-        total = len(pending)
-        ctx.progress(0, total)
-        while pending:
-            ctx.check_cancelled()
-            time.sleep(1.0)
-            with session() as s2:
-                finished = {
-                    j.id for j in s2.exec(
-                        select(Job).where(
-                            Job.id.in_(pending),
-                            Job.status.not_in(list(_ACTIVE_JOB_STATUSES)),
-                        )
-                    ).all()
-                }
-            pending -= finished
-            ctx.progress(total - len(pending), total)
-        return {"enqueued": total}
-
-    steps = (
-        _scan_all_steps()
-        + [("Re-tag pipeline", _enqueue_and_wait)]
-        + _chain_steps_for(BATCH_NUCLEAR, folder_id)
-    )
-    job_id = tasks.run_chain("batch_nuclear", f"Nuclear option (folder {folder_id})", steps)
-    return _toast_response(
-        "/library", "Nuclear option started — everything, in order. Godspeed.", job_id=job_id
-    )
 
 
 @app.get("/library/incomplete", response_class=HTMLResponse)
@@ -2308,15 +2121,14 @@ def schedule_create(
     if not scheduler.is_valid_cron(cron):
         return _toast_response("/schedule", f"Invalid cron expression: {cron}", "error")
     params: dict = {}
-    if task_type in ("scan", "organize", "batch_organize", "batch_retag", "fetch_lyrics", "fetch_covers", "cleanup"):
+    if task_type in ("scan", "organize", "fetch_lyrics", "fetch_covers", "cleanup"):
         if not folder_id.strip().isdigit():
             return _toast_response("/schedule", "Pick a library folder for this task type.", "error")
         params["folder_id"] = int(folder_id)
-    if task_type == "bulk_retag":
+    if task_type == "retag":
         if not source_path.strip():
-            return _toast_response("/schedule", "A source path is required for bulk re-tag.", "error")
+            return _toast_response("/schedule", "A source path is required for re-tag.", "error")
         params["source_path"] = source_path.strip()
-    if task_type in ("bulk_retag", "batch_retag"):
         params["dry_run"] = bool(dry_run)
     if task_type == "cleanup":
         params["apply"] = bool(apply)

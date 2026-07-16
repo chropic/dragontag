@@ -65,24 +65,12 @@
     </form>
   </div>
 
-  {# Organize batch card #}
-  <div class="relative border border-[#4a4326] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-2">
-    <span class="dt-label" style="color:#f2e5b5">organize</span>
-    <p class="text-xs text-[#8a8a8a]">Structural cleanup batch: move files to match templates, fix disc folders, normalize filenames, extract embedded covers, prune junk &amp; empty folders, find duplicates and missing tracks.</p>
-    <p class="text-xs text-[#ffb4b4]">&#9888; Files are moved/renamed; junk files and empty directories are deleted. Audio is never deleted.</p>
-    <form method="post" action="/library/batch/organize"
-          onsubmit="return confirm('Run the Organize batch? Files will be moved/renamed to match templates and junk + empty folders will be deleted (audio files are never deleted).');">
-      <input type="hidden" name="folder_id" value="{{ active_id }}">
-      <button class="mt-1 px-3 py-1.5 border border-[#4a4326] bg-[#0e0d08] text-[#f2e5b5] hover:border-[#f2e5b5] text-xs">[ organize ]</button>
-    </form>
-  </div>
-
-  {# Re-tag batch card #}
-  <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-2">
-    <span class="dt-label">full re-tag</span>
-    <p class="text-xs text-[#8a8a8a]">Tag pipeline batch: validate tags, re-tag advisories, recompute ReplayGain, then queue every file through the full identify → tag → move pipeline.</p>
-    <form method="post" action="/library/batch/retag" class="space-y-1"
-          onsubmit="return confirm('Run the full re-tag batch on this library folder? Every file goes through identify → tag → move.');">
+  {# Retag card — THE tagging pass. #}
+  <div class="relative border border-[#335533] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-2">
+    <span class="dt-label" style="color:#c7f0c7">retag</span>
+    <p class="text-xs text-[#8a8a8a]">The one tagging pass: every file goes through identify → tag → move. Album folders are identified as a unit against a single MusicBrainz release, so albums can't split across editions. Uncertain matches land in the review queue.</p>
+    <form method="post" action="/library/bulk-retag" class="space-y-1"
+          onsubmit="return confirm('Re-tag this library folder? Every file goes through identify → tag → move; uncertain matches go to review.');">
       <input type="hidden" name="folder_id" value="{{ active_id }}">
       <div class="flex items-center gap-2 text-xs">
         <label class="flex items-center gap-1" title="Applies to this run only — the global dry-run setting is unchanged.">
@@ -90,50 +78,34 @@
         </label>
         {% if settings.dry_run %}<span class="text-[#f2e5b5]">global default: on</span>{% endif %}
       </div>
-      <button class="px-3 py-1.5 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f] text-xs">[ re-tag ]</button>
+      <button class="px-3 py-1.5 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f] text-xs">[ retag ]</button>
     </form>
   </div>
 
-  {# Nuclear card #}
-  <div class="relative border border-[#5a3a3a] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-2">
-    <span class="dt-label" style="color:#ffb4b4">nuclear option</span>
-    <p class="text-xs text-[#8a8a8a]">Everything, in order: the whole Organize batch, then the whole Re-tag batch. One job, one progress bar, a long wait.</p>
-    <form method="post" action="/library/batch/nuclear" class="space-y-1"
-          onsubmit="return confirm('NUCLEAR OPTION: organize, fix, prune, validate, advisories, ReplayGain, then a full identify → tag → move re-tag of every file in this folder.\n\nThis is the most invasive thing dragontag can do. Continue?');">
+  {# Organize card — move files to match the current templates, nothing else. #}
+  <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-2">
+    <span class="dt-label">organize</span>
+    <p class="text-xs text-[#8a8a8a]">Move files to their canonical Album Artist/Album paths per the current templates. No re-tagging, no deletion.</p>
+    <form method="post" action="/library/organize"
+          onsubmit="return confirm('Organize this library folder? Files are moved/renamed to match the configured templates.');">
       <input type="hidden" name="folder_id" value="{{ active_id }}">
-      <div class="flex items-center gap-2 text-xs">
-        <label class="flex items-center gap-1" title="Applies to the re-tag pipeline portion of this run only.">
-          <input type="checkbox" name="dry_run"> Dry run (this run only)
-        </label>
-        {% if settings.dry_run %}<span class="text-[#f2e5b5]">global default: on</span>{% endif %}
-      </div>
-      <button class="px-3 py-1.5 border border-[#5a3a3a] bg-[#0e0808] text-[#ffb4b4] hover:border-[#ffb4b4] text-xs font-bold">[ launch ]</button>
+      <button class="mt-1 px-3 py-1.5 border border-[#2a2a2a] bg-[#0c0c0c] text-[#cfcfcf] hover:border-[#3a3a3a] text-xs">[ organize ]</button>
     </form>
   </div>
 
-  {# Individual library actions — run one now, or tick several and queue them
-     as a single sequential chain. #}
+  {# Individual helper actions: single-field backfills + read-only reports. #}
   <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 lg:col-span-2">
-    <span class="dt-label">individual actions</span>
-    <div class="flex items-center justify-end mb-3">
-      <button type="submit" form="actions-chain-form"
-              class="px-3 py-1 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f] text-xs"
-              title="Run all checked actions one after another as a single job.">[ queue selected ]</button>
-    </div>
-    <form id="actions-chain-form" method="post" action="/library/run-selected">
-      <input type="hidden" name="folder_id" value="{{ active_id }}">
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-        {% for key, label, desc in library_actions %}
-        <div class="flex items-center gap-2 border border-[#1f1f1f] px-2 py-1.5 hover:border-[#3a3a3a]" title="{{ desc }}">
-          <input type="checkbox" name="actions" value="{{ key }}" form="actions-chain-form">
-          <span class="text-xs flex-1 text-[#cfcfcf]">{{ label }}</span>
-          <button type="submit" form="action-run-{{ key }}"
-                  class="text-[11px] px-2 py-0.5 border border-[#2a2a2a] text-[#8a8a8a] hover:text-white hover:border-[#3a3a3a]"
-                  title="Run just this action now.">run</button>
-        </div>
-        {% endfor %}
+    <span class="dt-label">helpers &amp; reports</span>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 mt-2">
+      {% for key, label, desc in library_actions %}
+      <div class="flex items-center gap-2 border border-[#1f1f1f] px-2 py-1.5 hover:border-[#3a3a3a]" title="{{ desc }}">
+        <span class="text-xs flex-1 text-[#cfcfcf]">{{ label }}</span>
+        <button type="submit" form="action-run-{{ key }}"
+                class="text-[11px] px-2 py-0.5 border border-[#2a2a2a] text-[#8a8a8a] hover:text-white hover:border-[#3a3a3a]"
+                title="Run this action now.">run</button>
       </div>
-    </form>
+      {% endfor %}
+    </div>
     {# Per-action single-run carrier forms (buttons reference them via form=). #}
     {% for key, label, desc in library_actions %}
     <form id="action-run-{{ key }}" method="post" action="/library/{{ key | replace('_', '-') }}" class="hidden">
@@ -142,23 +114,18 @@
     {% endfor %}
   </div>
 
-  {# Cleanup (apply) + re-identify. The registry "run" buttons above trigger the
-     safe report-only cleanup and the re-identify; these explicit forms add the
-     confirm-gated apply/quarantine and re-tag-in-place variants. #}
+  {# Cleanup (apply). The registry "run" button above triggers the safe
+     report-only cleanup; this explicit form adds the confirm-gated
+     apply/quarantine variant. #}
   <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 lg:col-span-2 space-y-3">
-    <span class="dt-label">cleanup &amp; re-identify</span>
+    <span class="dt-label">cleanup</span>
     <form method="post" action="/library/cleanup"
-          onsubmit="return this.apply.checked ? confirm('Apply cleanup? Edition-suffix twin album folders (X / X - Single / X (Deluxe)) will be merged and leftover files moved to the quarantine folder (<library>/.dragontag-trash). Nothing is deleted and audio is never quarantined.') : true;">
+          onsubmit="return this.apply.checked ? confirm('Apply cleanup? Case-twin artist folders and edition-suffix twin album folders will be merged; only byte-identical duplicate covers and dead-folder leftovers move to the quarantine folder (<library>/.dragontag-trash). Nothing is deleted and audio is never quarantined.') : true;">
       <input type="hidden" name="folder_id" value="{{ active_id }}">
       <label class="flex items-center gap-2 text-xs text-[#cfcfcf]">
         <input type="checkbox" name="apply"> Apply (merge twins + quarantine leftovers) — unchecked = report only
       </label>
       <button class="mt-2 px-3 py-1 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f] text-xs">[ run cleanup ]</button>
-    </form>
-    <form method="post" action="/library/reidentify"
-          onsubmit="return confirm('Fingerprint and re-tag every track with no MusicBrainz id? Tags are rewritten in place (files are not moved).');">
-      <input type="hidden" name="folder_id" value="{{ active_id }}">
-      <button class="px-3 py-1 border border-[#2a2a2a] text-[#8a8a8a] hover:text-white hover:border-[#3a3a3a] text-xs">[ re-identify untagged tracks ]</button>
     </form>
   </div>
 

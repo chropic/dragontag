@@ -4,6 +4,31 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Removed (scope cut: one tagging pass — 2026-07-16)
+- **The batch compositions and structural repair actions are gone.** Removed
+  `BATCH_ORGANIZE` / `BATCH_RETAG` / `BATCH_NUCLEAR`, `build_chain_steps`, and
+  the actions `fix_album_splits`, `check_album_consistency`,
+  `unify_artist_folders`, `fix_disc_folders`, `normalize_filenames`,
+  `reidentify_tracks` (plus their private helpers), along with their routes
+  (`/library/batch/*`, `/library/run-selected`, `/library/fix-album-splits`,
+  `/library/unify-artist-folders`, `/library/fix-disc-folders`,
+  `/library/normalize-filenames`, `/library/reidentify`) and the Library page
+  batch cards / multi-select chain UI. These were unattended file-movers with
+  no dry-run — the class of tooling that nuked a real library. The ONE tagging
+  pass is now the ingest pipeline: `/library/bulk-retag` (which also accepts a
+  `folder_id`, powering the new Retag card) runs identify → tag → move with
+  album-first identification and the review queue; `fix_album_splits`' release
+  election lives on inside it (`ingest/album.py`). `LIBRARY_ACTIONS` shrinks
+  to single-field backfills (covers/lyrics/advisories/genres/ReplayGain),
+  read-only reports (validate/duplicates/missing/integrity), prune and
+  cleanup. (`library/actions.py`, `main.py`, `web/templates/library.html`)
+- **Scheduler kinds shrunk.** `TASK_TYPES` is now scan / organize / retag /
+  fetch_lyrics / fetch_covers / cleanup / backup. The `batch_organize` and
+  `batch_retag` kinds are retired: existing schedule rows are disabled (never
+  deleted) at boot with an explanatory status; `bulk_retag` is accepted as a
+  legacy alias for `retag` at dispatch. (`scheduler.py`, `main.py`,
+  `web/templates/schedule.html`)
+
 ### Added (album-first identification — 2026-07-16)
 - **Files ingested from one album folder are now identified as a unit.** Jobs
   enqueued together share a new `Job.group_key` (the album folder's resolved

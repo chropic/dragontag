@@ -60,21 +60,40 @@ dragontag/app/
   logsetup.py              0–4 verbosity → logging levels; tolerant of corrupt values (→ INFO).
   timeutil.py              now_utc() — naive-UTC everywhere in the DB.
   ingest/
-    pipeline.py            Per-file orchestration. enqueue (dedup under _enqueue_lock) → process
-                           → _process_inner (identify branches) → _finalize_and_commit →
-                           _commit_tag_path (snapshot → write_tags → move, under path_lock) →
-                           _record_change/_upsert_track. start_worker/_worker_loop (ONE thread),
-                           submit, resubmit_pending (boot recovery). _select_candidate: among
-                           near-tied candidates (_CONSENSUS_EPSILON of top score) prefer
-                           Official → library-majority release for the release group
-                           (_existing_release_for_group) → larger edition → smallest id, so one
-                           album's tracks converge on one release; threshold still gates on the
-                           raw score leader.
+    pipeline.py            Per-file orchestration. enqueue (dedup under _enqueue_lock; takes
+                           group_key) → process → _process_inner (identify branches) →
+                           _finalize_and_commit → _commit_tag_path (snapshot → write_tags →
+                           move, under path_lock; DestinationUnresolved → needs_review with a
+                           FileChange for the in-place write) → _record_change/_upsert_track.
+                           start_worker/_worker_loop (ONE thread), submit, resubmit_pending
+                           (boot recovery). Identification order: album-group election first
+                           (job.group_key set → ingest/album.py elects ONE release for the
+                           whole folder; per-file MBID short-circuit is DEMOTED inside a group;
+                           unmatched member → ReviewReason.album_mismatch; election impossible
+                           → per-track fallback), then MBID short-circuit, MB text search,
+                           AcoustID. _select_candidate: among near-tied candidates
+                           (_CONSENSUS_EPSILON of top score) prefer Official → library-majority
+                           release for the release group (_existing_release_for_group) → larger
+                           edition → smallest id (per-track safety net for ungrouped files);
+                           threshold still gates on the raw score leader.
+    album.py               Album-group release election. GroupElection (release_id, full
+                           release_doc, recording_by_job, score, unmatched_job_ids);
+                           elect_release: per-file MB search candidates + pre-existing album
+                           ids (strong votes, not decisive) + AcoustID fallback → full
+                           fetch_release per candidate → greedy per-file track match (title
+                           sim + duration + track no.) → ladder coverage → Official →
+                           library-majority → larger edition → id. Score = mean match ×
+                           (0.5 + 0.5×coverage) so one stray doesn't drag a perfect album
+                           below threshold. get_or_elect memo recomputes only when NEW members
+                           join (completed members leaving must not shrink coverage mid-group).
     watcher.py             watchdog observer; _Handler._pending stores (ts, size) — a path is
                            released only when the settle window elapsed AND size stopped changing.
     uploads.py             UI upload handler; streams 1 MiB chunks; unlinks the partial file if
                            the stream fails mid-write (drop folder must never see truncated files).
-    bulk.py                Folder-level bulk re-tag enqueuer.
+    bulk.py                Folder-level bulk re-tag enqueuer; sets Job.group_key for parents
+                           holding ≥2 audio files (album-first identification), singles stay
+                           per-track. The watcher does the same for files arriving in a
+                           subfolder of the drop root.
   identify/
     existing_tags.py       mutagen-based normalized tag reader; degrades to {"duration": None}
                            on unreadable headers. Knows TXXX:/UFID:/MP4-freeform MBID aliases.
@@ -91,7 +110,7 @@ dragontag/app/
     acoustid.py            fpcalc + AcoustID lookup; swallows ALL exceptions → [].
     relookup.py            candidates_for_file: shared AcoustID→MB (fingerprint, high
                            confidence) / text-search fallback lookup for a lone file. Used by
-                           the per-track Identify route and the reidentify batch action.
+                           the per-track Identify route.
     scoring.py             Confidence model; weights sum to 1.0 by design (missing album/duration
                            caps the max score below auto-apply — intentional).
     genres.py              Whitelist filter (vendored data/genres.txt) + junk fallback.
@@ -114,14 +133,22 @@ dragontag/app/
       _id3common.py        Shared ID3v2.4 frame builder (TXXX_FIELDS, dedicated TSOP/TSO2, UFID).
   library/
     filelock.py            path_lock(path) — per-resolved-path threading.Lock. See "Locking".
-    paths.py               sanitize_segment, primary_artist, build_destination, unique_path,
-                           fold_text/artist_fold_key (case/punct/Unicode fold for grouping),
-                           strip_edition_suffixes/album_fold_key (drop "- Single"/"(Deluxe)"
-                           before folding). _reuse_folded_dir converges build_destination on an
-                           existing case/punct-variant folder; with edition_fold=True (album
-                           level only, gated on settings().fold_edition_suffixes) it also reuses
-                           an edition-suffix twin — preferring an audio-bearing then base-named
-                           candidate. Convergence, not canonical naming: reuse whatever exists;
+    paths.py               sanitize_segment (NFC + zero-width strip + exotic dash/curly-quote →
+                           ASCII + forbidden chars → "_" + Windows reserved names defused;
+                           diacritics NEVER folded), primary_artist, build_destination,
+                           unique_path, fold_text/artist_fold_key (case/punct/Unicode fold for
+                           grouping/comparison ONLY), strip_edition_suffixes/album_fold_key.
+                           _reuse_folded_dir converges build_destination on an existing
+                           case/punct-variant folder; with edition_fold=True (album level only,
+                           gated on settings().fold_edition_suffixes) it also reuses an
+                           edition-suffix twin. FAIL-CLOSED: an OSError scanning an existing
+                           parent raises DestinationUnresolved (creating the wanted-case dir
+                           could mint a case twin — the library-nuking failure on flaky SMB);
+                           callers route to review/skip, never proceed. build_destination(...,
+                           ensure_dirs=True) holds the module-global _dir_resolve_lock across
+                           resolve + mkdir so concurrent ingests can't race case-variant twin
+                           dirs into existence (path_lock is per-FILE and can't serialize
+                           this). Convergence, not canonical naming: reuse whatever exists;
                            cleanup_library merges twins later.
     mover.py               move(src, dst, overwrite=False) → MoveResult(moved, destination,
                            conflict). DOES NOT RAISE on conflict. Verifies byte count after move.
@@ -133,35 +160,34 @@ dragontag/app/
                            _prune_empty_dirs (bottom-up, never the library root).
     actions.py             LIBRARY_ACTIONS registry: key → (label, description, fn(folder_id,
                            ctx=None) -> dict). Keys map to routes /library/<key-with-dashes>.
-                           BATCH_ORGANIZE / BATCH_RETAG / BATCH_NUCLEAR step lists;
-                           build_chain_steps. fix_album_splits: per release group, elect a
-                           canonical release (recording coverage → Official → size → id) and
-                           fully re-tag every track against it (assemble_tags with the
-                           prefetched rel doc), preserving lyrics/advisory/existing art;
-                           offline _majority_pair fallback for MB-less groups (shared
-                           _normalize_track_to_pair helper with check_album_consistency).
-                           unify_artist_folders: one folder per artist — group by
-                           Track.mb_album_artist_id (else artist_fold_key), elect the
-                           majority album_artist spelling, patch+move outliers via
-                           _normalize_track_to_pair(winning_album=None) (album kept), then
-                           _rename_artist_dir for case-only dir variants. Runs before
-                           check_album_consistency in the batches.
-                           cleanup_library(apply=False): report-only in chains; apply merges
-                           edition-suffix twin album folders (bespoke moves preserving Disc N
-                           sub-paths — NOT _normalize_track_to_pair, which recomputes dest +
-                           patches tags), elects the widest cover.jpg, and QUARANTINES dead
-                           folders/leftovers to <lib>/.dragontag-trash/<ts>/ (never deletes,
-                           never quarantines audio); auto-excludes the trash from future scans.
-                           _find_dead_folders shared with prune_library. reidentify_tracks:
-                           AcoustID re-ID of tracks with mb_track_id is None, applying only
-                           fingerprint-confirmed matches via retag.apply_match (skips protected,
-                           does not move). BATCH_RETAG starts with reidentify; BATCH_ORGANIZE/
-                           BATCH_NUCLEAR include cleanup (report).
+                           DELIBERATELY SMALL (2026-07 scope cut): single-field backfills
+                           (fetch lyrics/covers, extract covers, advisories, genres,
+                           ReplayGain — in place, never move files), read-only reports
+                           (verify_integrity, validate_tags, find_duplicates,
+                           find_missing_tracks), prune, cleanup. The batch compositions
+                           (BATCH_ORGANIZE/RETAG/NUCLEAR, build_chain_steps) and structural
+                           repair actions (fix_album_splits, check_album_consistency,
+                           unify_artist_folders, fix_disc_folders, normalize_filenames,
+                           reidentify_tracks) were REMOVED — the one tagging pass is the
+                           ingest pipeline (album-first identification replaced
+                           fix_album_splits; safe destination resolution replaced the folder
+                           fixers). Do not re-add unattended file-movers without a dry-run.
+                           cleanup_library(apply=False): report-only by default; apply first
+                           merges ARTIST case-twin dirs (_merge_artist_twins: strict fold_text
+                           groups, never fuzzy — target by most audio → majority album_artist
+                           spelling → name; uses _merge_twin_folder(album_level=False) so
+                           images follow their relative sub-path), then edition-suffix twin
+                           album folders (bespoke moves preserving Disc N sub-paths), dedupes
+                           covers (ONLY byte-identical duplicates quarantined via _file_digest;
+                           distinct images stay in/move into the album folder under unique
+                           names), and QUARANTINES dead folders/leftovers to
+                           <lib>/.dragontag-trash/<ts>/ (never deletes, never quarantines
+                           audio); auto-excludes the trash from future scans.
+                           _find_dead_folders shared with prune_library.
     retag.py               apply_match(track_id, rec, rel): shared in-place re-tag (extracted
                            from the apply-match route) — assemble_tags + cover fetch (network)
                            before the path_lock write, snapshot + carry lyrics/advisory,
-                           FileChange(job_id=None) audit, _upsert_track. Used by the route and
-                           reidentify_tracks.
+                           FileChange(job_id=None) audit, _upsert_track. Used by the apply-match route.
     filters.py             is_path_excluded(p, patterns, dirs) — applied by scanner, bulk, watcher.
     revert.py              revert_change (restore tags in place under path_lock) + move_back
                            (return file to original dir; rollback checks MoveResult; adds dest
@@ -185,8 +211,9 @@ running → done | error        (background tasks via tasks.run_task only)
 - Job rows carry `candidates_json`, `chosen_tags_json`, `destination_path` so the review UI
   renders without re-querying MusicBrainz.
 - `Job.kind` distinguishes pipeline ingests (`"ingest"`) from background tasks (`scan`,
-  `organize`, `fetch_lyrics`, `fetch_covers`, `bulk_retag`, `backup`, per-action kinds,
-  `library_chain`, `batch_organize/retag/nuclear`). Non-ingest jobs use `running`, carry
+  `organize`, `fetch_lyrics`, `fetch_covers`, `retag`, `backup`, per-action kinds; historical
+  rows may carry retired kinds — `library_chain`, `batch_organize/retag/nuclear`,
+  `bulk_retag`). Non-ingest jobs use `running`, carry
   `progress_current/total/item`, can't be requeued, and are marked `error("interrupted by
   restart")` by `resubmit_pending` instead of resubmitted.
 - `Job.dry_run_override` (None = follow global `settings().dry_run`) carries per-run dry-run
@@ -204,15 +231,12 @@ read-then-write on a file's tags or location must hold it. Current holders:
 3. **Organizer** — `library/organizer.organize_folder` (move + Track.path update + rollback).
 4. **Conflict resolver** — `main.resolve_conflict` (replace/rename move + lyric sidecar).
 5. **Library actions** — every file-touching function in `library/actions.py`
-   (album-consistency tag patch + move, album-split full re-tag + move, artist-folder
-   unification tag patch + move, disc-folder flatten, filename normalize, fetch lyrics/covers,
-   advisory re-tag, genre backfill, cleanup_library twin-merge + quarantine moves) locks each
-   per-file mutate/move section. Artist-folder unification also
-   renames whole artist directories (`_rename_artist_dir`); that rename re-points every
-   `Track.path` beneath it and commits per rename.
+   (fetch lyrics/covers, advisory re-tag, genre backfill, ReplayGain,
+   cleanup_library's artist/album twin-merge + cover + quarantine moves) locks each
+   per-file mutate/move section.
 6. **Per-track edit routes / retag** — `main.py` manual tag edit, link-album, single-track
-   lyrics fetch, and `library/retag.apply_match` (shared by the apply-match route and the
-   reidentify action) lock around their in-place writes.
+   lyrics fetch, and `library/retag.apply_match` (the apply-match route) lock around their
+   in-place writes.
 
 If you add another mutator (a new action that renames/moves/retags), take the lock — the lock
 is caller-held (do NOT move it into `atomic_inplace`; the pipeline already holds the
@@ -278,8 +302,7 @@ conflict=True)` on a conflict instead of raising. Every caller must branch on `.
   Multi-value fields emit native lists, never separator-joined strings.
 - **New individual library action** → function `(folder_id, ctx=None) -> dict` in
   `library/actions.py`, register in `LIBRARY_ACTIONS` (key → (label, description, fn)); the
-  Library page, multi-select chains, batches (`BATCH_ORGANIZE`/`BATCH_RETAG`/`BATCH_NUCLEAR`)
-  and scheduler all read the registry, but the `/library/<key-with-dashes>` POST route in
+  Library page reads the registry, but the `/library/<key-with-dashes>` POST route in
   `main.py` must be added by hand (the template's carrier forms assume it exists).
 - **New pipeline step** → `ingest/pipeline._process_inner` (keep flat; review-branch routing at
   the bottom) or `_finalize_and_commit` for post-identify steps shared with the MBID short-circuit.

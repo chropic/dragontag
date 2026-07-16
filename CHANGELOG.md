@@ -4,6 +4,18 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Changed (docs + agent memory for the new shape — 2026-07-16)
+- **Docs describe the one-pass tagger.** README feature tables, the in-app manual
+  (`docs.html`: Library section rewritten around Retag/Organize/helpers, new
+  `destination_unresolved`/`album_mismatch`/`missing_releasetype` review-reason
+  entries, schedule kinds updated) and stale batch references in templates. The
+  damaged-library recovery recipe is documented as `Scan → Retag → Cleanup
+  (apply)`. Agent memory (`.claude/memory/architecture.md`, `gotchas.md`,
+  `testing.md`, `project_overview.md`) and `CLAUDE.md` hard rules updated:
+  destination dirs are created only via `build_destination(ensure_dirs=True)`.
+  (`README.md`, `web/templates/docs.html`, `web/templates/_track_edit_modal.html`,
+  `web/templates/library_incomplete.html`, `CLAUDE.md`, `.claude/memory/*`)
+
 ### Fixed (cleanup: artist case-twins merged, covers never lost — 2026-07-16)
 - **Cleanup now repairs artist-level case twins.** A new pass 0 groups
   top-level artist directories by strict `fold_text` equality (case, curly

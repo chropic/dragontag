@@ -7,12 +7,12 @@
     <div class="flex items-center justify-between gap-2">
       <h3 class="font-bold flex items-center gap-2 shrink-0">
         <span class="text-[#c7f0c7]">&#9656;</span> edit track
-        {% if t.protected %}<span class="ml-1 text-xs px-1.5 py-0.5 border border-[#4a4326] text-[#f2e5b5]" title="Skipped by library batch actions">protected</span>{% endif %}
+        {% if t.protected %}<span class="ml-1 text-xs px-1.5 py-0.5 border border-[#4a4326] text-[#f2e5b5]" title="Skipped by library actions">protected</span>{% endif %}
       </h3>
       <div class="flex items-center gap-1.5 shrink-0">
         <form method="post" action="/library/tracks/{{ t.id }}/protect">
           <button class="px-2 py-1 border border-[#2a2a2a] text-[#cfcfcf] hover:border-[#3a3a3a] text-xs"
-                  title="{% if t.protected %}Unprotect — allow library batch actions to overwrite this track again{% else %}Protect this track so library batch actions (fetch lyrics/covers, advisories, ReplayGain, the nuclear option, bulk re-tag) never overwrite your manual edit{% endif %}">
+                  title="{% if t.protected %}Unprotect — allow library actions to overwrite this track again{% else %}Protect this track so library actions (fetch lyrics/covers, advisories, ReplayGain, cleanup, retag) never overwrite your manual edit{% endif %}">
             {% if t.protected %}unprotect{% else %}protect{% endif %}
           </button>
         </form>

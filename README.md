@@ -54,7 +54,7 @@ High-confidence matches flow through hands-free. Low-confidence files land in a 
 | **Helpers & reports** | Individual per-folder actions: fetch lyrics/covers, extract covers, tag advisories, fix genres, ReplayGain (in-place, single-field, never move files), plus read-only reports (verify integrity, validate tags, find duplicates, find missing tracks), prune junk, and cleanup |
 | **Cleanup & quarantine** | The **Cleanup** action merges case-twin artist folders (`fakemink`/`Fakemink` — strict case/punctuation equality, never fuzzy) and edition-suffix twin album folders (`Afraid` / `Afraid - Single` / `Afraid (Deluxe)`), and moves dead folders + leftover non-audio into a quarantine folder (`<library>/.dragontag-trash`). Cover art is conservative: only byte-identical duplicates are quarantined — distinct images always stay with their album. Report-only by default; the apply variant never deletes and never touches audio. Ingest also reuses existing case-variant/edition folders (race-proof, fail-closed on I/O errors) to prevent new twins |
 | **Damaged-library recovery** | `Scan → Retag → Cleanup (apply)`: the retag pass unifies split albums and produces clean names; cleanup merges leftover twin folders |
-| **Incomplete albums** | Persisted results of "find missing tracks": albums with fewer local tracks than the MB total, with missing titles, MB links, and per-row dismiss |
+| **Completions page** | Library health in one place: coverage meters (lyrics/tagged/covers/genres) over live sections (songs without lyrics with per-row LRCLIB fetch, untagged files, duplicate tracks + twin album folders, tag problems) and snapshot sections with refresh jobs (incomplete albums vs MusicBrainz, missing covers/genres from a read-only file scan). Rows deep-link into fixes; the page never moves or deletes files |
 | **Library table** | Column sorting and pagination (10 / 25 / 50 / 100 / 200); explicit advisory badge on each row |
 
 ### Workflow
@@ -62,6 +62,7 @@ High-confidence matches flow through hands-free. Low-confidence files land in a 
 | Feature | Description |
 |---|---|
 | **Drop & ingest** | Drag-and-drop in the browser or drop files into the watched folder — both hit the same pipeline |
+| **Non-blocking retag** | Queueing a folder re-tag returns instantly — the enqueue walk runs as a background job with progress and cancel |
 | **Review queue** | Low-confidence matches, missing `RELEASETYPE`, and destination conflicts surface a candidate picker with scores and links, manual MB search, and action buttons |
 | **Dry-run mode** | Preview destination paths and assembled tags without touching any files — global setting plus per-run overrides on Library actions |
 | **Change history** | Every tag-write is recorded; revert a file's tags in place or move it back to its original directory with one click |

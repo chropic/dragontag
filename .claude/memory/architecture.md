@@ -41,7 +41,10 @@ dragontag/app/
   db.py                    Engine bootstrap (double-checked lock), _migrate (ad-hoc ALTERs),
                            _seed_library_folder, session() helper, reset_engine() for restore.
   models.py                SQLModel tables: LibraryFolder · Track · Job · FileChange ·
-                           ScheduledTask · IncompleteAlbum + JobStatus enum +
+                           ScheduledTask · IncompleteAlbum · HealthItem (generic snapshot
+                           health finding for the Completions page — categories
+                           missing_cover/missing_genre, delete-then-insert per
+                           folder+category by actions.scan_health) + JobStatus enum +
                            ACTIVE_JOB_STATUSES + append_job_log (byte-capped, 256 KiB).
   auth.py                  argon2 verify + signed-cookie session helpers + require_auth dep.
   notify.py                Discord webhook sender. ENTIRE body is try/excepted — the

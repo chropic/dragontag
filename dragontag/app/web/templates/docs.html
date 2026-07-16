@@ -29,6 +29,7 @@
   <a href="#keyboard" class="mr-3 hover:text-white">keyboard shortcuts</a>
   <a href="#settings" class="mr-3 hover:text-white">settings</a>
   <a href="#library" class="mr-3 hover:text-white">library</a>
+  <a href="#completions" class="mr-3 hover:text-white">completions</a>
   <a href="#review" class="mr-3 hover:text-white">review</a>
   <a href="#jobs" class="mr-3 hover:text-white">jobs</a>
   <a href="#changes" class="mr-3 hover:text-white">changes</a>
@@ -82,7 +83,7 @@ Drop file  →  Read existing tags + filename clues
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
     <li><code>/</code> — focus that page's search/filter box.</li>
     <li><code>?</code> — toggle the key-reference overlay.</li>
-    <li><code>g</code> then a letter — jump to a page: <code>d</code> dashboard, <code>l</code> library, <code>q</code> queue, <code>c</code> changes, <code>h</code> schedule, <code>s</code> settings, <code>o</code> docs.</li>
+    <li><code>g</code> then a letter — jump to a page: <code>d</code> dashboard, <code>l</code> library, <code>q</code> queue, <code>c</code> changes, <code>m</code> completions, <code>h</code> schedule, <code>s</code> settings, <code>o</code> docs.</li>
     <li><strong>Library</strong> — hover a row, then <code>space</code> toggles its checkbox, <code>Enter</code> opens its edit modal, <code>r</code> submits the re-tag form.</li>
     <li><strong>Queue</strong> — hover a row, then <code>space</code> toggles its checkbox, <code>a</code> applies it, <code>x</code> cancels it.</li>
     <li><strong>Changes</strong> — hover a row, then <code>v</code> reverts it, <code>b</code> moves it back to its original directory.</li>
@@ -135,12 +136,22 @@ Drop file  →  Read existing tags + filename clues
         <li><em>Validate tags</em> — report missing core tags, mis-encoded text and impossible track/disc numbers (report only).</li>
         <li><em>Find duplicates</em> — report likely duplicates by MB recording ID or matching artist/title/duration (report only).</li>
         <li><em>Prune junk &amp; empty folders</em> — delete OS litter (Thumbs.db, .DS_Store, *.tmp …) and completely empty directories. Also reports (never deletes) dead folders — no audio anywhere below them but leftover <code>cover.jpg</code>/<code>.lrc</code> files — and album folders with only <code>Disc NN</code> subfolders where disc 1 is missing.</li>
-        <li><em>Find missing tracks</em> — compare local counts to the MB release totals; incomplete albums land on the Library page's <strong>Incomplete</strong> tab with the missing track titles.</li>
+        <li><em>Find missing tracks</em> — compare local counts to the MB release totals; incomplete albums land on the <strong>Completions</strong> page with the missing track titles.</li>
       </ul>
     </li>
-    <li><strong>Incomplete tab</strong> — albums whose local track count is below the MusicBrainz total, with per-row MB links and dismiss. Repopulated on every "Find missing tracks" run.</li>
+    <li><strong>Completions link</strong> — the amber tab jumps to the Completions page (library health: missing tracks, duplicates, lyrics/cover/genre gaps, untagged files, tag problems). The old <code>/library/incomplete</code> URL redirects there.</li>
     <li><strong>Track table</strong> — click any column header to sort. Use the per-row checkboxes plus "Re-tag selected" to enqueue specific tracks. Choose your page size (10 / 25 / 50 / 100 / 200). The <code>×</code> at the end of a row removes a stuck entry from the DB only — the file is never touched, and a re-scan re-adds it.</li>
     <li><strong>Edit a track</strong> — opens a modal with every field editable by hand. The header has <strong>protect</strong> (exempts the track from library actions overwriting your edit) and <strong>fetch lyrics</strong> (LRCLIB, this track only) buttons. A <strong>link to album</strong> picker lets you attach the track to an album already in your library — it copies that album's album, album artist, disc/track totals, and MusicBrainz album IDs onto the track with no new MusicBrainz lookup; title, artist, and track number are left as you have them.</li>
+  </ul>
+</section>
+
+<section id="completions" class="space-y-3">
+  <h3 class="font-bold border-b border-[#242424] pb-1.5 text-[#c7f0c7]">6b. Completions</h3>
+  <p class="text-sm text-[#cfcfcf]">The Completions page (<code>/completions</code>, or <code>g</code> <code>m</code>) is the library-health report: what's missing or doubled, with links into fixes. It never moves or deletes files.</p>
+  <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
+    <li><strong>Live sections</strong> (query the index on every load): songs without lyrics (per-row LRCLIB fetch), untagged files (no MusicBrainz ids — run Retag), duplicate tracks (same MB recording, or same artist/title with durations within 3 s) plus album folders that look like twins, and tag problems (missing core fields, mojibake, impossible track/disc numbers).</li>
+    <li><strong>Snapshot sections</strong> (refreshed by background jobs via the buttons at the top): incomplete albums — local track count below the MusicBrainz release total, with the missing titles ("missing tracks" refresh, uses the network) — and missing cover art / missing genres ("covers/genres" refresh: a read-only scan of every file). Snapshot rows show when they were checked and can be dismissed.</li>
+    <li><strong>Summary tiles</strong> — coverage meters for lyrics, tagged, covers and genres, plus incomplete/duplicate counts; each tile jumps to its section.</li>
   </ul>
 </section>
 

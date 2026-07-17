@@ -86,6 +86,17 @@ recurring. When writing new code in one of these areas, check the pattern first.
   the in-place write's FileChange), organizer skips. Never "pretend and create" on a scan
   failure, and never rely on `path_lock` to serialize directory creation.
 
+## Template / DOM traps
+
+- **`form=`-attribute-associated inputs are NOT DOM descendants of their form.**
+  `queue.html`'s review checkboxes carry `form="review-bulk-form"` but live inside the
+  review cards, so `formEl.querySelectorAll('input[name=job_ids]:checked')` found NOTHING —
+  per-job picks were silently dropped and bulk apply misfired for months. Query the
+  document with the attribute selector instead:
+  `document.querySelectorAll('input[name=job_ids][form=review-bulk-form]:checked')`.
+  The browser still *submits* attribute-associated values, which is why the bug half-worked
+  and was hard to see. Applies to any control wired to a form by attribute.
+
 ## mutagen / tag-writing traps
 
 - `MP3(path, ID3=ID3)` **never raises `ID3NoHeaderError`** — mutagen swallows it and leaves

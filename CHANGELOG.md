@@ -4,6 +4,25 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Added (review queue: conflict delete-to-trash + manual tagging — 2026-07-17)
+- **Destination-conflict items gain a "Delete (to trash)" option.** The
+  confirmed button moves the incoming duplicate into
+  `.dragontag-trash/<timestamp>/` under `path_lock` (never unlinked;
+  `MoveResult` checked; `.lrc` sidecar follows), re-points the job's
+  `FileChange` audit row at the trash copy so revert/move-back still work,
+  marks the job skipped, and excludes the trash root from future scans.
+  (`main.py`, `web/templates/queue.html`)
+- **Review items can be tagged by hand.** An "edit tags manually" button on
+  each non-conflict review card lazily loads a form (new fragment
+  `_review_manual_form.html`, route `GET /review/{id}/manual-form`)
+  pre-filled from the stored candidate or the file's own tags; saving
+  (`POST /review/{id}/manual-apply`) builds a `TrackTags`, runs the shared
+  schema guarantees, and commits through the normal pipeline tail as a
+  background task — tags written, lyrics fetched, file moved to its
+  canonical destination. No MusicBrainz ids involved, so the file shows as
+  untagged on Completions. (`main.py`, `web/templates/queue.html`,
+  `web/templates/_review_manual_form.html`)
+
 ### Fixed (review queue: bulk apply + non-blocking apply — 2026-07-17)
 - **Bulk apply works again and says what actually went wrong.** The bulk form's
   submit handler collected checked rows with `bulk.querySelectorAll(...)`, but

@@ -221,6 +221,14 @@ running → done | error        (background tasks via tasks.run_task only)
   restart")` by `resubmit_pending` instead of resubmitted.
 - `Job.dry_run_override` (None = follow global `settings().dry_run`) carries per-run dry-run
   choices from the Library checkboxes; those never mutate the global setting.
+- **Review applies run in the background.** All three resolution paths (single apply,
+  bulk apply, manual tags) pre-flip the job to `tagging` in-route (row leaves the review
+  list, double submits rejected) and commit via the shared `main._apply_review_match`
+  closure inside a `review_apply`/`review_bulk` task — never in the request thread. The
+  closure accepts `tags_override` (manual tags, no MB), `release_type_override`,
+  uploaded-cover bytes, and returns the job to `needs_review` with a log line when
+  `assemble_tags` fails. `resolve_conflict` also offers `delete` (quarantine the incoming
+  duplicate to `.dragontag-trash`, FileChange re-pointed, job → skipped).
 - Use `models.ACTIVE_JOB_STATUSES` for "in-flight" checks — don't hand-roll status lists.
 - `Job.log` is capped at 256 KiB **measured in encoded bytes** via `append_job_log`.
 

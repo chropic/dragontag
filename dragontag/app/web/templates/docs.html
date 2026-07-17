@@ -160,10 +160,11 @@ Drop file  →  Read existing tags + filename clues
   <p class="text-sm text-[#cfcfcf]">Review and Jobs now live together on the <strong>Queue</strong> page (the old <code>/review</code> and <code>/jobs</code> URLs redirect there). A file lands in the review section when it scored below the threshold, no candidate was found, the destination already exists, RELEASETYPE was missing, or dry-run mode was on. From there you can:</p>
   <ul class="text-sm text-[#cfcfcf] list-disc list-inside space-y-1">
     <li>Search MusicBrainz manually by title / artist / album or a pasted MB URL / ID — click <strong>Search</strong> (or press Enter in any field) to run the query.</li>
-    <li>Pick any of the top candidates and apply.</li>
+    <li>Pick any of the top candidates and apply. Applying runs as a background task — the row flips to <em>tagging</em> immediately and the write/move happens off-request (watch the progress line or the Jobs list).</li>
     <li>Override RELEASETYPE, upload custom cover art, or pick a different cover-art thumbnail.</li>
-    <li>Resolve conflicts with <strong>Replace</strong>, <strong>Rename</strong>, or <strong>Skip</strong>.</li>
-    <li>Bulk-select rows and click <strong>Apply top candidate</strong> to clear them in one go.</li>
+    <li><strong>Edit tags manually</strong> — for files MusicBrainz doesn't know: a form pre-filled from the file's own tags (or the pending candidate) with title/artist/album/album&nbsp;artist/track/disc/date/genres. Saving writes the tags, fetches lyrics, and files the track under <code>Album Artist/Album/</code> like any other commit. No MusicBrainz ids are written, so the file shows in the Completions "untagged" section.</li>
+    <li>Resolve conflicts with <strong>Replace</strong>, <strong>Rename</strong>, <strong>Skip</strong>, or <strong>Delete (to trash)</strong> — delete moves the incoming duplicate into <code>.dragontag-trash/&lt;timestamp&gt;/</code> (recoverable, never unlinked; the existing library file is kept).</li>
+    <li>Bulk-select rows and click <strong>apply selected</strong> to clear them in one background run — each row applies your chosen radio candidate (falling back to its stored top candidate); rows with nothing resolvable are skipped and counted in the toast.</li>
   </ul>
 </section>
 

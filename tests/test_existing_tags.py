@@ -40,3 +40,37 @@ def test_has_lyrics_vorbis_and_mp4():
 def test_has_lyrics_id3_uslt():
     assert _has_lyrics(_FrameTags(uslt=["frame"])) is True
     assert _has_lyrics(_FrameTags(uslt=[])) is False
+
+
+def _make_flac(path):
+    """Minimal valid FLAC with a VorbisComment block (mirrors test_partial_genre)."""
+    from mutagen.flac import FLAC
+    magic = b"fLaC"
+    hdr = bytes([0x80]) + (34).to_bytes(3, "big")  # last-block | STREAMINFO, len 34
+    sr, ch, bps = 44100, 2, 16
+    packed = (sr << 44) | ((ch - 1) << 41) | ((bps - 1) << 36) | 0
+    streaminfo = (
+        (4096).to_bytes(2, "big") + (4096).to_bytes(2, "big")
+        + (0).to_bytes(3, "big") + (0).to_bytes(3, "big")
+        + packed.to_bytes(8, "big") + b"\x00" * 16
+    )
+    path.write_bytes(magic + hdr + streaminfo)
+    f = FLAC(str(path))
+    f["TITLE"] = ["Song"]
+    f["ARTIST"] = ["Band"]
+    f.save()
+
+
+def test_read_flac_with_mp4_aliases_does_not_raise(tmp_path):
+    # Regression: read() queries MP4-style keys ("\xa9nam", …) as aliases. On a
+    # FLAC the tag container is a mutagen VCommentDict whose .get() raises
+    # ValueError on a non-ASCII key instead of returning None, which used to
+    # crash every dragged/dropped FLAC. read() must swallow that and return the
+    # Vorbis values it can read.
+    from dragontag.app.identify import existing_tags
+
+    p = tmp_path / "track.flac"
+    _make_flac(p)
+    out = existing_tags.read(p)  # must not raise
+    assert out["title"] == "Song"
+    assert out["artist"] == "Band"

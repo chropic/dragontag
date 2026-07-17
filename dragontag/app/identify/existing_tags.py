@@ -62,7 +62,17 @@ def read(path: Path) -> dict[str, Any]:
     def first(*keys: str) -> str | None:
         """Return the first non-empty value found under any of ``keys``."""
         for k in keys:
-            v = f.tags.get(k) if f.tags else None
+            # Some tag containers validate the key on lookup instead of just
+            # missing it: mutagen's Vorbis ``VCommentDict.get`` routes through
+            # ``__getitem__`` and raises ``ValueError`` for a non-ASCII key (the
+            # MP4-style ``\xa9nam``/``\xa9ART`` aliases below), so ``.get`` does
+            # NOT honour the usual "missing → None" contract here. Treat any
+            # raising key as "not present" and move on. (``_has_lyrics`` guards
+            # the same way for the same reason.)
+            try:
+                v = f.tags.get(k) if f.tags else None
+            except Exception:
+                v = None
             if not v:
                 continue
             return _coerce(v)

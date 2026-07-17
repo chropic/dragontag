@@ -693,6 +693,15 @@ async def review_bulk_apply(request: Request, _: None = Depends(require_auth)):
             if not rec or not rel:
                 candidates = (job.candidates_json or {}).get("items", [])
                 if not candidates:
+                    # No user pick and nothing stored to fall back on (e.g. a
+                    # dry-run/conflict item mixed into the batch). Skip it rather
+                    # than error the whole apply, and log why so a "fewer applied
+                    # than selected" outcome is explainable.
+                    log.info(
+                        "bulk-apply: skipping job %s (%s) — no pick and no stored candidate",
+                        job_id,
+                        job.review_reason.value if job.review_reason else "review",
+                    )
                     continue
                 rec, rel = candidates[0]["recording_id"], candidates[0]["release_id"]
             cover_url = str(form.get(f"cover_{job_id}", "")).strip()

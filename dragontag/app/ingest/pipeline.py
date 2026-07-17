@@ -36,7 +36,7 @@ from ..library.mover import move, move_lyric_sidecar, write_cover_jpg
 from ..library.paths import DestinationUnresolved, build_destination
 from ..models import FileChange, Job, JobStatus, ReviewReason, append_job_log
 from ..tagging import snapshot
-from ..tagging.coverart import fetch_for_release, fetch_for_release_group
+from ..tagging.coverart import fetch_for_release, fetch_for_release_group, find_local_cover
 from ..tagging.schema import TrackTags
 from ..tagging.writers import write_tags
 from ..timeutil import now_utc
@@ -610,6 +610,26 @@ def _finalize_and_commit(s: Session, job: Job, src: Path, tags: TrackTags, *, sc
     _commit_tag_path(s, job, src, tags, score=score)
 
 
+def _find_local_cover(src: Path):
+    """Cover-art fallback used when the remote CAA fetch fails.
+
+    Gathers the sibling audio files sharing ``src``'s directory (so an album's
+    other tracks can donate their embedded art) and hands them, plus the
+    directory's sidecar images, to ``coverart.find_local_cover``. Returns a
+    ``CoverArt`` or ``None``.
+    """
+    siblings: list[Path] = []
+    try:
+        for p in src.parent.iterdir():
+            if p == src:
+                continue
+            if p.is_file() and p.suffix.lower() in SUPPORTED_EXTS:
+                siblings.append(p)
+    except OSError:
+        pass
+    return find_local_cover(src, siblings)
+
+
 def _commit_tag_path(s: Session, job: Job, src: Path, tags: TrackTags, *, score: float) -> None:
     """Final 'happy path' actions: cover art + write + move.
 
@@ -642,16 +662,30 @@ def _commit_tag_path(s: Session, job: Job, src: Path, tags: TrackTags, *, score:
             ):
                 cover = fetch_for_release_group(tags.mb_release_group_id)
         except requests.RequestException as e:
-            _append_log(job, f"Cover art fetch failed ({e}); routing to review")
-            _set(
-                job,
-                status=JobStatus.needs_review,
-                review_reason=ReviewReason.cover_fetch_failed,
-                score=score,
-            )
-            s.add(job)
-            s.commit()
-            return
+            # The remote CAA is unreachable, but a usable cover may be sitting
+            # right next to the file (a sidecar image, or art already embedded
+            # in this track or a sibling album track). Try that before parking
+            # the job in review — an outage otherwise clogs the queue with
+            # retriable items even when the art is available locally.
+            local = _find_local_cover(src)
+            if local is not None:
+                cover = local
+                _append_log(
+                    job,
+                    f"Cover art fetch failed ({e}); used local cover "
+                    f"{cover.width}x{cover.height} ({cover.mime})",
+                )
+            else:
+                _append_log(job, f"Cover art fetch failed ({e}); routing to review")
+                _set(
+                    job,
+                    status=JobStatus.needs_review,
+                    review_reason=ReviewReason.cover_fetch_failed,
+                    score=score,
+                )
+                s.add(job)
+                s.commit()
+                return
         if cover:
             tags.cover_bytes = cover.data
             tags.cover_mime = cover.mime

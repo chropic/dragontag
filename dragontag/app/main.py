@@ -129,6 +129,29 @@ def _toast(message: str, level: str = "success") -> Response:
         headers={"HX-Trigger": json.dumps({"showToast": {"message": message, "level": level}})},
     )
 
+
+def _is_htmx(request: Request) -> bool:
+    """True when the request came from htmx (so we answer with an in-place swap
+    + toast instead of a full-page 303 redirect)."""
+    return request.headers.get("HX-Request") == "true"
+
+
+def _hx_remove(message: str, level: str = "success", extra: dict | None = None) -> Response:
+    """Empty 200 that lets htmx swap a review card out of the DOM
+    (``hx-swap=outerHTML``) while firing a ``showToast`` — plus any extra
+    HX-Trigger events (e.g. the bulk ``reviewApplied`` id list). This is the
+    no-reload apply/skip/manual-apply success response; the card disappears and
+    the page never navigates."""
+    trigger: dict[str, Any] = {"showToast": {"message": message, "level": level}}
+    if extra:
+        trigger.update(extra)
+    return Response(
+        status_code=200,
+        content="",
+        media_type="text/html",
+        headers={"HX-Trigger": json.dumps(trigger)},
+    )
+
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
@@ -629,25 +652,43 @@ def review(request: Request):
     return RedirectResponse("/queue", status_code=308)
 
 
-def _apply_review_match(job_id: int, rec: str, rel: str, cover_url: str):
+def _apply_review_match(
+    job_id: int,
+    rec: str,
+    rel: str,
+    cover_url: str,
+    *,
+    cover_bytes: bytes | None = None,
+    cover_mime: str | None = None,
+    release_type_override: str = "",
+):
     """Build a background step that applies one chosen review match.
 
     Mirrors the single-apply path (``review_apply``): assemble tags for the
     chosen recording/release, optionally swap in a user-selected cover, then
     run the shared commit pipeline. Skips silently if the job already left the
-    review state (e.g. applied by a concurrent action)."""
+    review state (e.g. applied by a concurrent action).
+
+    ``cover_bytes`` (a request-scoped upload read before backgrounding) wins
+    over ``cover_url``; both are optional and fall back to the pipeline's own
+    CAA fetch + local-cover fallback."""
     def step(ctx) -> None:
         with session() as s:
             job = s.get(Job, job_id)
             if not job or job.status != JobStatus.needs_review:
                 return
             tags = mbq.assemble_tags(release_id=rel, recording_id=rec)
+            if release_type_override:
+                tags.release_type = release_type_override
             # Same schema guarantees as the auto-apply path (formatting,
             # RELEASETYPE inference, RELEASESTATUS default) — calling
             # _commit_tag_path directly would otherwise skip them.
             from .ingest.pipeline import prepare_tags
             prepare_tags(job, tags)
-            if cover_url:
+            if cover_bytes:
+                tags.cover_bytes = cover_bytes
+                tags.cover_mime = cover_mime or "image/jpeg"
+            elif cover_url:
                 from .net import fetch_bytes
                 try:
                     r, body = fetch_bytes(
@@ -662,6 +703,40 @@ def _apply_review_match(job_id: int, rec: str, rel: str, cover_url: str):
             from .ingest.pipeline import _commit_tag_path
             _commit_tag_path(s, job, Path(job.source_path), tags, score=job.score or 1.0)
         ctx.log(f"applied job {job_id}")
+    return step
+
+
+def _apply_manual_match(job_id: int, fields: dict[str, Any]):
+    """Build a background step that applies hand-entered tags to a review job.
+
+    Reuses the pipeline's ``prepare_tags`` + ``_commit_tag_path`` (so cover art,
+    the local-cover fallback, lyrics and the library move all run exactly as for
+    an MB match) — the only difference is the ``TrackTags`` come from the user's
+    manual fields instead of MusicBrainz."""
+    def step(ctx) -> None:
+        with session() as s:
+            job = s.get(Job, job_id)
+            if not job or job.status != JobStatus.needs_review:
+                return
+            from .tagging.schema import TrackTags
+            artist = fields.get("artist") or None
+            album_artist = fields.get("album_artist") or artist
+            tags = TrackTags(
+                title=fields.get("title") or None,
+                artist_display=artist,
+                artists=[artist] if artist else [],
+                album=fields.get("album") or None,
+                album_artist_display=album_artist,
+                album_artists=[album_artist] if album_artist else [],
+                track=fields.get("track"),
+                track_total=fields.get("track_total"),
+                disc=fields.get("disc"),
+                disc_total=fields.get("disc_total"),
+            )
+            from .ingest.pipeline import prepare_tags, _commit_tag_path
+            prepare_tags(job, tags)
+            _commit_tag_path(s, job, Path(job.source_path), tags, score=job.score or 1.0)
+        ctx.log(f"manual-tagged job {job_id}")
     return step
 
 
@@ -680,6 +755,7 @@ async def review_bulk_apply(request: Request, _: None = Depends(require_auth)):
     job_ids = [int(v) for v in form.getlist("job_ids") if str(v).strip().isdigit()]
 
     steps: list[tuple[str, Any]] = []
+    applied_ids: list[int] = []
     with session() as s:
         for job_id in job_ids:
             job = s.get(Job, job_id)
@@ -706,14 +782,20 @@ async def review_bulk_apply(request: Request, _: None = Depends(require_auth)):
                 rec, rel = candidates[0]["recording_id"], candidates[0]["release_id"]
             cover_url = str(form.get(f"cover_{job_id}", "")).strip()
             steps.append((f"Apply job {job_id}", _apply_review_match(job_id, rec, rel, cover_url)))
+            applied_ids.append(job_id)
 
     if not steps:
-        return _toast_response("/queue", "Nothing to apply — select review items first.", "error")
+        msg = "Nothing to apply — select review items first."
+        return _toast(msg, "error") if _is_htmx(request) else _toast_response("/queue", msg, "error")
     n = len(steps)
     new_job_id = tasks.run_chain("review_bulk", f"Apply {n} review match(es)", steps)
-    return _toast_response(
-        "/queue", f"Applying {n} match(es) in the background…", job_id=new_job_id
-    )
+    msg = f"Applying {n} match(es) in the background…"
+    if _is_htmx(request):
+        # hx-swap=none on the bulk form: the card removal is driven by the
+        # reviewApplied event (a JS listener drops those cards + their persisted
+        # selection), not by swapping this response into the DOM.
+        return _hx_remove(msg, extra={"reviewApplied": {"ids": applied_ids}})
+    return _toast_response("/queue", msg, job_id=new_job_id)
 
 
 @app.post("/review/{job_id}/apply")
@@ -757,7 +839,8 @@ async def review_apply(
     rec = rec or manual_recording_id.strip()
     rel = rel or manual_release_id.strip()
     if not rec or not rel:
-        return _toast_response("/queue", "Pick a candidate or enter MB ids first.", "error")
+        msg = "Pick a candidate or enter MB ids first."
+        return _toast(msg, "error") if _is_htmx(request) else _toast_response("/queue", msg, "error")
 
     with session() as s:
         job = s.get(Job, job_id)
@@ -767,50 +850,108 @@ async def review_apply(
             # A stale form / double-submit on an already-resolved job must not
             # re-run the commit path — the source has moved, so a second run
             # would fail and flip a done job to error.
-            return _toast_response(
-                "/queue", f"Job {job_id} is not awaiting review.", "error"
-            )
-        try:
-            tags = mbq.assemble_tags(release_id=rel, recording_id=rec)
-        except Exception as e:
-            raise HTTPException(500, str(e))
-        if release_type_override:
-            tags.release_type = release_type_override
-        # Shared schema guarantees (formatting, RELEASETYPE inference,
-        # RELEASESTATUS default). Runs after the override so an explicit user
-        # choice wins; prepare_tags only fills release_type when it's empty.
-        from .ingest.pipeline import prepare_tags
-        prepare_tags(job, tags)
+            msg = f"Job {job_id} is not awaiting review."
+            return _toast(msg, "error") if _is_htmx(request) else _toast_response("/queue", msg, "error")
 
-        # Cover art override: custom upload takes priority over URL selection.
-        if cover_art_file and cover_art_file.filename:
-            # Cap the in-memory read so an oversized upload can't OOM the worker.
-            tags.cover_bytes = await _read_upload_capped(
-                cover_art_file, 32 * 1024 * 1024
-            )
-            tags.cover_mime = cover_art_file.content_type or "image/jpeg"
-        elif cover_art_url:
-            from .net import fetch_bytes
-            try:
-                # User-supplied URL → SSRF guard (public host only) + redirects
-                # disabled so a 30x can't bounce us onto an internal address,
-                # and a size cap so a hostile server can't OOM the worker.
-                r, body = fetch_bytes(
-                    cover_art_url,
-                    timeout=10,
-                    max_bytes=32 * 1024 * 1024,
-                    validate=True,
-                    allow_redirects=False,
-                )
-                r.raise_for_status()
-                tags.cover_bytes = body
-                tags.cover_mime = r.headers.get("content-type", "image/jpeg")
-            except Exception:
-                pass  # fall back to normal CAA fetch inside _commit_tag_path
+    # Read any uploaded cover bytes now (request-scoped upload), then hand the
+    # slow commit — MB assemble, cover/lyrics fetch, tag write, library move —
+    # to the background worker. The request returns immediately so the page
+    # never blocks on the ~10s commit or reloads; the card is swapped out and a
+    # toast confirms. A custom upload wins over the thumbnail-strip URL.
+    cover_bytes = None
+    cover_mime = None
+    if cover_art_file and cover_art_file.filename:
+        # Cap the in-memory read so an oversized upload can't OOM the worker.
+        cover_bytes = await _read_upload_capped(cover_art_file, 32 * 1024 * 1024)
+        cover_mime = cover_art_file.content_type or "image/jpeg"
 
-        from .ingest.pipeline import _commit_tag_path
-        _commit_tag_path(s, job, Path(job.source_path), tags, score=job.score or 1.0)
-    return RedirectResponse("/queue", status_code=303)
+    step = _apply_review_match(
+        job_id, rec, rel, cover_art_url,
+        cover_bytes=cover_bytes, cover_mime=cover_mime,
+        release_type_override=(release_type_override or ""),
+    )
+    tasks.run_chain(
+        "review_apply", f"Apply review match (job {job_id})", [(f"Apply job {job_id}", step)]
+    )
+    msg = "Applying match in the background…"
+    return _hx_remove(msg) if _is_htmx(request) else _toast_response("/queue", msg)
+
+
+@app.post("/review/{job_id}/skip")
+def review_skip(job_id: int, request: Request, _: None = Depends(require_auth)):
+    """Remove an item from the review queue without touching the file.
+
+    Marks the job ``skipped`` — reversible: it stays in the jobs list and can be
+    re-queued. Mirrors the ``resolve_conflict`` ``action=="skip"`` branch but
+    works for any review item and needs no recorded destination."""
+    with session() as s:
+        job = s.get(Job, job_id)
+        if not job:
+            raise HTTPException(404)
+        if job.status != JobStatus.needs_review:
+            msg = f"Job {job_id} is not awaiting review."
+            return _toast(msg, "error") if _is_htmx(request) else _toast_response("/queue", msg, "error")
+        job.status = JobStatus.skipped
+        s.add(job)
+        s.commit()
+    msg = "Removed from review."
+    return _hx_remove(msg) if _is_htmx(request) else _toast_response("/queue", msg)
+
+
+@app.post("/review/{job_id}/manual-apply")
+def review_manual_apply(
+    job_id: int,
+    request: Request,
+    _: None = Depends(require_auth),
+    title: str = Form(""),
+    artist: str = Form(""),
+    album: str = Form(""),
+    album_artist: str = Form(""),
+    track_num: str = Form(""),
+    track_total: str = Form(""),
+    disc_num: str = Form(""),
+    disc_total: str = Form(""),
+):
+    """Apply hand-entered tags to a review item (the manual-tag interface).
+
+    Builds a ``TrackTags`` from the manual fields and runs the SAME background
+    commit as an MB match (``prepare_tags`` + ``_commit_tag_path``): write tags,
+    fetch cover art with the local-cover fallback, fetch lyrics, and move into
+    the library. Requires at least a title and artist so a destination path can
+    be built."""
+    def _int(v: str) -> int | None:
+        return int(v) if v.strip().isdigit() else None
+
+    title = title.strip()
+    artist = artist.strip()
+    if not title or not artist:
+        msg = "Manual tag needs at least a title and an artist."
+        return _toast(msg, "error") if _is_htmx(request) else _toast_response("/queue", msg, "error")
+
+    with session() as s:
+        job = s.get(Job, job_id)
+        if not job:
+            raise HTTPException(404)
+        if job.status != JobStatus.needs_review:
+            msg = f"Job {job_id} is not awaiting review."
+            return _toast(msg, "error") if _is_htmx(request) else _toast_response("/queue", msg, "error")
+
+    fields = {
+        "title": title,
+        "artist": artist,
+        "album": album.strip(),
+        "album_artist": album_artist.strip(),
+        "track": _int(track_num),
+        "track_total": _int(track_total),
+        "disc": _int(disc_num),
+        "disc_total": _int(disc_total),
+    }
+    tasks.run_chain(
+        "review_manual", f"Manual tag (job {job_id})",
+        [(f"Manual job {job_id}", _apply_manual_match(job_id, fields))],
+    )
+    msg = "Applying manual tags in the background…"
+    return _hx_remove(msg) if _is_htmx(request) else _toast_response("/queue", msg)
 
 
 @app.post("/review/{job_id}/resolve_conflict")

@@ -4,6 +4,31 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Changed (no-reload review queue — 2026-07-17)
+- **Applying a review correction no longer reloads the page or blocks ~10s.**
+  The single **Apply**, the multi-select **apply selected**, and the new
+  per-item actions all post via htmx: the slow commit (MB assemble + cover/
+  lyrics fetch + tag write + library move) runs in the background worker and the
+  card is swapped out with a toast — no navigation, no scroll jump. Bulk apply
+  reports the enqueued ids via a `reviewApplied` event that removes those cards
+  and prunes the persisted selection. Hidden recording/release/cover fields are
+  injected through `htmx:configRequest` so serialization order can't drop them.
+  (`main.py`, `web/templates/queue.html`)
+- **Your scroll position on the queue survives reloads** (sessionStorage,
+  per-tab). (`web/templates/queue.html`)
+
+### Added (per-item review actions — 2026-07-17)
+- **"X" removes an item from the review queue.** Each review card has a remove
+  button that marks the job `skipped` (reversible — it stays in the jobs list and
+  can be re-queued) and drops the card in place. (`main.py` `POST /review/{id}/skip`,
+  `web/templates/queue.html`)
+- **Manual-tag a review item.** A per-card "manual tag" panel (the same field set
+  as the library track editor) writes hand-entered title/artist/album/… and runs
+  the full commit — cover art (with the local-cover fallback), lyrics, and the
+  move into the library — for items MusicBrainz can't match. Requires at least a
+  title and artist. (`main.py` `POST /review/{id}/manual-apply`,
+  `web/templates/queue.html`)
+
 ### Fixed (review-queue ergonomics + drag/drop crash — 2026-07-17)
 - **Dragging/dropping a FLAC/Ogg no longer crashes ingest.** `existing_tags.read`
   queries MP4-style aliases (`\xa9nam`, …) against every file; on a Vorbis

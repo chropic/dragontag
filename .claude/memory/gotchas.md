@@ -247,6 +247,22 @@ recurring. When writing new code in one of these areas, check the pattern first.
   is checked it adds this one and submits the bulk form instead. The bulk submit handler cancels an
   empty submit client-side (with a `showToast` event) so the old "Nothing to apply" server bounce
   can't wipe the DOM selection. The job screen's back/`esc` targets `/queue` (was `/`).
+- **The review apply/skip/manual routes are htmx, and the commit is backgrounded.** `review_apply`
+  no longer commits in-request (that blocked ~10s and 303-reloaded the page); it reads any uploaded
+  cover bytes, then enqueues `_apply_review_match` via `tasks.run_chain` and returns — `_hx_remove`
+  (empty **200** + `HX-Trigger showToast`) for htmx so the card swaps out, or `_toast_response`
+  (303) for a plain post. Response contract used across these routes: **200 empty** = htmx swaps the
+  `closest .dt-review-item` out; **204** (`_toast`) = htmx does NOT swap (error, card stays); **303**
+  = non-htmx fallback. Branch on `_is_htmx(request)`. Because the commit is async, tests must poll
+  (see `_wait_captured` / `_wait` in the apply/action suites), not assert synchronously.
+- **queue.html apply forms carry BOTH `hx-post` and a plain `action`/`method`** (progressive
+  fallback). Hidden `recording_id`/`release_id`/`cover_art_url` (single) and `pick_{id}`/`cover_{id}`
+  (bulk) are injected in **`htmx:configRequest`** (`evt.detail.parameters`), NOT a `submit` listener —
+  htmx serializes before a submit listener would run. The bulk empty-guard `evt.preventDefault()`s in
+  configRequest to cancel the request (keeps the selection); bulk removal is driven by the server's
+  `reviewApplied:{ids}` HX-Trigger event, plus a global `htmx:afterSwap` re-prunes the persisted
+  selection. `POST /review/{id}/skip` = mark `skipped` (reversible); `POST /review/{id}/manual-apply`
+  builds a `TrackTags` from manual fields and runs the same `prepare_tags` + `_commit_tag_path`.
 - **`cover_fetch_failed` now has a local fallback.** On a `requests.RequestException` from the CAA,
   `_commit_tag_path` calls `pipeline._find_local_cover(src)` → `coverart.find_local_cover` before
   routing to review: sidecar image in the dir (`cover/folder/front/album.*`), then embedded art in

@@ -855,7 +855,7 @@ def resolve_conflict(
     job_id: int,
     request: Request,
     _: None = Depends(require_auth),
-    action: str = Form(...),  # "replace" | "rename" | "skip"
+    action: str = Form(...),  # "replace" | "rename" | "skip" | "delete"
 ):
     """Handle a destination-exists conflict per user choice."""
     from .library.filelock import path_lock
@@ -879,6 +879,59 @@ def resolve_conflict(
             s.add(job)
             s.commit()
             return RedirectResponse("/queue", status_code=303)
+
+        if action == "delete":
+            # The incoming file duplicates one already in the library: move it
+            # to the quarantine trash rather than unlinking — recoverable, and
+            # consistent with "dragontag never actually deletes". This is an
+            # explicit, confirmed, single-file user action, so it deliberately
+            # bypasses cleanup's never-quarantine-audio invariant (that guard
+            # exists for unattended bulk moves).
+            from .ingest.pipeline import _append_log, _pick_library_folder
+            from .library.actions import _quarantine_root
+            from .library.mover import move_lyric_sidecar
+
+            qroot = _quarantine_root(_pick_library_folder())
+            trash_dest = qroot / now_utc().strftime("%Y%m%dT%H%M%SZ") / src.name
+            trash_dest.parent.mkdir(parents=True, exist_ok=True)
+            with path_lock(src):
+                trash_dest = unique_path(trash_dest)
+                res = move(src, trash_dest, overwrite=False)
+                if res.moved:
+                    move_lyric_sidecar(src, trash_dest)
+            if not res.moved:
+                return _toast_response(
+                    "/queue",
+                    f"Could not move {src.name} to the trash — it may be locked or gone.",
+                    "error",
+                )
+            # Keep the audit trail intact: the pipeline recorded a FileChange
+            # at the blocked source path; re-point it at the trash location so
+            # revert / move-back can still recover the file.
+            for change in s.exec(
+                select(FileChange).where(
+                    FileChange.job_id == job.id, FileChange.file_path == str(src)
+                )
+            ).all():
+                change.file_path = str(trash_dest)
+                s.add(change)
+            _append_log(job, f"Conflict resolved: incoming file moved to trash {trash_dest}")
+            job.status = JobStatus.skipped
+            s.add(job)
+            s.commit()
+            # Keep the trash out of future scans/ingests (same self-exclusion
+            # the cleanup action applies on its first quarantine).
+            qstr = str(qroot)
+            if qstr not in settings().scan_exclude_dirs:
+                def _add(cur):
+                    dirs = list(cur.scan_exclude_dirs)
+                    if qstr not in dirs:
+                        dirs.append(qstr)
+                    return {"scan_exclude_dirs": dirs}
+                store().transact(_add)
+            return _toast_response(
+                "/queue", f"{src.name} moved to the trash folder ({qroot.name})."
+            )
 
         # This handler mutates a physical file just like the pipeline /
         # organizer / revert — hold the per-path lock so it can't interleave

@@ -235,6 +235,9 @@
       <button name="action" value="replace" class="px-3 py-1 border border-[#5a3a3a] bg-[#0e0808] text-[#ffb4b4] hover:border-[#ffb4b4]">Replace</button>
       <button name="action" value="rename" class="px-3 py-1 border border-[#2a2a2a] bg-[#0c0c0c] text-[#cfcfcf] hover:border-[#3a3a3a]">Rename (-1)</button>
       <button name="action" value="skip" class="px-3 py-1 border border-[#2a2a2a] text-[#8a8a8a] hover:border-[#3a3a3a]">Skip</button>
+      <button name="action" value="delete"
+              onclick="return confirm('Move the incoming file to the trash folder (.dragontag-trash)? The existing library file is kept. The trashed file stays recoverable.');"
+              class="px-3 py-1 border border-[#5a3a3a] text-[#ffb4b4] hover:border-[#ffb4b4]">Delete (to trash)</button>
     </form>
   {% else %}
     <form method="post" action="/review/{{ j.id }}/apply" enctype="multipart/form-data" id="apply-form-{{ j.id }}" class="mt-3 space-y-3 text-sm">

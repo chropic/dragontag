@@ -180,9 +180,13 @@
   (function () {
     const bulk = document.getElementById('review-bulk-form');
     if (!bulk) return;
-    bulk.addEventListener('submit', function () {
+    function dtToast(message, level) {
+      document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message, level } }));
+    }
+    bulk.addEventListener('submit', function (ev) {
       bulk.querySelectorAll('input[data-bulk-pick]').forEach(el => el.remove());
       const checked = bulk.querySelectorAll('input[name=job_ids]:checked');
+      let resolved = 0;
       checked.forEach(function (cb) {
         const id = cb.value;
         const jobForm = document.getElementById('apply-form-' + id);
@@ -205,9 +209,22 @@
           bulk.appendChild(h);
         };
         addHidden('pick_' + id, rec + '|' + rel);
+        resolved++;
         const coverEl = jobForm.querySelector('input[name=cover_art_url]');
         if (coverEl && coverEl.value) addHidden('cover_' + id, coverEl.value);
       });
+      // Guard the empty submit that otherwise round-trips to the server just to
+      // bounce back with an error toast — that full reload used to wipe the DOM
+      // selection. Cancel here and keep every checkbox exactly as it is.
+      if (resolved === 0) {
+        ev.preventDefault();
+        dtToast(
+          checked.length
+            ? 'Selected items have no match to apply — pick a candidate first.'
+            : 'Nothing selected — tick the review items you want to apply.',
+          'error'
+        );
+      }
     });
   })();
 </script>
@@ -218,12 +235,18 @@
   <div class="flex items-center gap-2">
     <input type="checkbox" name="job_ids" value="{{ j.id }}" form="review-bulk-form">
     <a href="/jobs/{{ j.id }}" class="font-medium text-white hover:underline truncate">{{ j.original_name }}</a>
-    <span class="text-xs px-2 py-0.5 border border-[#4a4326] text-[#f2e5b5]">{{ j.review_reason.value if j.review_reason else "review" }}</span>
+    <span class="text-xs px-2 py-0.5 border border-[#4a4326] text-[#f2e5b5]">{{ (j.review_reason.value | replace('_', ' ')) if j.review_reason else "review" }}</span>
     {% if j.dry_run_override == true or (j.review_reason and j.review_reason.value == "dry_run") %}
     <span class="text-xs px-2 py-0.5 border border-[#2a2a2a] text-[#8a8a8a]" title="Ran in dry-run mode (no files written)">DRY</span>
     {% endif %}
     {% if j.score is not none %}<span class="text-xs text-[#8a8a8a]">score {{ "%.2f"|format(j.score) }}</span>{% endif %}
   </div>
+  {% if j.source_path %}
+  {# File location shown under the filename so the source (and its parent
+     directories) is visible without opening the job screen. source_path still
+     points at the pre-move location while the job is in review. #}
+  <div class="ml-6 text-xs text-[#5a5a5a] truncate" title="{{ j.source_path }}">{{ j.source_path.rsplit('/', 1)[0] }}/</div>
+  {% endif %}
 
   {% if j.review_reason and j.review_reason.value == "destination_conflict" %}
     <form method="post" action="/review/{{ j.id }}/resolve_conflict" class="mt-2 flex gap-2 text-sm items-center flex-wrap">
@@ -457,7 +480,11 @@ document.addEventListener('mouseover', (e) => {
 dtKeys.register(' ', () => {
   if (!dtFocusedRow) return;
   const cb = dtFocusedRow.querySelector('input[type=checkbox][name=job_ids]');
-  if (cb) cb.checked = !cb.checked;
+  if (cb) {
+    cb.checked = !cb.checked;
+    // Fire change so the review-selection persistence (below) records it.
+    cb.dispatchEvent(new Event('change', { bubbles: true }));
+  }
 });
 dtKeys.register('a', () => {
   if (!dtFocusedRow) return;
@@ -469,6 +496,76 @@ dtKeys.register('x', () => {
   const btn = dtFocusedRow.querySelector('form[action$="/cancel"] button');
   if (btn) btn.click();
 });
+
+// ── Persistent review selection ──────────────────────────────────────────
+// The "needs review" checkboxes live only in the DOM, so navigating to a job
+// screen (or the "Nothing to apply" bounce) used to wipe a multi-selection.
+// Mirror the checked set into localStorage and restore it on every load, so a
+// selection survives navigation, back, and refresh. Only ids still present on
+// the page are kept (applied/cleared jobs prune themselves out).
+(function () {
+  const LS_KEY = 'dt.review.selected';
+  const reviewBoxes = () =>
+    document.querySelectorAll('input[name=job_ids][form=review-bulk-form]');
+  const loadSel = () => {
+    try { return new Set(JSON.parse(localStorage.getItem(LS_KEY) || '[]')); }
+    catch (_) { return new Set(); }
+  };
+  const saveSel = () => {
+    const ids = [];
+    reviewBoxes().forEach(b => { if (b.checked) ids.push(b.value); });
+    localStorage.setItem(LS_KEY, JSON.stringify(ids));
+  };
+  const syncSelectAll = () => {
+    const all = document.getElementById('review-select-all');
+    if (!all) return;
+    const boxes = [...reviewBoxes()];
+    all.checked = boxes.length > 0 && boxes.every(b => b.checked);
+  };
+  const restoreSel = () => {
+    const sel = loadSel();
+    reviewBoxes().forEach(b => { b.checked = sel.has(b.value); });
+    syncSelectAll();
+    saveSel();  // prune ids no longer on the page
+  };
+  document.addEventListener('change', (e) => {
+    const t = e.target;
+    if (!t) return;
+    if (t.name === 'job_ids' && t.getAttribute('form') === 'review-bulk-form') {
+      saveSel(); syncSelectAll();
+    } else if (t.id === 'review-select-all') {
+      saveSel();
+    }
+  });
+  window.addEventListener('DOMContentLoaded', restoreSel);
+  window.addEventListener('pageshow', restoreSel);
+
+  // ── Individual Apply folds into an active multi-selection ───────────────
+  // When one or more OTHER review items are already selected, clicking a single
+  // item's Apply adds this item to the selection and applies the whole batch at
+  // once (instead of applying just this one). Capture phase so we preempt the
+  // button's inline onclick (which would submit only its own form).
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest && e.target.closest('.review-submit-btn');
+    if (!btn) return;
+    const form = btn.closest('form');
+    if (!form || !form.id.startsWith('apply-form-')) return;
+    const id = form.id.slice('apply-form-'.length);
+    let othersChecked = 0;
+    reviewBoxes().forEach(b => { if (b.checked && b.value !== id) othersChecked++; });
+    if (othersChecked === 0) return;  // nothing else selected → normal single apply
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const mine = document.querySelector(
+      'input[name=job_ids][form=review-bulk-form][value="' + id + '"]');
+    if (mine && !mine.checked) {
+      mine.checked = true;
+      mine.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    const bulk = document.getElementById('review-bulk-form');
+    if (bulk) bulk.requestSubmit();
+  }, true);
+})();
 </script>
 {% endblock %}
 

@@ -56,6 +56,33 @@ def _get_json(url: str, timeout: float = 10.0):
     return json.loads(body)
 
 
+def _probe_image(data: bytes) -> CoverArt | None:
+    """Validate/normalise raw image bytes into a ``CoverArt``.
+
+    Shared by the CAA download path and the local-fallback path: applies the
+    decompression-bomb guard and re-encodes anything that isn't already JPEG/PNG
+    (the only formats the writers + MP4 ``covr`` atom understand). Returns
+    ``None`` when the bytes aren't a usable image.
+    """
+    if not data:
+        return None
+    try:
+        from PIL import Image
+        with Image.open(io.BytesIO(data)) as im:
+            w, h = im.size
+            if w * h > _MAX_DECODE_PIXELS:
+                return None
+            if im.format == "PNG":
+                return CoverArt(data=data, mime="image/png", width=w, height=h)
+            if im.format in ("JPEG", "MPO"):
+                return CoverArt(data=data, mime="image/jpeg", width=w, height=h)
+            out = io.BytesIO()
+            im.convert("RGB").save(out, format="JPEG", quality=90)
+            return CoverArt(data=out.getvalue(), mime="image/jpeg", width=w, height=h)
+    except Exception:
+        return None
+
+
 def _pick_and_download(images: list[dict]) -> CoverArt | None:
     """Given CAA's ``images`` list (already filtered to ``front``), download
     the best version available. Returns ``None`` if every URL fails.
@@ -137,3 +164,133 @@ def fetch_for_release_group(rg_mbid: str) -> CoverArt | None:
         return None
     fronts = [img for img in meta.get("images", []) if img.get("front")]
     return _pick_and_download(fronts)
+
+
+# Sidecar image basenames to look for in an album directory, in preference
+# order. Matched case-insensitively against the stem (extension ignored).
+_SIDECAR_STEMS = ("cover", "folder", "front", "album", "albumart", "albumartsmall")
+_SIDECAR_EXTS = (".jpg", ".jpeg", ".png")
+
+
+def _embedded_cover(path) -> CoverArt | None:
+    """Extract front-cover bytes already embedded in an audio file.
+
+    Format-agnostic: FLAC ``PICTURE`` blocks (and the Vorbis
+    ``metadata_block_picture`` base64 variant), ID3 ``APIC`` frames (MP3/WAV),
+    and MP4 ``covr`` atoms. Returns ``None`` when the file carries no usable art.
+    """
+    import base64
+
+    try:
+        import mutagen
+        from mutagen.flac import FLAC, Picture
+
+        f = mutagen.File(str(path))
+    except Exception:
+        return None
+    if f is None:
+        return None
+
+    # FLAC: native picture blocks (prefer front cover, type 3).
+    pics = getattr(f, "pictures", None)
+    if pics:
+        chosen = next((p for p in pics if getattr(p, "type", None) == 3), pics[0])
+        cover = _probe_image(bytes(chosen.data))
+        if cover:
+            return cover
+
+    tags = getattr(f, "tags", None)
+    if tags is None:
+        return None
+
+    # ID3 (MP3/WAV): APIC frames, front cover (type 3) preferred.
+    getall = getattr(tags, "getall", None)
+    if callable(getall):
+        try:
+            apics = getall("APIC")
+        except Exception:
+            apics = []
+        if apics:
+            chosen = next((a for a in apics if getattr(a, "type", None) == 3), apics[0])
+            cover = _probe_image(bytes(chosen.data))
+            if cover:
+                return cover
+
+    # MP4: covr atom (a list of MP4Cover, which are bytes subclasses).
+    try:
+        covr = tags.get("covr")
+    except Exception:
+        covr = None
+    if covr:
+        cover = _probe_image(bytes(covr[0]))
+        if cover:
+            return cover
+
+    # Vorbis (Ogg and any non-FLAC Vorbis container): base64 picture block.
+    try:
+        b64 = tags.get("metadata_block_picture")
+    except Exception:
+        b64 = None
+    if b64:
+        try:
+            pic = Picture(base64.b64decode(b64[0]))
+            cover = _probe_image(bytes(pic.data))
+            if cover:
+                return cover
+        except Exception:
+            pass
+    return None
+
+
+def find_local_cover(src, sibling_paths=()) -> CoverArt | None:
+    """Find cover art locally when the remote CAA fetch is unavailable.
+
+    Looks, in order, for: a sidecar image file (``cover.jpg``/``folder.jpg``/…)
+    in ``src``'s directory, then art already embedded in ``src`` itself, then
+    art embedded in any sibling album track in ``sibling_paths``. Used as a
+    fallback so a transient Cover Art Archive outage doesn't clog the review
+    queue with retriable ``cover_fetch_failed`` items when a perfectly good
+    cover is sitting right next to the file.
+
+    ``src`` and ``sibling_paths`` are ``pathlib.Path`` (or path-like). Returns
+    ``None`` only when nothing usable is found anywhere locally.
+    """
+    from pathlib import Path
+
+    src = Path(src)
+
+    # 1) Sidecar image in the source directory.
+    directory = src.parent
+    try:
+        entries = list(directory.iterdir())
+    except OSError:
+        entries = []
+    by_name = {p.name.lower(): p for p in entries if p.is_file()}
+    for stem in _SIDECAR_STEMS:
+        for ext in _SIDECAR_EXTS:
+            hit = by_name.get(stem + ext)
+            if hit is None:
+                continue
+            try:
+                cover = _probe_image(hit.read_bytes())
+            except OSError:
+                cover = None
+            if cover:
+                return cover
+
+    # 2) Art embedded in the file itself, then in each sibling track.
+    seen = set()
+    for cand in (src, *[Path(p) for p in sibling_paths]):
+        key = str(cand)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            if not cand.is_file():
+                continue
+        except OSError:
+            continue
+        cover = _embedded_cover(cand)
+        if cover:
+            return cover
+    return None

@@ -2,7 +2,7 @@
 {% block title %}dragontag | Job #{{ job.id }}{% endblock %}
 {% block content %}
 <div class="flex items-center gap-4 mb-4">
-  <a href="/" class="text-[#5a5a5a] hover:text-white text-sm">&larr; back</a>
+  <a href="/queue" class="text-[#5a5a5a] hover:text-white text-sm">&larr; back</a>
   {% if job.status.value in ("done", "error", "skipped") %}
   <form method="post" action="/jobs/{{ job.id }}/requeue" class="inline">
     <button class="text-sm px-3 py-1 border border-[#2a2a2a] bg-[#0c0c0c] text-[#cfcfcf] hover:border-[#3a3a3a]">[ re-queue ]</button>
@@ -27,7 +27,7 @@
         {% else %}text-[#cfcfcf]{% endif %}">{{ job.status.value }}</span>
     </dd>
     <dt class="text-[#8a8a8a]">score</dt><dd class="text-[#cfcfcf]">{{ "%.3f"|format(job.score) if job.score is not none else "—" }}</dd>
-    <dt class="text-[#8a8a8a]">reason</dt><dd class="text-[#cfcfcf]">{{ job.review_reason.value if job.review_reason else "—" }}</dd>
+    <dt class="text-[#8a8a8a]">reason</dt><dd class="text-[#cfcfcf]">{{ (job.review_reason.value | replace('_', ' ')) if job.review_reason else "—" }}</dd>
     <dt class="text-[#8a8a8a]">source</dt><dd class="truncate text-xs text-[#cfcfcf]">{{ job.source_path }}</dd>
     <dt class="text-[#8a8a8a]">destination</dt><dd class="truncate text-xs text-[#cfcfcf]">{{ job.destination_path or "—" }}</dd>
   </dl>
@@ -57,7 +57,7 @@
   });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !e.target.matches('input,textarea,select')) {
-      window.location.href = '/';
+      window.location.href = '/queue';
     }
   });
 </script>

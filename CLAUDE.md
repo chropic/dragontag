@@ -86,6 +86,8 @@ Jinja2 + HTMX/Alpine UI, SQLite + threads (deliberately no Postgres/celery/multi
 - `.claude/memory/project_overview.md` — what the app is, surfaces, goals
 - `.claude/memory/architecture.md` — module map, job state machine, threading, invariants
 - `.claude/memory/conventions.md` — style, terminology, tag-schema rules, template/route rules
+- `.claude/memory/design.md` — the deliberate terminal/TUI identity + anti-slop house rules (read before any UI work)
+- `.claude/memory/slop.md` — the full pols.dev anti-slop design law `design.md` distils from
 - `.claude/memory/workflow.md` — dev env, tests, CHANGELOG, per-commit versioning, PR discipline
 - `.claude/memory/gotchas.md` — bug patterns actually found here; check before writing similar code
 - `.claude/memory/testing.md` — test layout, fixtures, how to test each subsystem

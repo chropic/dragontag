@@ -224,3 +224,33 @@ recurring. When writing new code in one of these areas, check the pattern first.
 - The vendored font subsets omit box-drawing glyphs — ASCII-art in templates must stay
   ASCII/Latin-1 or the column grid breaks on fallback glyphs.
 - CHANGELOG history below the current WIP block is consolidated — never re-expand it.
+- `frontend/build_css.sh` downloads the Tailwind standalone CLI from GitHub releases, which is
+  **blocked behind the agent proxy** in remote sessions. When you can't rebuild, restrict template
+  edits to utility classes already present in the committed `app.css` (grep it: `\.pl-6{`,
+  `6f6f6f`, …) so no regeneration is needed. New arbitrary values (`text-[#6f6f6f]`, `pl-6`) will
+  silently not exist until someone rebuilds on an unrestricted network.
+
+## Review queue & tag-reading (2026-07-17)
+
+- **`identify/existing_tags.first()` must guard every `tags.get(k)`.** The alias lists mix
+  MP4-style keys (`\xa9nam`) with Vorbis names; mutagen's `VCommentDict.get` raises `ValueError`
+  (not "missing → None") on a non-ASCII key, so an unguarded lookup crashed *every* dragged FLAC.
+  Both `first()` and `_has_lyrics` now wrap `.get` in try/except — keep it that way for any new
+  multi-format lookup.
+- **Review-queue selection is client-persisted, not server state.** `queue.html` mirrors the
+  checked review job-ids to `localStorage['dt.review.selected']` and restores them on
+  `DOMContentLoaded`/`pageshow`, pruning ids no longer on the page. The `space` keybinding and the
+  bulk/select-all boxes all funnel through a `change` listener that re-saves. If you add/rename
+  review checkboxes, keep `name="job_ids" form="review-bulk-form"` or the persistence misses them.
+- **Individual Apply folds into an active multi-selection.** A capture-phase click listener on
+  `.review-submit-btn` preempts the button's inline `requestSubmit()`: if any *other* review item
+  is checked it adds this one and submits the bulk form instead. The bulk submit handler cancels an
+  empty submit client-side (with a `showToast` event) so the old "Nothing to apply" server bounce
+  can't wipe the DOM selection. The job screen's back/`esc` targets `/queue` (was `/`).
+- **`cover_fetch_failed` now has a local fallback.** On a `requests.RequestException` from the CAA,
+  `_commit_tag_path` calls `pipeline._find_local_cover(src)` → `coverart.find_local_cover` before
+  routing to review: sidecar image in the dir (`cover/folder/front/album.*`), then embedded art in
+  the track, then in a sibling audio file from the same directory. Only a true no-local-cover miss
+  reaches `needs_review` now, so those items are rare — don't assume the queue is full of them.
+  `coverart._probe_image` is the shared decode-bomb/JPEG-PNG normaliser for both the CAA and local
+  paths.

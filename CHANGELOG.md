@@ -4,6 +4,46 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Fixed (review-queue ergonomics + drag/drop crash — 2026-07-17)
+- **Dragging/dropping a FLAC/Ogg no longer crashes ingest.** `existing_tags.read`
+  queries MP4-style aliases (`\xa9nam`, …) against every file; on a Vorbis
+  container mutagen's `VCommentDict.get` raises `ValueError` on a non-ASCII key
+  instead of returning `None`, which errored the whole job. `first()` now guards
+  each lookup the same way `_has_lyrics` already did.
+  (`identify/existing_tags.py`)
+- **Review-queue multi-selection now persists.** The "needs review" checkboxes
+  are mirrored to `localStorage` and restored on every load, so navigating to a
+  job screen (and back), refreshing, or a failed bulk-apply no longer wipes the
+  selection. The job screen's back/`esc` now returns to `/queue`, not the
+  dashboard. (`web/templates/queue.html`, `web/templates/job_detail.html`)
+- **Bulk-apply no longer wipes the selection on an empty submit.** When nothing
+  resolvable is selected the submit is cancelled client-side with an inline
+  toast (keeping the selection) instead of round-tripping to the server just to
+  bounce back; server-side skips are now logged. (`web/templates/queue.html`,
+  `main.py`)
+- **`cover_fetch_failed` no longer clogs review when a cover is available
+  locally.** On a transient Cover Art Archive outage the pipeline first looks for
+  a sidecar image (`cover/folder/front/album.*`) in the file's directory, then
+  art embedded in the track or a sibling album track, and proceeds with that
+  instead of routing to review. (`tagging/coverart.py`, `ingest/pipeline.py`)
+
+### Changed (individual apply folds into a multi-selection — 2026-07-17)
+- **Applying one review item while others are selected applies the whole batch.**
+  Clicking a single item's Apply with a multi-selection active adds that item to
+  the selection and submits the bulk apply. Review-reason labels are shown
+  humanized (`cover fetch failed`, not `cover_fetch_failed`), and each review row
+  shows the file's source directory under its name.
+  (`web/templates/queue.html`, `web/templates/job_detail.html`)
+
+### Added (design principles from the anti-slop law — 2026-07-17)
+- **`.claude/memory/design.md`:** the deliberate terminal/TUI identity (near-black
+  surfaces, phosphor-green accent, monospace, zero-radius, CRT texture) reconciled
+  with `slop.md` into concrete anti-slop house rules; indexed in `MEMORY.md` +
+  `CLAUDE.md` and cross-referenced from `conventions.md`. The UI restyle is scoped
+  as an anti-slop *correction* pass that preserves the cohesive signature.
+  (`.claude/memory/design.md`, `.claude/memory/MEMORY.md`, `CLAUDE.md`,
+  `.claude/memory/conventions.md`)
+
 ### Added (Completions page — 2026-07-16)
 - **New `/completions` page: library health in one place.** Summary tiles
   (lyrics/tagged/covers/genres coverage meters, incomplete-album and

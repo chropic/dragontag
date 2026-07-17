@@ -57,6 +57,18 @@ def test_prepare_tags_keeps_explicit_values():
 
 # ---- review_apply: routes through prepare_tags before _commit_tag_path ----
 
+def _wait_for(cond, timeout: float = 10.0) -> None:
+    """Poll until ``cond()`` — the review-apply commit runs in a background
+    task since the request thread stopped doing the slow work."""
+    import time as _time
+    deadline = _time.monotonic() + timeout
+    while _time.monotonic() < deadline:
+        if cond():
+            return
+        _time.sleep(0.02)
+    raise AssertionError("condition not met in time")
+
+
 def _review_job(src: Path) -> int:
     with session() as s:
         j = Job(
@@ -88,6 +100,7 @@ def test_review_apply_fills_mandatory_fields(client, tmp_path, monkeypatch):
 
     r = client.post(f"/review/{jid}/apply", data={"pick": "rec-id|rel-id"})
     assert r.status_code == 303
+    _wait_for(lambda: "tags" in captured)  # commit runs in a background task now
     assert captured["tags"].release_type == "Album"       # inferred from 12 tracks
     assert captured["tags"].release_status == "Official"  # default applied
 
@@ -113,6 +126,7 @@ def test_review_apply_override_beats_inference(client, tmp_path, monkeypatch):
         data={"pick": "rec-id|rel-id", "release_type_override": "EP"},
     )
     assert r.status_code == 303
+    _wait_for(lambda: "tags" in captured)  # commit runs in a background task now
     assert captured["tags"].release_type == "EP"
 
 

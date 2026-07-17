@@ -4,6 +4,28 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Fixed (review queue: bulk apply + non-blocking apply — 2026-07-17)
+- **Bulk apply works again and says what actually went wrong.** The bulk form's
+  submit handler collected checked rows with `bulk.querySelectorAll(...)`, but
+  the checkboxes are tied to the form via the `form=` *attribute* and are not
+  DOM descendants — so per-job picks were silently dropped (a changed radio
+  selection was ignored in favour of the stored top candidate) and items
+  without stored candidates produced the misleading "select review items
+  first" toast even with rows checked. The JS now queries the document for
+  `[form=review-bulk-form]:checked`; the server distinguishes "nothing
+  selected" from "selected items have no pick or stored candidate", applies
+  the resolvable subset, and reports how many were skipped. (`web/templates/
+  queue.html`, `main.py`)
+- **Applying a review match no longer hangs the browser.** The single-apply
+  route ran two MusicBrainz fetches, the cover and lyrics fetches, the tag
+  write and the file move in the request thread. It now pre-flips the job to
+  `tagging` (row leaves the review list immediately; a double-click is
+  rejected) and runs the commit as a `review_apply` background task via the
+  shared `_apply_review_match` closure (which gained release-type override +
+  uploaded-cover support, and returns the job to review with a log line if
+  the MusicBrainz fetch fails). Bulk apply pre-flips its selection the same
+  way so a second submit can't double-apply. (`main.py`)
+
 ### Added (Completions page — 2026-07-16)
 - **New `/completions` page: library health in one place.** Summary tiles
   (lyrics/tagged/covers/genres coverage meters, incomplete-album and

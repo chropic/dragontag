@@ -182,7 +182,11 @@
     if (!bulk) return;
     bulk.addEventListener('submit', function () {
       bulk.querySelectorAll('input[data-bulk-pick]').forEach(el => el.remove());
-      const checked = bulk.querySelectorAll('input[name=job_ids]:checked');
+      // The checkboxes are associated to this form via the form= ATTRIBUTE but
+      // live inside the review cards — they are NOT DOM descendants of the
+      // <form>, so bulk.querySelectorAll() would find nothing and every
+      // per-job pick would be silently dropped. Query the document instead.
+      const checked = document.querySelectorAll('input[name=job_ids][form=review-bulk-form]:checked');
       checked.forEach(function (cb) {
         const id = cb.value;
         const jobForm = document.getElementById('apply-form-' + id);

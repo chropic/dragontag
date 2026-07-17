@@ -109,4 +109,52 @@ def test_bulk_apply_nothing_selected_is_error_toast(client, stub_apply):
     assert resp.status_code == 303
     trig = json.loads(resp.headers["HX-Trigger"])["showToast"]
     assert trig["level"] == "error"
+    assert "select review items" in trig["message"]
     assert not stub_apply
+
+
+def test_bulk_apply_selected_but_unresolvable_names_the_real_problem(client, stub_apply):
+    # Items WERE checked but carry no candidates (no-match / album-mismatch
+    # style rows) — the error must not claim nothing was selected.
+    job = _mk_review_job([])
+
+    resp = client.post("/review/bulk-apply", data={"job_ids": [str(job)]})
+
+    assert resp.status_code == 303
+    trig = json.loads(resp.headers["HX-Trigger"])["showToast"]
+    assert trig["level"] == "error"
+    assert "select review items" not in trig["message"]
+    assert "no pick or stored candidate" in trig["message"].lower() or "candidate" in trig["message"]
+    with session() as s:
+        assert s.get(Job, job).status == JobStatus.needs_review  # untouched
+
+
+def test_bulk_apply_mixed_selection_applies_resolvable_and_reports_skips(client, stub_apply):
+    good = _mk_review_job([
+        {"recording_id": "rec-g", "release_id": "rel-g", "score": 0.9, "title": "G", "album": "GG"},
+    ])
+    bad = _mk_review_job([])
+
+    resp = client.post("/review/bulk-apply", data={"job_ids": [str(good), str(bad)]})
+
+    assert resp.status_code == 303
+    trig = json.loads(resp.headers["HX-Trigger"])["showToast"]
+    assert "skipped" in trig["message"]
+    _wait_done(_batch_job_id(resp))
+    assert stub_apply[good] == ("rec-g", "rel-g")
+    with session() as s:
+        assert s.get(Job, bad).status == JobStatus.needs_review
+
+
+def test_bulk_apply_preflips_selected_jobs_out_of_review(client, monkeypatch, stub_apply):
+    # Block the chain from running so we can observe the in-route state flip.
+    import dragontag.app.tasks as tasks_mod
+    monkeypatch.setattr(main_mod.tasks, "run_chain", lambda kind, name, steps: 999)
+
+    job = _mk_review_job([
+        {"recording_id": "r", "release_id": "l", "score": 0.9, "title": "T", "album": "A"},
+    ])
+    resp = client.post("/review/bulk-apply", data={"job_ids": [str(job)]})
+    assert resp.status_code == 303
+    with session() as s:
+        assert s.get(Job, job).status == JobStatus.tagging

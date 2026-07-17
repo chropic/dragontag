@@ -629,25 +629,63 @@ def review(request: Request):
     return RedirectResponse("/queue", status_code=308)
 
 
-def _apply_review_match(job_id: int, rec: str, rel: str, cover_url: str):
-    """Build a background step that applies one chosen review match.
+def _apply_review_match(
+    job_id: int,
+    rec: str,
+    rel: str,
+    cover_url: str = "",
+    *,
+    release_type_override: str = "",
+    cover_bytes: bytes | None = None,
+    cover_mime: str = "",
+    tags_override=None,
+):
+    """Build a background step that applies one review resolution.
 
-    Mirrors the single-apply path (``review_apply``): assemble tags for the
-    chosen recording/release, optionally swap in a user-selected cover, then
-    run the shared commit pipeline. Skips silently if the job already left the
-    review state (e.g. applied by a concurrent action)."""
+    Shared by bulk apply, the single-apply route, and manual tagging — the
+    slow work (MusicBrainz fetches, cover/lyrics fetches, tag write, move)
+    always runs in a background task so the browser never waits on it.
+
+    ``tags_override`` (a prebuilt ``TrackTags``, from the manual-tags form)
+    skips the MB ``assemble_tags`` entirely. ``cover_bytes`` carries a
+    user-uploaded image (read in-request — the upload stream is gone by the
+    time the task runs). The routes pre-flip the job to ``tagging`` so it
+    leaves the review list immediately and a double submit is rejected; a
+    job in any other state means a concurrent action already resolved it —
+    skip silently. An ``assemble_tags`` failure returns the job to review
+    with a log line instead of erroring the whole background job.
+    """
     def step(ctx) -> None:
+        from .ingest.pipeline import _append_log, _commit_tag_path, _set, prepare_tags
+
         with session() as s:
             job = s.get(Job, job_id)
-            if not job or job.status != JobStatus.needs_review:
+            if not job or job.status not in (JobStatus.needs_review, JobStatus.tagging):
                 return
-            tags = mbq.assemble_tags(release_id=rel, recording_id=rec)
-            # Same schema guarantees as the auto-apply path (formatting,
-            # RELEASETYPE inference, RELEASESTATUS default) — calling
-            # _commit_tag_path directly would otherwise skip them.
-            from .ingest.pipeline import prepare_tags
-            prepare_tags(job, tags)
-            if cover_url:
+            if tags_override is not None:
+                tags = tags_override
+            else:
+                try:
+                    tags = mbq.assemble_tags(release_id=rel, recording_id=rec)
+                except Exception as e:
+                    _append_log(job, f"apply failed (assemble_tags): {e} — returned to review")
+                    _set(job, status=JobStatus.needs_review)
+                    s.add(job)
+                    s.commit()
+                    ctx.log(f"job {job_id}: assemble_tags failed, returned to review")
+                    return
+                # Explicit user override first — prepare_tags only fills
+                # release_type when it's empty, so the user's choice wins.
+                if release_type_override:
+                    tags.release_type = release_type_override
+                # Same schema guarantees as the auto-apply path (formatting,
+                # RELEASETYPE inference, RELEASESTATUS default) — calling
+                # _commit_tag_path directly would otherwise skip them.
+                prepare_tags(job, tags)
+            if cover_bytes:
+                tags.cover_bytes = cover_bytes
+                tags.cover_mime = cover_mime or "image/jpeg"
+            elif cover_url:
                 from .net import fetch_bytes
                 try:
                     r, body = fetch_bytes(
@@ -659,7 +697,6 @@ def _apply_review_match(job_id: int, rec: str, rel: str, cover_url: str):
                     tags.cover_mime = r.headers.get("content-type", "image/jpeg")
                 except Exception:
                     pass  # fall back to the normal CAA fetch in _commit_tag_path
-            from .ingest.pipeline import _commit_tag_path
             _commit_tag_path(s, job, Path(job.source_path), tags, score=job.score or 1.0)
         ctx.log(f"applied job {job_id}")
     return step
@@ -678,12 +715,16 @@ async def review_bulk_apply(request: Request, _: None = Depends(require_auth)):
     """
     form = await request.form()
     job_ids = [int(v) for v in form.getlist("job_ids") if str(v).strip().isdigit()]
+    if not job_ids:
+        return _toast_response("/queue", "Nothing to apply — select review items first.", "error")
 
     steps: list[tuple[str, Any]] = []
+    skipped = 0
     with session() as s:
         for job_id in job_ids:
             job = s.get(Job, job_id)
             if not job or job.status != JobStatus.needs_review:
+                skipped += 1
                 continue
             rec = rel = ""
             pick = str(form.get(f"pick_{job_id}", "")).strip()
@@ -693,18 +734,35 @@ async def review_bulk_apply(request: Request, _: None = Depends(require_auth)):
             if not rec or not rel:
                 candidates = (job.candidates_json or {}).get("items", [])
                 if not candidates:
+                    skipped += 1
                     continue
                 rec, rel = candidates[0]["recording_id"], candidates[0]["release_id"]
             cover_url = str(form.get(f"cover_{job_id}", "")).strip()
+            # Pre-flip to tagging: the row leaves the review list right away
+            # and a second bulk submit can't queue the same job twice (the
+            # needs_review check above rejects it).
+            job.status = JobStatus.tagging
+            job.updated_at = now_utc()
+            s.add(job)
             steps.append((f"Apply job {job_id}", _apply_review_match(job_id, rec, rel, cover_url)))
+        s.commit()
 
     if not steps:
-        return _toast_response("/queue", "Nothing to apply — select review items first.", "error")
+        # Items WERE selected — don't tell the user they weren't. The selected
+        # jobs just have nothing resolvable to apply (no pick, no stored
+        # candidate: conflict / no-match / album-mismatch items).
+        return _toast_response(
+            "/queue",
+            "None of the selected items has a pick or stored candidate — "
+            "open them and choose a match, or use manual tags.",
+            "error",
+        )
     n = len(steps)
+    msg = f"Applying {n} match(es) in the background…"
+    if skipped:
+        msg += f" {skipped} selected item(s) had no candidate and were skipped."
     new_job_id = tasks.run_chain("review_bulk", f"Apply {n} review match(es)", steps)
-    return _toast_response(
-        "/queue", f"Applying {n} match(es) in the background…", job_id=new_job_id
-    )
+    return _toast_response("/queue", msg, job_id=new_job_id)
 
 
 @app.post("/review/{job_id}/apply")
@@ -750,6 +808,15 @@ async def review_apply(
     if not rec or not rel:
         return _toast_response("/queue", "Pick a candidate or enter MB ids first.", "error")
 
+    # Read the uploaded cover NOW — the upload stream is gone once this
+    # request returns, and the slow work runs in a background task.
+    cover_bytes: bytes | None = None
+    cover_mime = ""
+    if cover_art_file and cover_art_file.filename:
+        # Cap the in-memory read so an oversized upload can't OOM the worker.
+        cover_bytes = await _read_upload_capped(cover_art_file, 32 * 1024 * 1024)
+        cover_mime = cover_art_file.content_type or "image/jpeg"
+
     with session() as s:
         job = s.get(Job, job_id)
         if not job:
@@ -761,47 +828,26 @@ async def review_apply(
             return _toast_response(
                 "/queue", f"Job {job_id} is not awaiting review.", "error"
             )
-        try:
-            tags = mbq.assemble_tags(release_id=rel, recording_id=rec)
-        except Exception as e:
-            raise HTTPException(500, str(e))
-        if release_type_override:
-            tags.release_type = release_type_override
-        # Shared schema guarantees (formatting, RELEASETYPE inference,
-        # RELEASESTATUS default). Runs after the override so an explicit user
-        # choice wins; prepare_tags only fills release_type when it's empty.
-        from .ingest.pipeline import prepare_tags
-        prepare_tags(job, tags)
+        # Pre-flip to tagging: the row leaves the review list immediately and
+        # a double-click hits the guard above instead of applying twice. The
+        # MB fetches, cover/lyrics fetches, tag write and move all happen in
+        # the background task — they used to run here in the request thread
+        # and hung the browser for the whole round-trip.
+        job.status = JobStatus.tagging
+        job.updated_at = now_utc()
+        s.add(job)
+        s.commit()
+        name = job.original_name
 
-        # Cover art override: custom upload takes priority over URL selection.
-        if cover_art_file and cover_art_file.filename:
-            # Cap the in-memory read so an oversized upload can't OOM the worker.
-            tags.cover_bytes = await _read_upload_capped(
-                cover_art_file, 32 * 1024 * 1024
-            )
-            tags.cover_mime = cover_art_file.content_type or "image/jpeg"
-        elif cover_art_url:
-            from .net import fetch_bytes
-            try:
-                # User-supplied URL → SSRF guard (public host only) + redirects
-                # disabled so a 30x can't bounce us onto an internal address,
-                # and a size cap so a hostile server can't OOM the worker.
-                r, body = fetch_bytes(
-                    cover_art_url,
-                    timeout=10,
-                    max_bytes=32 * 1024 * 1024,
-                    validate=True,
-                    allow_redirects=False,
-                )
-                r.raise_for_status()
-                tags.cover_bytes = body
-                tags.cover_mime = r.headers.get("content-type", "image/jpeg")
-            except Exception:
-                pass  # fall back to normal CAA fetch inside _commit_tag_path
-
-        from .ingest.pipeline import _commit_tag_path
-        _commit_tag_path(s, job, Path(job.source_path), tags, score=job.score or 1.0)
-    return RedirectResponse("/queue", status_code=303)
+    step = _apply_review_match(
+        job_id, rec, rel, cover_art_url.strip(),
+        release_type_override=(release_type_override or "").strip(),
+        cover_bytes=cover_bytes, cover_mime=cover_mime,
+    )
+    new_job_id = tasks.run_task("review_apply", f"Apply {name}", step)
+    return _toast_response(
+        "/queue", f"Applying {name} in the background…", job_id=new_job_id
+    )
 
 
 @app.post("/review/{job_id}/resolve_conflict")

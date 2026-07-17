@@ -39,6 +39,17 @@ def _make_wav(path: Path) -> None:
         w.writeframes(b"\x00\x00" * 100)
 
 
+def _wait_captured(captured: dict, key: str = "tags", timeout: float = 10.0) -> None:
+    """Wait for a backgrounded review-apply commit to record its capture."""
+    import time
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if key in captured:
+            return
+        time.sleep(0.02)
+    raise AssertionError(f"background commit never captured {key!r}")
+
+
 # ---- prepare_tags: shared schema guarantees ----
 
 def test_prepare_tags_infers_releasetype_and_status():
@@ -86,8 +97,11 @@ def test_review_apply_fills_mandatory_fields(client, tmp_path, monkeypatch):
 
     monkeypatch.setattr(pipeline, "_commit_tag_path", fake_commit)
 
+    # Apply now backgrounds the commit (so the request never blocks ~10s); the
+    # htmx-less post gets a 303 toast redirect and the commit runs in a worker.
     r = client.post(f"/review/{jid}/apply", data={"pick": "rec-id|rel-id"})
     assert r.status_code == 303
+    _wait_captured(captured)
     assert captured["tags"].release_type == "Album"       # inferred from 12 tracks
     assert captured["tags"].release_status == "Official"  # default applied
 
@@ -113,6 +127,7 @@ def test_review_apply_override_beats_inference(client, tmp_path, monkeypatch):
         data={"pick": "rec-id|rel-id", "release_type_override": "EP"},
     )
     assert r.status_code == 303
+    _wait_captured(captured)
     assert captured["tags"].release_type == "EP"
 
 

@@ -164,7 +164,8 @@
   </div>
 
 {% if items %}
-<form method="post" action="/review/bulk-apply" id="review-bulk-form" class="mb-3 flex items-center gap-3 text-sm">
+<form hx-post="/review/bulk-apply" hx-swap="none" action="/review/bulk-apply" method="post"
+      id="review-bulk-form" class="mb-3 flex items-center gap-3 text-sm">
   <label class="flex items-center gap-2 text-[#8a8a8a]">
     <input type="checkbox" id="review-select-all" onchange="document.querySelectorAll('input[name=job_ids][form=review-bulk-form]').forEach(c=>c.checked=this.checked)">
     select all
@@ -183,8 +184,12 @@
     function dtToast(message, level) {
       document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message, level } }));
     }
-    bulk.addEventListener('submit', function (ev) {
-      bulk.querySelectorAll('input[data-bulk-pick]').forEach(el => el.remove());
+    // Gather each checked job's chosen recording/release + cover into the htmx
+    // request params (configRequest, so ordering can't drop them). An empty
+    // batch cancels the request instead of round-tripping — the page never
+    // reloads, so the selection stays exactly as it is.
+    bulk.addEventListener('htmx:configRequest', function (evt) {
+      const params = evt.detail.parameters;
       const checked = bulk.querySelectorAll('input[name=job_ids]:checked');
       let resolved = 0;
       checked.forEach(function (cb) {
@@ -202,22 +207,13 @@
           rel = ml ? ml.value.trim() : '';
         }
         if (!rec || !rel) return;  // nothing resolvable — leave it out of the batch
-        const addHidden = (name, value) => {
-          const h = document.createElement('input');
-          h.type = 'hidden'; h.name = name; h.value = value;
-          h.setAttribute('data-bulk-pick', '1');
-          bulk.appendChild(h);
-        };
-        addHidden('pick_' + id, rec + '|' + rel);
+        params['pick_' + id] = rec + '|' + rel;
         resolved++;
         const coverEl = jobForm.querySelector('input[name=cover_art_url]');
-        if (coverEl && coverEl.value) addHidden('cover_' + id, coverEl.value);
+        if (coverEl && coverEl.value) params['cover_' + id] = coverEl.value;
       });
-      // Guard the empty submit that otherwise round-trips to the server just to
-      // bounce back with an error toast — that full reload used to wipe the DOM
-      // selection. Cancel here and keep every checkbox exactly as it is.
       if (resolved === 0) {
-        ev.preventDefault();
+        evt.preventDefault();  // cancel the htmx request; keep the selection
         dtToast(
           checked.length
             ? 'Selected items have no match to apply — pick a candidate first.'
@@ -231,7 +227,7 @@
 {% endif %}
 
 {% for j in items %}
-<div class="relative border border-[#242424] bg-[#0a0a0a] px-3 py-2.5 mb-2 dt-review-item">
+<div class="relative border border-[#242424] bg-[#0a0a0a] px-3 py-2.5 mb-2 dt-review-item" x-data="{ manual: false }">
   <div class="flex items-center gap-2">
     <input type="checkbox" name="job_ids" value="{{ j.id }}" form="review-bulk-form">
     <a href="/jobs/{{ j.id }}" class="font-medium text-white hover:underline truncate">{{ j.original_name }}</a>
@@ -240,12 +236,54 @@
     <span class="text-xs px-2 py-0.5 border border-[#2a2a2a] text-[#8a8a8a]" title="Ran in dry-run mode (no files written)">DRY</span>
     {% endif %}
     {% if j.score is not none %}<span class="text-xs text-[#8a8a8a]">score {{ "%.2f"|format(j.score) }}</span>{% endif %}
+    <div class="ml-auto flex items-center gap-2 shrink-0">
+      {% if not (j.review_reason and j.review_reason.value in ["destination_conflict", "dry_run"]) %}
+      <button type="button" @click="manual = !manual"
+              class="text-xs text-[#8a8a8a] hover:text-[#c7f0c7]" :class="{ 'text-[#c7f0c7]': manual }">manual tag</button>
+      {% endif %}
+      <button type="button" title="Remove from review queue (keeps the file; job becomes skipped)"
+              hx-post="/review/{{ j.id }}/skip" hx-target="closest .dt-review-item" hx-swap="outerHTML"
+              class="text-[#8a8a8a] hover:text-[#ffb4b4] text-lg leading-none px-1">&times;</button>
+    </div>
   </div>
   {% if j.source_path %}
   {# File location shown under the filename so the source (and its parent
      directories) is visible without opening the job screen. source_path still
      points at the pre-move location while the job is in review. #}
   <div class="ml-6 text-xs text-[#5a5a5a] truncate" title="{{ j.source_path }}">{{ j.source_path.rsplit('/', 1)[0] }}/</div>
+  {% endif %}
+
+  {% if not (j.review_reason and j.review_reason.value in ["destination_conflict", "dry_run"]) %}
+  {# ---- manual tag (reveals the same field set as the library track editor);
+     submits the hand-entered tags for a full apply (write + cover/lyrics +
+     move) via the background worker, then removes the card. ---- #}
+  <div class="mt-3 hidden" :class="{ 'hidden': !manual }">
+    <form hx-post="/review/{{ j.id }}/manual-apply"
+          hx-target="closest .dt-review-item" hx-swap="outerHTML" hx-disabled-elt="find button"
+          class="relative space-y-2 border border-[#242424] pt-5 px-3 pb-3">
+      <span class="dt-label">manual tags</span>
+      <div class="grid grid-cols-2 gap-2 text-xs">
+        <label class="flex flex-col gap-0.5 text-[#8a8a8a]">Title
+          <input name="title" class="bg-black border border-[#2a2a2a] text-white px-2 py-1 focus:outline-none"></label>
+        <label class="flex flex-col gap-0.5 text-[#8a8a8a]">Artist
+          <input name="artist" class="bg-black border border-[#2a2a2a] text-white px-2 py-1 focus:outline-none"></label>
+        <label class="flex flex-col gap-0.5 text-[#8a8a8a]">Album
+          <input name="album" class="bg-black border border-[#2a2a2a] text-white px-2 py-1 focus:outline-none"></label>
+        <label class="flex flex-col gap-0.5 text-[#8a8a8a]">Album artist
+          <input name="album_artist" class="bg-black border border-[#2a2a2a] text-white px-2 py-1 focus:outline-none"></label>
+        <label class="flex flex-col gap-0.5 text-[#8a8a8a]">Track #
+          <input name="track_num" class="bg-black border border-[#2a2a2a] text-white px-2 py-1 focus:outline-none"></label>
+        <label class="flex flex-col gap-0.5 text-[#8a8a8a]">Track total
+          <input name="track_total" class="bg-black border border-[#2a2a2a] text-white px-2 py-1 focus:outline-none"></label>
+        <label class="flex flex-col gap-0.5 text-[#8a8a8a]">Disc #
+          <input name="disc_num" class="bg-black border border-[#2a2a2a] text-white px-2 py-1 focus:outline-none"></label>
+        <label class="flex flex-col gap-0.5 text-[#8a8a8a]">Disc total
+          <input name="disc_total" class="bg-black border border-[#2a2a2a] text-white px-2 py-1 focus:outline-none"></label>
+      </div>
+      <p class="text-xs text-[#5a5a5a]">Title + artist required. Cover art and lyrics are fetched automatically, then the file is moved into the library.</p>
+      <button class="px-3 py-1.5 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f] text-xs">[ apply manual tags ]</button>
+    </form>
+  </div>
   {% endif %}
 
   {% if j.review_reason and j.review_reason.value == "destination_conflict" %}
@@ -256,7 +294,10 @@
       <button name="action" value="skip" class="px-3 py-1 border border-[#2a2a2a] text-[#8a8a8a] hover:border-[#3a3a3a]">Skip</button>
     </form>
   {% else %}
-    <form method="post" action="/review/{{ j.id }}/apply" enctype="multipart/form-data" id="apply-form-{{ j.id }}" class="mt-3 space-y-3 text-sm">
+    <form hx-post="/review/{{ j.id }}/apply" hx-encoding="multipart/form-data"
+          hx-target="closest .dt-review-item" hx-swap="outerHTML" hx-disabled-elt="find .review-submit-btn"
+          action="/review/{{ j.id }}/apply" method="post" enctype="multipart/form-data"
+          id="apply-form-{{ j.id }}" class="mt-3 space-y-3 text-sm">
 
       {# ---- dry-run preview: tag table + computed destination ---- #}
       {% if j.review_reason and j.review_reason.value == "dry_run" %}
@@ -355,9 +396,10 @@
           form.addEventListener('change', (e) => {
             if (e.target && e.target.name === 'pick') form.dataset.coverPicked = '';
           });
-          form.addEventListener('submit', () => {
-            const recOut = form.querySelector('input[name=recording_id]');
-            const relOut = form.querySelector('input[name=release_id]');
+          // Populate recording/release (and cover) via htmx:configRequest so the
+          // values land in the request htmx is about to send, regardless of
+          // listener/serialization ordering.
+          form.addEventListener('htmx:configRequest', (evt) => {
             let rec = '', rel = '';
             const pick = form.querySelector('input[name=pick]:checked');
             if (pick) {
@@ -368,8 +410,8 @@
               rec = mr ? mr.value.trim() : '';
               rel = ml ? ml.value.trim() : '';
             }
-            recOut.value = rec;
-            relOut.value = rel;
+            evt.detail.parameters['recording_id'] = rec;
+            evt.detail.parameters['release_id'] = rel;
             // Keep the embedded cover in sync with the chosen release unless the
             // user uploaded a custom file or explicitly picked a thumbnail —
             // otherwise a manual-search pick would silently embed the first
@@ -379,6 +421,7 @@
             const hasFile = fileInput && fileInput.files && fileInput.files.length;
             if (coverOut && rel && !hasFile && form.dataset.coverPicked !== '1') {
               coverOut.value = 'https://coverartarchive.org/release/' + rel + '/front';
+              evt.detail.parameters['cover_art_url'] = coverOut.value;
             }
           });
         })();
@@ -436,14 +479,14 @@
           <option>Album</option><option>Single</option><option>EP</option>
           <option>Compilation</option><option>Soundtrack</option><option>Other</option>
         </select>
+        {# htmx submits the form on click (no full-page navigation); hx-disabled-elt
+           on the form disables this button for the request. #}
         {% if j.review_reason and j.review_reason.value == "dry_run" %}
-        <button class="review-submit-btn ml-auto px-3 py-1 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f]"
-                data-label="Commit" data-loading-text="Committing…"
-                onclick="this.disabled=true; this.textContent=this.dataset.loadingText; this.form.requestSubmit();">Commit</button>
+        <button type="submit" class="review-submit-btn ml-auto px-3 py-1 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f]"
+                data-label="Commit">Commit</button>
         {% else %}
-        <button class="review-submit-btn ml-auto px-3 py-1 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f]"
-                data-label="Apply" data-loading-text="Applying…"
-                onclick="this.disabled=true; this.textContent=this.dataset.loadingText; this.form.requestSubmit();">Apply</button>
+        <button type="submit" class="review-submit-btn ml-auto px-3 py-1 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f]"
+                data-label="Apply">Apply</button>
         {% endif %}
       </div>
     </form>
@@ -540,11 +583,31 @@ dtKeys.register('x', () => {
   window.addEventListener('DOMContentLoaded', restoreSel);
   window.addEventListener('pageshow', restoreSel);
 
+  // Bulk apply resolves server-side to a list of enqueued job ids; remove those
+  // cards from the DOM (the bulk form uses hx-swap=none, so nothing is swapped)
+  // and drop them from the persisted selection.
+  document.body.addEventListener('reviewApplied', (e) => {
+    const ids = (e.detail && e.detail.ids) || [];
+    ids.forEach((id) => {
+      const box = document.querySelector(
+        'input[name=job_ids][form=review-bulk-form][value="' + id + '"]');
+      const card = box && box.closest('.dt-review-item');
+      if (card) card.remove();
+    });
+    saveSel();  // prune the removed ids
+    syncSelectAll();
+  });
+
+  // After a single apply / skip / manual-apply swaps a card out (hx-swap
+  // outerHTML → empty), the removed checkbox is gone; re-save so the persisted
+  // selection prunes it, and refresh the select-all state.
+  document.body.addEventListener('htmx:afterSwap', () => { saveSel(); syncSelectAll(); });
+
   // ── Individual Apply folds into an active multi-selection ───────────────
   // When one or more OTHER review items are already selected, clicking a single
   // item's Apply adds this item to the selection and applies the whole batch at
-  // once (instead of applying just this one). Capture phase so we preempt the
-  // button's inline onclick (which would submit only its own form).
+  // once (instead of applying just this one). Capture phase so we preempt htmx's
+  // submit of this item's own form and fire the bulk apply instead.
   document.addEventListener('click', (e) => {
     const btn = e.target.closest && e.target.closest('.review-submit-btn');
     if (!btn) return;
@@ -565,6 +628,27 @@ dtKeys.register('x', () => {
     const bulk = document.getElementById('review-bulk-form');
     if (bulk) bulk.requestSubmit();
   }, true);
+})();
+
+// ── Persistent scroll position ────────────────────────────────────────────
+// Keep your spot on /queue across reloads (manual refresh, or any POST that
+// still redirects). Per-tab via sessionStorage so it doesn't linger forever.
+(function () {
+  const KEY = 'dt.queue.scroll';
+  let pending = null;
+  window.addEventListener('scroll', () => {
+    if (pending) return;
+    pending = setTimeout(() => {
+      sessionStorage.setItem(KEY, String(window.scrollY));
+      pending = null;
+    }, 150);
+  }, { passive: true });
+  const restore = () => {
+    const y = parseInt(sessionStorage.getItem(KEY) || '', 10);
+    if (!isNaN(y)) window.scrollTo(0, y);
+  };
+  window.addEventListener('DOMContentLoaded', restore);
+  window.addEventListener('pageshow', restore);
 })();
 </script>
 {% endblock %}

@@ -83,6 +83,10 @@ identifiers, keep `folder` / `folder_id`.
 
 ## Templates
 
+- **Visual design:** the terminal/TUI look is a deliberate, cohesive signature — read
+  [[design]] (and its source [[slop]]) before adding or restyling any UI. Keep the near-black +
+  phosphor-green + monospace + zero-radius identity; no gradients, no gratuitous glows, no
+  chip-around-every-noun.
 - Extend `base.html`. Set `{% block title %}dragontag | {Page}{% endblock %}` and pass
   `active_page` from the route. HTMX fragments are `_`-prefixed files.
 - Buttons that mutate state must POST to a route, never GET.

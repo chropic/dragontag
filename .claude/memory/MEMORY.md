@@ -7,6 +7,8 @@ orientation; these files are the depth.
 - [Project overview](project_overview.md) — what dragontag is, its surfaces, and where truth lives
 - [Architecture map](architecture.md) — module layout, job state machine, threading, locking, invariants
 - [Coding conventions](conventions.md) — style, terminology, tag-schema and template/route rules
+- [Design principles](design.md) — the deliberate terminal/TUI identity + anti-slop house rules; read before touching any UI
+- [Anti-slop design law](slop.md) — the full pols.dev reference `design.md` distils; the deep source for UI judgement calls
 - [Workflow](workflow.md) — dev environment, branching, tests, CHANGELOG, per-commit versioning, PR discipline
 - [Gotchas](gotchas.md) — bug patterns actually found and fixed here; read before writing file-moving, tag-writing, threading, or template code
 - [Testing](testing.md) — test layout, conftest tricks, how to test each subsystem, exact signatures tests keep getting wrong

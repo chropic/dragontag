@@ -432,6 +432,19 @@
       </div>
     </form>
 
+    {# ---- manual tags: the escape hatch for files MB doesn't know ---- #}
+    <div class="mt-2">
+      <button type="button"
+              hx-get="/review/{{ j.id }}/manual-form"
+              hx-target="#manual-form-{{ j.id }}"
+              hx-swap="innerHTML"
+              onclick="this.style.display='none'"
+              class="text-xs px-3 py-1 border border-[#2a2a2a] text-[#8a8a8a] hover:text-white hover:border-[#3a3a3a]">
+        edit tags manually…
+      </button>
+      <div id="manual-form-{{ j.id }}"></div>
+    </div>
+
     {% if j.review_reason and j.review_reason.value == "dry_run" %}
     <form method="post" action="/review/{{ j.id }}/resolve_conflict" class="mt-2">
       <button name="action" value="skip" class="text-xs px-3 py-1 border border-[#2a2a2a] text-[#8a8a8a] hover:border-[#3a3a3a]">Skip (discard)</button>

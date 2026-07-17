@@ -990,6 +990,133 @@ def resolve_conflict(
     return RedirectResponse("/queue", status_code=303)
 
 
+@app.get("/review/{job_id}/manual-form", response_class=HTMLResponse)
+def review_manual_form(job_id: int, request: Request, _: None = Depends(require_auth)):
+    """HTMX fragment: the manual-tags form for one review job.
+
+    Loaded lazily (button click) so rendering the queue page never touches
+    audio files. Pre-filled from the job's stored candidate tags when present,
+    else from the file's own embedded tags + filename clues — the escape hatch
+    for files MusicBrainz simply doesn't know."""
+    with session() as s:
+        job = s.get(Job, job_id)
+        if not job:
+            raise HTTPException(404)
+        if job.status != JobStatus.needs_review:
+            return HTMLResponse('<div class="text-xs text-[#8a8a8a] py-2">Job is no longer awaiting review.</div>')
+        chosen = job.chosen_tags_json or {}
+        src = Path(job.source_path)
+
+    prefill = {
+        "title": chosen.get("title") or "",
+        "artist": chosen.get("artist_display") or "",
+        "album": chosen.get("album") or "",
+        "album_artist": chosen.get("album_artist_display") or "",
+        "track": chosen.get("track") or "",
+        "track_total": chosen.get("track_total") or "",
+        "disc": chosen.get("disc") or "",
+        "disc_total": chosen.get("disc_total") or "",
+        "date": chosen.get("date") or "",
+        "genre": ", ".join(chosen.get("genres") or []),
+    }
+    if not prefill["title"] and src.exists():
+        from .identify import existing_tags, filename_parse
+        try:
+            existing = existing_tags.read(src)
+        except Exception:
+            existing = {}
+        fname = filename_parse.parse(src)
+
+        def _num(v):  # "3/12" → "3"
+            return str(v).split("/")[0] if v else ""
+
+        prefill.update({
+            "title": existing.get("title") or fname.get("title") or "",
+            "artist": existing.get("artist") or fname.get("artist") or "",
+            "album": existing.get("album") or "",
+            "album_artist": existing.get("album_artist") or existing.get("artist") or "",
+            "track": _num(existing.get("track")),
+            "disc": _num(existing.get("disc")),
+            "disc_total": _num(existing.get("disc_total")),
+        })
+    return templates.TemplateResponse(request, "_review_manual_form.html", {
+        "request": request, "job_id": job_id, "t": prefill,
+    })
+
+
+@app.post("/review/{job_id}/manual-apply")
+def review_manual_apply(
+    job_id: int,
+    request: Request,
+    _: None = Depends(require_auth),
+    title: str = Form(default=""),
+    artist: str = Form(default=""),
+    album: str = Form(default=""),
+    album_artist: str = Form(default=""),
+    track: str = Form(default=""),
+    track_total: str = Form(default=""),
+    disc: str = Form(default=""),
+    disc_total: str = Form(default=""),
+    date: str = Form(default=""),
+    genre: str = Form(default=""),
+):
+    """Commit hand-entered tags for a review job through the normal pipeline
+    tail: tags written, lyrics fetched (off artist/title), file moved to its
+    canonical destination, job done. No MusicBrainz involved — no MB ids are
+    written, so the file will honestly show as untagged on Completions."""
+    from .ingest.pipeline import prepare_tags
+    from .tagging.schema import TrackTags
+
+    title, artist = title.strip(), artist.strip()
+    if not title or not artist:
+        return _toast_response("/queue", "Manual tags need at least a title and an artist.", "error")
+
+    def _int(v: str) -> int | None:
+        v = v.strip()
+        try:
+            return int(v) if v else None
+        except ValueError:
+            return None
+
+    album_artist = album_artist.strip() or artist
+    tags = TrackTags(
+        title=title,
+        artist_display=artist,
+        artists=[artist],
+        album=album.strip() or None,
+        album_artist_display=album_artist,
+        album_artists=[album_artist],
+        track=_int(track),
+        track_total=_int(track_total),
+        disc=_int(disc),
+        disc_total=_int(disc_total),
+        date=date.strip() or None,
+        genres=[g.strip() for g in genre.split(",") if g.strip()],
+    )
+
+    with session() as s:
+        job = s.get(Job, job_id)
+        if not job:
+            raise HTTPException(404)
+        if job.status != JobStatus.needs_review:
+            return _toast_response("/queue", f"Job {job_id} is not awaiting review.", "error")
+        # Shared schema guarantees (RELEASETYPE inference, RELEASESTATUS
+        # default, optional formatting) — every write path must pass here.
+        prepare_tags(job, tags)
+        # Same pre-flip + background commit as the MB apply paths.
+        job.status = JobStatus.tagging
+        job.updated_at = now_utc()
+        s.add(job)
+        s.commit()
+        name = job.original_name
+
+    step = _apply_review_match(job_id, "", "", tags_override=tags)
+    new_job_id = tasks.run_task("review_apply", f"Manual tag {name}", step)
+    return _toast_response(
+        "/queue", f"Tagging {name} manually in the background…", job_id=new_job_id
+    )
+
+
 # ---------------------------------------------------------------------------
 # Settings
 # ---------------------------------------------------------------------------

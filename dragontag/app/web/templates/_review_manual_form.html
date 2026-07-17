@@ -1,0 +1,55 @@
+{# Manual-tags form for one review job (lazy HTMX fragment). Submitting
+   commits through the normal pipeline tail: write, lyrics fetch, move. #}
+<form method="post" action="/review/{{ job_id }}/manual-apply"
+      class="border border-[#1f1f1f] bg-black/40 p-3 mt-1 space-y-2 text-sm"
+      onsubmit="return confirm('Write these tags and move the file into the library? No MusicBrainz lookup is involved.');">
+  <div class="text-[10px] uppercase tracking-widest text-[#5a5a5a]">manual tags — no MusicBrainz</div>
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+    <label class="text-xs text-[#8a8a8a]">title *
+      <input name="title" value="{{ t.title }}" required
+             class="mt-0.5 w-full p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
+    </label>
+    <label class="text-xs text-[#8a8a8a]">artist *
+      <input name="artist" value="{{ t.artist }}" required
+             class="mt-0.5 w-full p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
+    </label>
+    <label class="text-xs text-[#8a8a8a]">album
+      <input name="album" value="{{ t.album }}"
+             class="mt-0.5 w-full p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
+    </label>
+    <label class="text-xs text-[#8a8a8a]">album artist <span class="text-[#5a5a5a]">(defaults to artist)</span>
+      <input name="album_artist" value="{{ t.album_artist }}"
+             class="mt-0.5 w-full p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
+    </label>
+  </div>
+  <div class="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+    <label class="text-xs text-[#8a8a8a]">track
+      <input name="track" value="{{ t.track }}" inputmode="numeric"
+             class="mt-0.5 w-full p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
+    </label>
+    <label class="text-xs text-[#8a8a8a]">of
+      <input name="track_total" value="{{ t.track_total }}" inputmode="numeric"
+             class="mt-0.5 w-full p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
+    </label>
+    <label class="text-xs text-[#8a8a8a]">disc
+      <input name="disc" value="{{ t.disc }}" inputmode="numeric"
+             class="mt-0.5 w-full p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
+    </label>
+    <label class="text-xs text-[#8a8a8a]">of
+      <input name="disc_total" value="{{ t.disc_total }}" inputmode="numeric"
+             class="mt-0.5 w-full p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
+    </label>
+    <label class="text-xs text-[#8a8a8a] col-span-2">date / year
+      <input name="date" value="{{ t.date }}" placeholder="2024 or 2024-06-01"
+             class="mt-0.5 w-full p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
+    </label>
+  </div>
+  <label class="block text-xs text-[#8a8a8a]">genres <span class="text-[#5a5a5a]">(comma-separated)</span>
+    <input name="genre" value="{{ t.genre }}"
+           class="mt-0.5 w-full p-1.5 bg-black border border-[#2a2a2a] text-white focus:outline-none">
+  </label>
+  <div class="flex items-center justify-between">
+    <span class="text-[10px] text-[#5a5a5a]">Writes tags, fetches lyrics, and files the track under Album&nbsp;Artist/Album.</span>
+    <button class="px-3 py-1 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f]">Save &amp; file</button>
+  </div>
+</form>

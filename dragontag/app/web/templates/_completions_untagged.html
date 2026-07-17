@@ -1,0 +1,35 @@
+{# Live: tracks missing a MusicBrainz recording or release id. #}
+<table class="w-full text-sm">
+  <thead>
+    <tr class="text-left text-[10px] uppercase tracking-widest text-[#5a5a5a] border-b border-[#1f1f1f]">
+      <th class="py-2 pr-3">title</th>
+      <th class="py-2 pr-3">artist</th>
+      <th class="py-2 pr-3">album</th>
+      <th class="py-2 pr-3">missing</th>
+      <th class="py-2"></th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for t in rows %}
+    <tr class="border-b border-[#141414] hover:bg-[#0d0d0d]">
+      <td class="py-1.5 pr-3 text-[#e6e6e6]">{{ t.title or "?" }}</td>
+      <td class="py-1.5 pr-3 text-[#cfcfcf]">{{ t.artist or "?" }}</td>
+      <td class="py-1.5 pr-3 text-[#8a8a8a]">{{ t.album or "?" }}</td>
+      <td class="py-1.5 pr-3 text-[#5a5a5a] text-xs">
+        {% if not t.mb_track_id and not t.mb_album_id %}both MB ids
+        {% elif not t.mb_track_id %}recording id
+        {% else %}release id{% endif %}
+      </td>
+      <td class="py-1.5 text-right">
+        <a href="/library?q={{ (t.title or t.path) | urlencode }}" class="text-xs text-[#cfcfcf] hover:underline">library</a>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td class="py-3 text-xs text-[#8a8a8a]" colspan="5">Every indexed track carries MusicBrainz ids.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% if rows %}
+<div class="text-xs text-[#5a5a5a] mt-2">Fix: run <span class="text-[#cfcfcf]">Retag</span> from the Library page — untagged files go through the identify → tag → move pass (uncertain matches land in review).</div>
+{% endif %}
+{% include "_completions_pager.html" %}

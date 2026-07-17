@@ -40,9 +40,11 @@ def test_bulk_retag_missing_field_does_not_422(client):
 
 
 def test_bulk_retag_valid_path_queues(client, tmp_path):
+    # Non-htmx form post: the enqueue is queued as a background task and the
+    # browser gets a 303 (the toast rides the dt_toast query params).
     r = client.post("/library/bulk-retag", data={"source_path": str(tmp_path)})
-    assert r.status_code == 204
-    assert _toast(r)["level"] == "success"
+    assert r.status_code == 303
+    assert "dt_toast" in r.headers["location"]
 
 
 def test_upload_unsupported_file_is_error_toast(client):

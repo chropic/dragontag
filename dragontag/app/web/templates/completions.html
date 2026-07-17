@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}dragontag | Completions{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <div class="flex items-center gap-2">
+    <span class="text-[#c7f0c7]">&#9656;</span>
+    <h2 class="font-bold text-lg">completions</h2>
+    <span class="text-[#5a5a5a] text-xs">library health — gaps &amp; duplicates</span>
+  </div>
+</div>
+
+<p class="text-xs text-[#8a8a8a] mb-4 max-w-3xl">
+  What's missing or doubled in your library. Lyrics, untagged, duplicates and tag
+  problems are live from the index; missing tracks, covers and genres are snapshots —
+  use the refresh buttons to re-check. Nothing on this page ever moves or deletes files.
+</p>
+
+{# ── Summary tiles ─────────────────────────────────────────────────────── #}
+<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6 text-xs">
+  <a href="#no-lyrics" class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-3 pb-3 hover:border-[#3a3a3a]">
+    <span class="dt-label">lyrics</span>
+    <div class="text-lg text-[#e6e6e6]">{{ counts.lyrics_pct }}%</div>
+    <div class="dt-meter mt-1"><span style="width: {{ counts.lyrics_pct }}%"></span></div>
+    <div class="text-[#8a8a8a] mt-1">{{ counts.no_lyrics }} without</div>
+  </a>
+  <a href="#untagged" class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-3 pb-3 hover:border-[#3a3a3a]">
+    <span class="dt-label">tagged</span>
+    <div class="text-lg text-[#e6e6e6]">{{ counts.tagged_pct }}%</div>
+    <div class="dt-meter mt-1"><span style="width: {{ counts.tagged_pct }}%"></span></div>
+    <div class="text-[#8a8a8a] mt-1">{{ counts.untagged }} untagged</div>
+  </a>
+  <a href="#covers" class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-3 pb-3 hover:border-[#3a3a3a]">
+    <span class="dt-label">covers</span>
+    <div class="text-lg text-[#e6e6e6]">{{ counts.covers_pct }}%</div>
+    <div class="dt-meter mt-1"><span style="width: {{ counts.covers_pct }}%"></span></div>
+    <div class="text-[#8a8a8a] mt-1">{{ counts.missing_cover }} without</div>
+  </a>
+  <a href="#genres" class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-3 pb-3 hover:border-[#3a3a3a]">
+    <span class="dt-label">genres</span>
+    <div class="text-lg text-[#e6e6e6]">{{ counts.genres_pct }}%</div>
+    <div class="dt-meter mt-1"><span style="width: {{ counts.genres_pct }}%"></span></div>
+    <div class="text-[#8a8a8a] mt-1">{{ counts.missing_genre }} without</div>
+  </a>
+  <a href="#missing-tracks" class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-3 pb-3 hover:border-[#3a3a3a]">
+    <span class="dt-label">incomplete</span>
+    <div class="text-lg {% if counts.incomplete %}text-[#f2e5b5]{% else %}text-[#e6e6e6]{% endif %}">{{ counts.incomplete }}</div>
+    <div class="text-[#8a8a8a] mt-1">albums missing tracks</div>
+  </a>
+  <a href="#duplicates" class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-3 pb-3 hover:border-[#3a3a3a]">
+    <span class="dt-label">duplicates</span>
+    <div class="text-lg {% if counts.dup_groups %}text-[#f2e5b5]{% else %}text-[#e6e6e6]{% endif %}">{{ counts.dup_groups }}</div>
+    <div class="text-[#8a8a8a] mt-1">groups · {{ counts.dup_files }} file(s)</div>
+  </a>
+</div>
+
+{# ── Snapshot refresh controls ─────────────────────────────────────────── #}
+<div class="flex gap-2 mb-6 flex-wrap text-xs items-center">
+  <span class="text-[#5a5a5a] uppercase tracking-widest mr-1">refresh snapshots</span>
+  {% for f in folders %}
+  <form method="post" action="/library/find-missing-tracks" class="inline">
+    <input type="hidden" name="folder_id" value="{{ f.id }}">
+    <button class="px-3 py-1.5 border border-[#2a2a2a] text-[#cfcfcf] hover:text-white hover:border-[#3a3a3a]"
+            title="Re-check album completeness against MusicBrainz (network).">
+      missing tracks: {{ f.label or f.path }}
+    </button>
+  </form>
+  <form method="post" action="/library/scan-health" class="inline">
+    <input type="hidden" name="folder_id" value="{{ f.id }}">
+    <button class="px-3 py-1.5 border border-[#2a2a2a] text-[#cfcfcf] hover:text-white hover:border-[#3a3a3a]"
+            title="Re-scan files for missing genres and cover art (reads every file; read-only).">
+      covers/genres: {{ f.label or f.path }}
+    </button>
+  </form>
+  {% endfor %}
+</div>
+
+{# ── Sections: lazy-loaded fragments ───────────────────────────────────── #}
+{% set section_labels = {
+  "missing-tracks": "incomplete albums (missing tracks)",
+  "duplicates": "duplicates",
+  "no-lyrics": "songs without lyrics",
+  "covers": "missing cover art",
+  "genres": "missing genres",
+  "untagged": "untagged files",
+  "tag-problems": "tag problems",
+} %}
+<div class="space-y-4">
+  {% for name in sections %}
+  <div id="{{ name }}" class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4">
+    <span class="dt-label">{{ section_labels[name] }}</span>
+    <div id="sec-{{ name }}" hx-get="/completions/section/{{ name }}" hx-trigger="revealed" hx-swap="innerHTML">
+      <div class="text-xs text-[#5a5a5a] py-3">loading<span class="dt-cursor"></span></div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% endblock %}
+
+{% block statusbar %}
+  <span class="dt-key"><b>g</b> go to</span>
+  <span class="dt-key"><b>?</b> help</span>
+  <span class="dt-status-note">{{ counts.total }} track(s) indexed</span>
+{% endblock %}

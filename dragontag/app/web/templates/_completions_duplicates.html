@@ -1,0 +1,42 @@
+{# Live: duplicate track groups (MB recording id, or same artist/title with
+   durations within 3s) + album folders that fold to the same artist/album. #}
+{% if groups %}
+<div class="space-y-2">
+  {% for g in groups %}
+  <div class="border border-[#1f1f1f] px-3 py-2">
+    <div class="text-xs text-[#f2e5b5] mb-1">
+      {{ g|length }} copies —
+      {{ g[0].artist or "?" }} · {{ g[0].title or "?" }}
+      {% if g[0].mb_track_id %}<span class="text-[#5a5a5a]">(same MusicBrainz recording)</span>
+      {% else %}<span class="text-[#5a5a5a]">(same artist/title, durations agree)</span>{% endif %}
+    </div>
+    <ul class="text-xs text-[#8a8a8a] space-y-0.5">
+      {% for t in g %}
+      <li class="flex items-center gap-2">
+        <span class="flex-1 truncate" title="{{ t.path }}">{{ t.path }}</span>
+        <span class="text-[#5a5a5a]">{{ "%d:%02d"|format((t.duration or 0)//60, (t.duration or 0)%60) }}</span>
+        <a href="/library?q={{ (t.title or '') | urlencode }}" class="text-[#cfcfcf] hover:underline shrink-0">library</a>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="py-3 text-xs text-[#8a8a8a]">No duplicate tracks found.</div>
+{% endif %}
+
+{% if album_groups %}
+<div class="mt-4">
+  <div class="text-[10px] uppercase tracking-widest text-[#5a5a5a] mb-1">album folders that look like twins</div>
+  <div class="space-y-1 text-xs text-[#8a8a8a]">
+    {% for dirs in album_groups %}
+    <div class="border border-[#1f1f1f] px-3 py-1.5">
+      {% for d in dirs %}<div class="truncate" title="{{ d }}">{{ d }}</div>{% endfor %}
+      <div class="text-[#5a5a5a] mt-0.5">Run <span class="text-[#cfcfcf]">Cleanup</span> from the Library page to merge twin folders safely.</div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+{% include "_completions_pager.html" %}

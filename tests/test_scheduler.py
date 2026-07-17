@@ -18,7 +18,7 @@ class _Ctx:
 def _run_dispatch(monkeypatch, params) -> dict:
     captured: dict = {}
 
-    def fake_enqueue(path, dry_run=False):
+    def fake_enqueue(path, dry_run=False, ctx=None):
         captured["dry_run"] = dry_run
         return ["job"]
 

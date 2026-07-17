@@ -1,0 +1,27 @@
+{# Live: tag-health problems (missing core fields, mojibake, impossible numbers). #}
+<table class="w-full text-sm">
+  <thead>
+    <tr class="text-left text-[10px] uppercase tracking-widest text-[#5a5a5a] border-b border-[#1f1f1f]">
+      <th class="py-2 pr-3">file</th>
+      <th class="py-2 pr-3">problem</th>
+      <th class="py-2"></th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for t, msg in rows %}
+    <tr class="border-b border-[#141414] hover:bg-[#0d0d0d]">
+      <td class="py-1.5 pr-3 text-[#e6e6e6] text-xs truncate max-w-[20rem]" title="{{ t.path }}">{{ t.path.rsplit("/", 1)[-1] }}</td>
+      <td class="py-1.5 pr-3 text-[#f2e5b5] text-xs">{{ msg }}</td>
+      <td class="py-1.5 text-right">
+        <a href="/library?q={{ (t.title or t.artist or '') | urlencode }}" class="text-xs text-[#cfcfcf] hover:underline">library</a>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td class="py-3 text-xs text-[#8a8a8a]" colspan="3">No tag problems detected.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% if rows %}
+<div class="text-xs text-[#5a5a5a] mt-2">Fix: edit the track from the Library page, or run <span class="text-[#cfcfcf]">Retag</span> to re-resolve it against MusicBrainz.</div>
+{% endif %}
+{% include "_completions_pager.html" %}

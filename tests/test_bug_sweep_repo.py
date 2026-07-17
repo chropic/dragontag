@@ -296,28 +296,13 @@ def test_job_log_endpoint_escapes_html(client):
     assert "&lt;script&gt;" in resp.text
 
 
-def test_incomplete_pagination_urlencodes_query(client):
-    with session() as s:
-        ids = []
-        for i in range(12):
-            row = IncompleteAlbum(mb_album_id=f"mb-{i}", album=f"A&B {i}", artist="Z")
-            s.add(row)
-            s.commit()
-            s.refresh(row)
-            ids.append(row.id)
-
-    try:
-        resp = client.get("/library/incomplete", params={"q": "A&B", "page_size": 10})
-        assert resp.status_code == 200
-        # Pagination hrefs must carry the encoded query, or paging drops the filter.
-        assert "?q=A%26B" in resp.text
-    finally:
-        with session() as s:
-            for rid in ids:
-                obj = s.get(IncompleteAlbum, rid)
-                if obj:
-                    s.delete(obj)
-            s.commit()
+def test_incomplete_redirects_to_completions(client):
+    # The old Incomplete tab lives on the Completions page now; the rows
+    # render via the missing-tracks section fragment (tested in
+    # test_completions_page.py).
+    resp = client.get("/library/incomplete", follow_redirects=False)
+    assert resp.status_code == 308
+    assert resp.headers["location"].startswith("/completions")
 
 
 # ---------------------------------------------------------------------------

@@ -4,4 +4,4 @@ See README.md for a high-level architecture overview. Entry point for the FastAP
 app is :mod:`dragontag.app.main`.
 """
 
-__version__ = "0.1.16"
+__version__ = "0.1.19"

@@ -4,6 +4,46 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Added (manual-tagger upgrades — 2026-07-18)
+- **Bulk manual-tag apply.** The "apply selected" batch now includes each
+  checked card's manual-tag panel: any card with a title + at least one artist
+  is applied as a manual match, so mixed MB-pick + manual selections resolve
+  together instead of erroring "nothing selected". A per-card **[ apply manual
+  tags ]** click also folds into an active multi-selection the same way the
+  MB **Apply** button does. (`web/templates/queue.html`, `main.py`
+  `review_bulk_apply`)
+- **Manual-tag inputs persist across reload.** Every value typed in a manual
+  panel — including added artist rows — is mirrored to
+  `localStorage['dt.review.manual']` per job id and restored on load; the panel
+  auto-opens for any card that has saved data, and entries are pruned when
+  their card leaves the DOM (apply / skip). (`web/templates/queue.html`)
+- **Multi-artist entry in the manual tagger.** A **"+"** button next to Artist
+  (and Album artist) adds another input row; on save the values become a
+  **native multi-value list** on the file (Vorbis `ARTIST` / ID3 `TPE1` /
+  MP4 `aART`) with the display fallback joined by `settings().separators.ARTIST`
+  / `.album_artist` (default `//`). (`web/templates/queue.html`, `main.py`
+  `review_manual_apply` + `_apply_manual_match`)
+- **More optional manual fields:** date, release type (Album/Single/EP/…),
+  explicit (clean/explicit), and genre. Landed on `TrackTags` before
+  `prepare_tags` so an explicit choice wins over inference. Guarded the
+  lyrics-fetch step in `pipeline._commit_tag_path` so it only fills `advisory`
+  when the caller left it `None` — a user's explicit choice is no longer
+  clobbered when lyrics are found. (`web/templates/queue.html`, `main.py`,
+  `ingest/pipeline.py`)
+
+### Fixed (MusicBrainz manual search — 2026-07-18)
+- **MB search on the review card now returns results.** The Round-2 apply-form
+  htmx wiring added a form-level `htmx:configRequest` listener that also fired
+  on the nested MB-search GET (the Search button lives inside the apply form),
+  mutating its params; combined with the search inputs sharing `name` with the
+  apply form (`title`/`artist`/`album`) the search reached `/api/mb-search`
+  with an empty title and silently rendered nothing. The listener is now
+  scoped (`if (evt.detail.elt !== form) return`) and the search inputs are
+  renamed `mb_title` / `mb_artist` / `mb_album` / `mb_mbid` so they can't
+  collide. The results partial now shows a hint when nothing was searched, so
+  an empty search never renders to a dead box. (`web/templates/queue.html`,
+  `web/templates/_mb_search_results.html`, `main.py` `api_mb_search`)
+
 ### Changed (no-reload review queue — 2026-07-17)
 - **Applying a review correction no longer reloads the page or blocks ~10s.**
   The single **Apply**, the multi-select **apply selected**, and the new

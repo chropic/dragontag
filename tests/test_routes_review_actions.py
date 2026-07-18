@@ -135,3 +135,108 @@ def test_manual_apply_requires_title_and_artist(client, stub_commit):
     assert "tags" not in stub_commit
     with session() as s:
         assert s.get(Job, jid).status == JobStatus.needs_review  # still in review
+
+
+# ---- Round 3: multi-artist + extra fields ----
+
+
+def test_manual_apply_multi_artist_writes_list_and_join(client, stub_commit):
+    """Multiple `artist` values become a native multi-value list on the tags
+    with the display fallback joined by the configured separator (`//` default)."""
+    jid = _review_job()
+    r = client.post(
+        f"/review/{jid}/manual-apply",
+        data={
+            "title": "Song",
+            "artist": ["Alice", "Bob"],
+            "album_artist": ["Alice", "Bob"],
+        },
+        headers={"HX-Request": "true"},
+    )
+    assert r.status_code == 200
+    _wait(stub_commit)
+    tags = stub_commit["tags"]
+    assert tags.artists == ["Alice", "Bob"]
+    assert tags.artist_display == "Alice//Bob"
+    assert tags.album_artists == ["Alice", "Bob"]
+    assert tags.album_artist_display == "Alice//Bob"
+
+
+def test_manual_apply_extra_fields_land_on_tags(client, stub_commit):
+    """Date / release_type / advisory / genre from the manual form land on the
+    TrackTags before commit."""
+    jid = _review_job()
+    r = client.post(
+        f"/review/{jid}/manual-apply",
+        data={
+            "title": "T", "artist": "A",
+            "date": "1999-05-01", "release_type": "EP",
+            "advisory": "1", "genres": "Jazz",
+        },
+        headers={"HX-Request": "true"},
+    )
+    assert r.status_code == 200
+    _wait(stub_commit)
+    tags = stub_commit["tags"]
+    assert tags.date == "1999-05-01"
+    assert tags.release_type == "EP"
+    assert tags.advisory == 1
+    assert tags.genres == ["Jazz"]
+
+
+# ---- Round 3: bulk apply with per-job manual fields ----
+
+
+def test_bulk_apply_enqueues_manual_steps(client, stub_commit):
+    """When a selected card carries `manual_{id}_title` + `manual_{id}_artist`,
+    the bulk-apply route builds a manual step for it (not an MB pick)."""
+    jid1 = _review_job()
+    jid2 = _review_job()
+    r = client.post(
+        "/review/bulk-apply",
+        data={
+            "job_ids": [str(jid1), str(jid2)],
+            f"manual_{jid1}_title": "S1",
+            f"manual_{jid1}_artist": ["A1", "A2"],
+            f"manual_{jid1}_release_type": "Album",
+            f"manual_{jid2}_title": "S2",
+            f"manual_{jid2}_artist": "B",
+        },
+        headers={"HX-Request": "true"},
+    )
+    # Empty 200 with HX-Trigger carrying reviewApplied ids; JS removes cards.
+    assert r.status_code == 200
+    trigger = r.headers.get("HX-Trigger", "")
+    assert "reviewApplied" in trigger
+    assert str(jid1) in trigger and str(jid2) in trigger
+
+
+# ---- Round 3: MB search rename + empty-state hint ----
+
+
+def test_mb_search_hint_shown_when_nothing_entered(client):
+    r = client.get("/api/mb-search", params={"job_id": 0})
+    assert r.status_code == 200
+    assert "Enter a title" in r.text  # empty-state hint from _mb_search_results.html
+
+
+def test_mb_search_accepts_mb_prefixed_params(client, monkeypatch):
+    """The rename to mb_title / mb_artist / mb_album keeps the route wired: a
+    populated mb_title round-trips into search_candidates."""
+    from dragontag.app.identify import musicbrainz as mbq_mod
+
+    calls: dict = {}
+
+    def fake_search(title, artist=None, album=None, limit=10, raise_on_error=False):
+        calls["title"] = title
+        calls["artist"] = artist
+        return []
+
+    monkeypatch.setattr(mbq_mod, "search_candidates", fake_search)
+    r = client.get(
+        "/api/mb-search",
+        params={"mb_title": "Foo", "mb_artist": "Bar", "job_id": 0},
+    )
+    assert r.status_code == 200
+    assert calls == {"title": "Foo", "artist": "Bar"}
+    assert "No results" in r.text

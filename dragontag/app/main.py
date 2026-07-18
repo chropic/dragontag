@@ -483,6 +483,8 @@ def queue_page(
         "done_today": done_today,
         "errors": errors,
         "active_page": "queue",
+        "separators": settings().separators,
+        "release_type_options": ["Album", "Single", "EP", "Compilation", "Soundtrack", "Other"],
     })
     response.set_cookie(
         _QUEUE_PREFS_COOKIE,
@@ -712,26 +714,42 @@ def _apply_manual_match(job_id: int, fields: dict[str, Any]):
     Reuses the pipeline's ``prepare_tags`` + ``_commit_tag_path`` (so cover art,
     the local-cover fallback, lyrics and the library move all run exactly as for
     an MB match) — the only difference is the ``TrackTags`` come from the user's
-    manual fields instead of MusicBrainz."""
+    manual fields instead of MusicBrainz.
+
+    ``fields['artists']`` and ``fields['album_artists']`` are lists (one entry
+    per manual row); ``artist_display`` / ``album_artist_display`` are joined
+    using the configured per-tag separator (``settings().separators.ARTIST`` /
+    ``.album_artist``, default ``//``) so multi-value tags land natively while
+    the flat display fallback still reads correctly in single-value players."""
     def step(ctx) -> None:
         with session() as s:
             job = s.get(Job, job_id)
             if not job or job.status != JobStatus.needs_review:
                 return
             from .tagging.schema import TrackTags
-            artist = fields.get("artist") or None
-            album_artist = fields.get("album_artist") or artist
+            seps = settings().separators
+            artists: list[str] = [a for a in (fields.get("artists") or []) if a]
+            album_artists: list[str] = [a for a in (fields.get("album_artists") or []) if a] or artists
+            artist_display = seps.ARTIST.join(artists) if artists else None
+            album_artist_display = seps.album_artist.join(album_artists) if album_artists else None
+            genres_val = fields.get("genres") or []
+            if isinstance(genres_val, str):
+                genres_val = [g.strip() for g in genres_val.split(",") if g.strip()]
             tags = TrackTags(
                 title=fields.get("title") or None,
-                artist_display=artist,
-                artists=[artist] if artist else [],
+                artist_display=artist_display,
+                artists=artists,
                 album=fields.get("album") or None,
-                album_artist_display=album_artist,
-                album_artists=[album_artist] if album_artist else [],
+                album_artist_display=album_artist_display,
+                album_artists=album_artists,
                 track=fields.get("track"),
                 track_total=fields.get("track_total"),
                 disc=fields.get("disc"),
                 disc_total=fields.get("disc_total"),
+                date=fields.get("date") or None,
+                genres=list(genres_val),
+                release_type=fields.get("release_type") or None,
+                advisory=fields.get("advisory"),
             )
             from .ingest.pipeline import prepare_tags, _commit_tag_path
             prepare_tags(job, tags)
@@ -754,6 +772,9 @@ async def review_bulk_apply(request: Request, _: None = Depends(require_auth)):
     form = await request.form()
     job_ids = [int(v) for v in form.getlist("job_ids") if str(v).strip().isdigit()]
 
+    def _int(v: str) -> int | None:
+        return int(v) if v.strip().isdigit() else None
+
     steps: list[tuple[str, Any]] = []
     applied_ids: list[int] = []
     with session() as s:
@@ -761,6 +782,39 @@ async def review_bulk_apply(request: Request, _: None = Depends(require_auth)):
             job = s.get(Job, job_id)
             if not job or job.status != JobStatus.needs_review:
                 continue
+            # Per-job manual override takes priority: if the manual form for this
+            # card has a title and at least one artist, apply it as a manual match
+            # so a mixed MB-pick + manual batch still resolves each card correctly.
+            m_title = str(form.get(f"manual_{job_id}_title", "")).strip()
+            m_artists = [
+                str(v).strip() for v in form.getlist(f"manual_{job_id}_artist") if str(v).strip()
+            ]
+            if m_title and m_artists:
+                m_album_artists = [
+                    str(v).strip()
+                    for v in form.getlist(f"manual_{job_id}_album_artist")
+                    if str(v).strip()
+                ]
+                adv_raw = str(form.get(f"manual_{job_id}_advisory", "")).strip()
+                advisory = int(adv_raw) if adv_raw in ("0", "1") else None
+                fields = _manual_fields_from_form(
+                    title=m_title,
+                    artists=m_artists,
+                    album_artists=m_album_artists,
+                    album=str(form.get(f"manual_{job_id}_album", "")).strip(),
+                    track=_int(str(form.get(f"manual_{job_id}_track_num", ""))),
+                    track_total=_int(str(form.get(f"manual_{job_id}_track_total", ""))),
+                    disc=_int(str(form.get(f"manual_{job_id}_disc_num", ""))),
+                    disc_total=_int(str(form.get(f"manual_{job_id}_disc_total", ""))),
+                    date=str(form.get(f"manual_{job_id}_date", "")).strip(),
+                    release_type=str(form.get(f"manual_{job_id}_release_type", "")).strip(),
+                    advisory=advisory,
+                    genres=str(form.get(f"manual_{job_id}_genres", "")).strip(),
+                )
+                steps.append((f"Manual job {job_id}", _apply_manual_match(job_id, fields)))
+                applied_ids.append(job_id)
+                continue
+
             rec = rel = ""
             pick = str(form.get(f"pick_{job_id}", "")).strip()
             if "|" in pick:
@@ -899,34 +953,44 @@ def review_skip(job_id: int, request: Request, _: None = Depends(require_auth)):
 
 
 @app.post("/review/{job_id}/manual-apply")
-def review_manual_apply(
+async def review_manual_apply(
     job_id: int,
     request: Request,
     _: None = Depends(require_auth),
-    title: str = Form(""),
-    artist: str = Form(""),
-    album: str = Form(""),
-    album_artist: str = Form(""),
-    track_num: str = Form(""),
-    track_total: str = Form(""),
-    disc_num: str = Form(""),
-    disc_total: str = Form(""),
 ):
     """Apply hand-entered tags to a review item (the manual-tag interface).
 
     Builds a ``TrackTags`` from the manual fields and runs the SAME background
     commit as an MB match (``prepare_tags`` + ``_commit_tag_path``): write tags,
     fetch cover art with the local-cover fallback, fetch lyrics, and move into
-    the library. Requires at least a title and artist so a destination path can
-    be built."""
+    the library. Requires at least a title and one artist so a destination path
+    can be built.
+
+    Artist and album-artist rows are read via ``form.getlist`` — the manual UI
+    lets the user add several rows (one artist per row) that become a native
+    multi-value list on the file (Vorbis ARTIST / ID3 TPE1 / MP4 aART), with
+    the ``//``-joined display strings as the single-value fallback."""
+    form = await request.form()
+
     def _int(v: str) -> int | None:
         return int(v) if v.strip().isdigit() else None
 
-    title = title.strip()
-    artist = artist.strip()
-    if not title or not artist:
+    def _list(name: str) -> list[str]:
+        return [str(v).strip() for v in form.getlist(name) if str(v).strip()]
+
+    title = str(form.get("title", "")).strip()
+    artists = _list("artist")
+    album_artists = _list("album_artist")
+    if not title or not artists:
         msg = "Manual tag needs at least a title and an artist."
         return _toast(msg, "error") if _is_htmx(request) else _toast_response("/queue", msg, "error")
+
+    advisory_raw = str(form.get("advisory", "")).strip()
+    advisory: int | None
+    if advisory_raw in ("0", "1"):
+        advisory = int(advisory_raw)
+    else:
+        advisory = None
 
     with session() as s:
         job = s.get(Job, job_id)
@@ -936,22 +1000,62 @@ def review_manual_apply(
             msg = f"Job {job_id} is not awaiting review."
             return _toast(msg, "error") if _is_htmx(request) else _toast_response("/queue", msg, "error")
 
-    fields = {
-        "title": title,
-        "artist": artist,
-        "album": album.strip(),
-        "album_artist": album_artist.strip(),
-        "track": _int(track_num),
-        "track_total": _int(track_total),
-        "disc": _int(disc_num),
-        "disc_total": _int(disc_total),
-    }
+    fields = _manual_fields_from_form(
+        title=title,
+        artists=artists,
+        album_artists=album_artists,
+        album=str(form.get("album", "")).strip(),
+        track=_int(str(form.get("track_num", ""))),
+        track_total=_int(str(form.get("track_total", ""))),
+        disc=_int(str(form.get("disc_num", ""))),
+        disc_total=_int(str(form.get("disc_total", ""))),
+        date=str(form.get("date", "")).strip(),
+        release_type=str(form.get("release_type", "")).strip(),
+        advisory=advisory,
+        genres=str(form.get("genres", "")).strip(),
+    )
     tasks.run_chain(
         "review_manual", f"Manual tag (job {job_id})",
         [(f"Manual job {job_id}", _apply_manual_match(job_id, fields))],
     )
     msg = "Applying manual tags in the background…"
     return _hx_remove(msg) if _is_htmx(request) else _toast_response("/queue", msg)
+
+
+def _manual_fields_from_form(
+    *,
+    title: str,
+    artists: list[str],
+    album_artists: list[str],
+    album: str,
+    track: int | None,
+    track_total: int | None,
+    disc: int | None,
+    disc_total: int | None,
+    date: str,
+    release_type: str,
+    advisory: int | None,
+    genres: str,
+) -> dict[str, Any]:
+    """Assemble the ``fields`` dict ``_apply_manual_match`` consumes.
+
+    Shared between the single manual-apply route and the bulk gather so both
+    paths carry the same optional fields (date / release_type / advisory /
+    genre) plus the artist lists."""
+    return {
+        "title": title,
+        "artists": artists,
+        "album_artists": album_artists,
+        "album": album,
+        "track": track,
+        "track_total": track_total,
+        "disc": disc,
+        "disc_total": disc_total,
+        "date": date,
+        "release_type": release_type,
+        "advisory": advisory,
+        "genres": genres,
+    }
 
 
 @app.post("/review/{job_id}/resolve_conflict")
@@ -2280,10 +2384,10 @@ def completions_item_delete(row_id: int, request: Request, _: None = Depends(req
 def api_mb_search(
     request: Request,
     _: None = Depends(require_auth),
-    title: str = "",
-    artist: str = "",
-    album: str = "",
-    mbid: str = "",
+    mb_title: str = "",
+    mb_artist: str = "",
+    mb_album: str = "",
+    mb_mbid: str = "",
     job_id: int = 0,
 ):
     """HTMX partial: search MusicBrainz from the review page.
@@ -2296,7 +2400,7 @@ def api_mb_search(
       results stay scoped to the right artist for common titles.
     """
     try:
-        return _api_mb_search_inner(request, title, artist, album, mbid, job_id)
+        return _api_mb_search_inner(request, mb_title, mb_artist, mb_album, mb_mbid, job_id)
     except Exception as e:
         log.warning("mb-search failed: %s", e)
         return templates.TemplateResponse(request, "_mb_search_results.html", {

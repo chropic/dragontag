@@ -192,8 +192,45 @@
       const params = evt.detail.parameters;
       const checked = bulk.querySelectorAll('input[name=job_ids]:checked');
       let resolved = 0;
+      // Some params (repeated artist rows) must round-trip as arrays so
+      // form.getlist() sees every value; htmx sends arrays as repeated keys.
+      function setParam(key, value) {
+        if (params[key] === undefined) {
+          params[key] = value;
+        } else if (Array.isArray(params[key])) {
+          params[key].push(value);
+        } else {
+          params[key] = [params[key], value];
+        }
+      }
       checked.forEach(function (cb) {
         const id = cb.value;
+        // Manual-tag override wins per card: if the manual panel for this job
+        // has a title + ≥1 non-empty artist, emit manual_{id}_* params and count
+        // it as resolved. MB-pick and manual cards can mix in one batch.
+        const manualForm = document.getElementById('manual-form-' + id);
+        if (manualForm) {
+          const mTitle = (manualForm.querySelector('input[name=title]') || {}).value || '';
+          const mArtists = [...manualForm.querySelectorAll('input[name=artist]')]
+            .map(function (i) { return i.value.trim(); }).filter(Boolean);
+          if (mTitle.trim() && mArtists.length) {
+            setParam('manual_' + id + '_title', mTitle.trim());
+            mArtists.forEach(function (a) { setParam('manual_' + id + '_artist', a); });
+            const mAA = [...manualForm.querySelectorAll('input[name=album_artist]')]
+              .map(function (i) { return i.value.trim(); }).filter(Boolean);
+            mAA.forEach(function (a) { setParam('manual_' + id + '_album_artist', a); });
+            ['album', 'date', 'track_num', 'track_total', 'disc_num', 'disc_total', 'genres'].forEach(function (n) {
+              const el = manualForm.querySelector('[name=' + n + ']');
+              if (el && el.value.trim()) setParam('manual_' + id + '_' + n, el.value.trim());
+            });
+            const rt = manualForm.querySelector('select[name=release_type]');
+            if (rt && rt.value) setParam('manual_' + id + '_release_type', rt.value);
+            const adv = manualForm.querySelector('select[name=advisory]');
+            if (adv && adv.value !== '') setParam('manual_' + id + '_advisory', adv.value);
+            resolved++;
+            return;
+          }
+        }
         const jobForm = document.getElementById('apply-form-' + id);
         if (!jobForm) return;
         let rec = '', rel = '';
@@ -227,7 +264,10 @@
 {% endif %}
 
 {% for j in items %}
-<div class="relative border border-[#242424] bg-[#0a0a0a] px-3 py-2.5 mb-2 dt-review-item" x-data="{ manual: false }">
+<div class="relative border border-[#242424] bg-[#0a0a0a] px-3 py-2.5 mb-2 dt-review-item"
+     data-job-id="{{ j.id }}"
+     x-data="{ manual: false }"
+     x-init="if (window.dtManualHasSaved && window.dtManualHasSaved('{{ j.id }}')) manual = true">
   <div class="flex items-center gap-2">
     <input type="checkbox" name="job_ids" value="{{ j.id }}" form="review-bulk-form">
     <a href="/jobs/{{ j.id }}" class="font-medium text-white hover:underline truncate">{{ j.original_name }}</a>
@@ -258,19 +298,39 @@
      submits the hand-entered tags for a full apply (write + cover/lyrics +
      move) via the background worker, then removes the card. ---- #}
   <div class="mt-3 hidden" :class="{ 'hidden': !manual }">
-    <form hx-post="/review/{{ j.id }}/manual-apply"
-          hx-target="closest .dt-review-item" hx-swap="outerHTML" hx-disabled-elt="find button"
-          class="relative space-y-2 border border-[#242424] pt-5 px-3 pb-3">
+    <form id="manual-form-{{ j.id }}"
+          hx-post="/review/{{ j.id }}/manual-apply"
+          hx-target="closest .dt-review-item" hx-swap="outerHTML" hx-disabled-elt="find .manual-submit-btn"
+          class="relative space-y-2 border border-[#242424] pt-5 px-3 pb-3 dt-manual-form" data-job-id="{{ j.id }}">
       <span class="dt-label">manual tags</span>
       <div class="grid grid-cols-2 gap-2 text-xs">
-        <label class="flex flex-col gap-0.5 text-[#8a8a8a]">Title
+        <label class="flex flex-col gap-0.5 text-[#8a8a8a] col-span-2">Title
           <input name="title" class="bg-black border border-[#2a2a2a] text-white px-2 py-1 focus:outline-none"></label>
-        <label class="flex flex-col gap-0.5 text-[#8a8a8a]">Artist
-          <input name="artist" class="bg-black border border-[#2a2a2a] text-white px-2 py-1 focus:outline-none"></label>
+        {# Multi-value ARTIST via one row per name; the "+" clones another row.
+           Server joins them with settings().separators.ARTIST for the display
+           fallback, writes native multi-value on the file. #}
+        <div class="flex flex-col gap-0.5 text-[#8a8a8a]">
+          <span>Artist <span class="text-[#5a5a5a]">(one per row, joined with <code>{{ separators.ARTIST }}</code>)</span></span>
+          <div class="dt-artist-rows" data-field="artist">
+            <div class="flex gap-1 mb-1 dt-artist-row">
+              <input name="artist" class="flex-1 bg-black border border-[#2a2a2a] text-white px-2 py-1 focus:outline-none">
+              <button type="button" class="dt-artist-add px-2 border border-[#2a2a2a] text-[#8a8a8a] hover:border-[#c7f0c7] hover:text-[#c7f0c7]" title="Add another artist">+</button>
+            </div>
+          </div>
+        </div>
+        <div class="flex flex-col gap-0.5 text-[#8a8a8a]">
+          <span>Album artist <span class="text-[#5a5a5a]">(joined with <code>{{ separators.album_artist }}</code>)</span></span>
+          <div class="dt-artist-rows" data-field="album_artist">
+            <div class="flex gap-1 mb-1 dt-artist-row">
+              <input name="album_artist" class="flex-1 bg-black border border-[#2a2a2a] text-white px-2 py-1 focus:outline-none">
+              <button type="button" class="dt-artist-add px-2 border border-[#2a2a2a] text-[#8a8a8a] hover:border-[#c7f0c7] hover:text-[#c7f0c7]" title="Add another album artist">+</button>
+            </div>
+          </div>
+        </div>
         <label class="flex flex-col gap-0.5 text-[#8a8a8a]">Album
           <input name="album" class="bg-black border border-[#2a2a2a] text-white px-2 py-1 focus:outline-none"></label>
-        <label class="flex flex-col gap-0.5 text-[#8a8a8a]">Album artist
-          <input name="album_artist" class="bg-black border border-[#2a2a2a] text-white px-2 py-1 focus:outline-none"></label>
+        <label class="flex flex-col gap-0.5 text-[#8a8a8a]">Date <span class="text-[#5a5a5a]">YYYY-MM-DD</span>
+          <input name="date" class="bg-black border border-[#2a2a2a] text-white px-2 py-1 focus:outline-none"></label>
         <label class="flex flex-col gap-0.5 text-[#8a8a8a]">Track #
           <input name="track_num" class="bg-black border border-[#2a2a2a] text-white px-2 py-1 focus:outline-none"></label>
         <label class="flex flex-col gap-0.5 text-[#8a8a8a]">Track total
@@ -279,9 +339,22 @@
           <input name="disc_num" class="bg-black border border-[#2a2a2a] text-white px-2 py-1 focus:outline-none"></label>
         <label class="flex flex-col gap-0.5 text-[#8a8a8a]">Disc total
           <input name="disc_total" class="bg-black border border-[#2a2a2a] text-white px-2 py-1 focus:outline-none"></label>
+        <label class="flex flex-col gap-0.5 text-[#8a8a8a]">Release type
+          <select name="release_type" class="bg-black border border-[#2a2a2a] text-white px-2 py-1 focus:outline-none">
+            <option value="">—</option>
+            {% for rt in release_type_options %}<option>{{ rt }}</option>{% endfor %}
+          </select></label>
+        <label class="flex flex-col gap-0.5 text-[#8a8a8a]">Explicit
+          <select name="advisory" class="bg-black border border-[#2a2a2a] text-white px-2 py-1 focus:outline-none">
+            <option value="">—</option>
+            <option value="0">clean</option>
+            <option value="1">explicit</option>
+          </select></label>
+        <label class="flex flex-col gap-0.5 text-[#8a8a8a] col-span-2">Genre
+          <input name="genres" class="bg-black border border-[#2a2a2a] text-white px-2 py-1 focus:outline-none"></label>
       </div>
-      <p class="text-xs text-[#5a5a5a]">Title + artist required. Cover art and lyrics are fetched automatically, then the file is moved into the library.</p>
-      <button class="px-3 py-1.5 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f] text-xs">[ apply manual tags ]</button>
+      <p class="text-xs text-[#5a5a5a]">Title + at least one artist required. Cover art (local fallback) and lyrics are fetched automatically, then the file is moved into the library.</p>
+      <button class="manual-submit-btn px-3 py-1.5 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f] text-xs">[ apply manual tags ]</button>
     </form>
   </div>
   {% endif %}
@@ -328,17 +401,21 @@
          (or Enter in any of the inputs) fires a single query. Enter is
          intercepted so it can't accidentally submit the surrounding apply
          form. The mbid box accepts a MusicBrainz URL or bare ID. #}
+      {# Inputs are named mb_* so they do NOT collide with the apply form's
+         own title/artist/album fields (which would otherwise be overwritten
+         when submitting the apply POST) and so the search GET doesn't submit
+         those extras. #}
       <div class="mb-2" id="mb-search-{{ j.id }}">
         <div class="grid grid-cols-3 gap-1">
-          <input type="text" name="title" placeholder="Title"
+          <input type="text" name="mb_title" placeholder="Title"
                  class="mb-search-input p-1.5 bg-black border border-[#2a2a2a] text-white text-sm focus:outline-none">
-          <input type="text" name="artist" placeholder="Artist"
+          <input type="text" name="mb_artist" placeholder="Artist"
                  class="mb-search-input p-1.5 bg-black border border-[#2a2a2a] text-white text-sm focus:outline-none">
-          <input type="text" name="album" placeholder="Album"
+          <input type="text" name="mb_album" placeholder="Album"
                  class="mb-search-input p-1.5 bg-black border border-[#2a2a2a] text-white text-sm focus:outline-none">
         </div>
         <div class="flex gap-1 mt-1">
-          <input type="text" name="mbid" placeholder="…or paste a MusicBrainz URL / ID"
+          <input type="text" name="mb_mbid" placeholder="…or paste a MusicBrainz URL / ID"
                  class="mb-search-input flex-1 p-1.5 bg-black border border-[#2a2a2a] text-white text-sm focus:outline-none">
           <button type="button" id="mb-search-btn-{{ j.id }}"
                   hx-get="/api/mb-search"
@@ -400,6 +477,10 @@
           // values land in the request htmx is about to send, regardless of
           // listener/serialization ordering.
           form.addEventListener('htmx:configRequest', (evt) => {
+            // Nested htmx controls (the MB search Search button lives inside
+            // this form) bubble configRequest up here too — scope to our own
+            // form submit so we never mutate an inner GET's parameters.
+            if (evt.detail.elt !== form) return;
             let rec = '', rel = '';
             const pick = form.querySelector('input[name=pick]:checked');
             if (pick) {
@@ -609,11 +690,14 @@ dtKeys.register('x', () => {
   // once (instead of applying just this one). Capture phase so we preempt htmx's
   // submit of this item's own form and fire the bulk apply instead.
   document.addEventListener('click', (e) => {
-    const btn = e.target.closest && e.target.closest('.review-submit-btn');
+    const btn = e.target.closest && e.target.closest('.review-submit-btn, .manual-submit-btn');
     if (!btn) return;
     const form = btn.closest('form');
-    if (!form || !form.id.startsWith('apply-form-')) return;
-    const id = form.id.slice('apply-form-'.length);
+    if (!form || !form.id) return;
+    let id = '';
+    if (form.id.startsWith('apply-form-')) id = form.id.slice('apply-form-'.length);
+    else if (form.id.startsWith('manual-form-')) id = form.id.slice('manual-form-'.length);
+    if (!id) return;
     let othersChecked = 0;
     reviewBoxes().forEach(b => { if (b.checked && b.value !== id) othersChecked++; });
     if (othersChecked === 0) return;  // nothing else selected → normal single apply
@@ -628,6 +712,147 @@ dtKeys.register('x', () => {
     const bulk = document.getElementById('review-bulk-form');
     if (bulk) bulk.requestSubmit();
   }, true);
+})();
+
+// ── Manual-tag: "+" row cloning + persistence across reload ──────────────
+// The manual panel's Artist / Album-artist rows can be duplicated with "+"
+// so each row becomes a native multi-value tag on save. Everything typed in
+// the manual panel (including the number of rows) is persisted per job id in
+// localStorage under `dt.review.manual` so a refresh doesn't lose work.
+(function () {
+  const LS_KEY = 'dt.review.manual';
+  function loadAll() {
+    try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}') || {}; }
+    catch (_) { return {}; }
+  }
+  function saveAll(obj) { localStorage.setItem(LS_KEY, JSON.stringify(obj)); }
+
+  // Expose to Alpine's x-init so a card auto-opens its manual panel when it
+  // has saved data (typing during an earlier visit reveals it on reload).
+  window.dtManualHasSaved = function (id) {
+    const all = loadAll();
+    const e = all[String(id)];
+    if (!e) return false;
+    if (e.title) return true;
+    if (Array.isArray(e.artist) && e.artist.some(v => v)) return true;
+    return false;
+  };
+
+  function addRow(rowsEl) {
+    const field = rowsEl.dataset.field;
+    const row = document.createElement('div');
+    row.className = 'flex gap-1 mb-1 dt-artist-row';
+    row.innerHTML =
+      '<input name="' + field + '" class="flex-1 bg-black border border-[#2a2a2a] text-white px-2 py-1 focus:outline-none">' +
+      '<button type="button" class="dt-artist-del px-2 border border-[#2a2a2a] text-[#8a8a8a] hover:border-[#ffb4b4] hover:text-[#ffb4b4]" title="Remove">−</button>';
+    rowsEl.appendChild(row);
+    return row.querySelector('input');
+  }
+
+  // "+" appends a row; "−" removes it (never removing the last row).
+  document.addEventListener('click', function (e) {
+    const add = e.target.closest && e.target.closest('.dt-artist-add');
+    if (add) {
+      e.preventDefault();
+      const rows = add.closest('.dt-artist-rows');
+      const input = addRow(rows);
+      input.focus();
+      saveForm(add.closest('.dt-manual-form'));
+      return;
+    }
+    const del = e.target.closest && e.target.closest('.dt-artist-del');
+    if (del) {
+      e.preventDefault();
+      const row = del.closest('.dt-artist-row');
+      const rows = row.parentElement;
+      if (rows.querySelectorAll('.dt-artist-row').length > 1) row.remove();
+      else row.querySelector('input').value = '';
+      saveForm(del.closest('.dt-manual-form'));
+    }
+  });
+
+  function readForm(form) {
+    const data = {};
+    const t = form.querySelector('input[name=title]');
+    if (t) data.title = t.value;
+    data.artist = [...form.querySelectorAll('input[name=artist]')].map(i => i.value);
+    data.album_artist = [...form.querySelectorAll('input[name=album_artist]')].map(i => i.value);
+    ['album', 'date', 'track_num', 'track_total', 'disc_num', 'disc_total', 'genres'].forEach(function (n) {
+      const el = form.querySelector('[name=' + n + ']');
+      if (el) data[n] = el.value;
+    });
+    const rt = form.querySelector('select[name=release_type]');
+    if (rt) data.release_type = rt.value;
+    const adv = form.querySelector('select[name=advisory]');
+    if (adv) data.advisory = adv.value;
+    return data;
+  }
+  function saveForm(form) {
+    if (!form || !form.dataset.jobId) return;
+    const all = loadAll();
+    all[form.dataset.jobId] = readForm(form);
+    saveAll(all);
+  }
+  function restoreForm(form) {
+    if (!form || !form.dataset.jobId) return;
+    const data = loadAll()[form.dataset.jobId];
+    if (!data) return;
+    const t = form.querySelector('input[name=title]');
+    if (t && data.title != null) t.value = data.title;
+    ['album_artist', 'artist'].forEach(function (field) {
+      const rowsEl = form.querySelector('.dt-artist-rows[data-field=' + field + ']');
+      const values = Array.isArray(data[field]) ? data[field] : [];
+      if (!rowsEl) return;
+      const firstInput = rowsEl.querySelector('input');
+      if (values.length === 0) return;
+      firstInput.value = values[0] || '';
+      // Remove any extra rows carried in HTML (defensive), then add rows to
+      // match the saved values beyond the first.
+      const extras = rowsEl.querySelectorAll('.dt-artist-row');
+      for (let i = 1; i < extras.length; i++) extras[i].remove();
+      for (let i = 1; i < values.length; i++) {
+        const input = addRow(rowsEl);
+        input.value = values[i] || '';
+      }
+    });
+    ['album', 'date', 'track_num', 'track_total', 'disc_num', 'disc_total', 'genres'].forEach(function (n) {
+      const el = form.querySelector('[name=' + n + ']');
+      if (el && data[n] != null) el.value = data[n];
+    });
+    const rt = form.querySelector('select[name=release_type]');
+    if (rt && data.release_type != null) rt.value = data.release_type;
+    const adv = form.querySelector('select[name=advisory]');
+    if (adv && data.advisory != null) adv.value = data.advisory;
+  }
+
+  document.addEventListener('input', function (e) {
+    const form = e.target.closest && e.target.closest('.dt-manual-form');
+    if (form) saveForm(form);
+  });
+  document.addEventListener('change', function (e) {
+    const form = e.target.closest && e.target.closest('.dt-manual-form');
+    if (form) saveForm(form);
+  });
+
+  function pruneAndRestore() {
+    // Restore every visible manual form.
+    document.querySelectorAll('.dt-manual-form').forEach(restoreForm);
+    // Prune saved entries for jobs no longer on the page.
+    const alive = new Set(
+      [...document.querySelectorAll('.dt-review-item[data-job-id]')]
+        .map(el => el.dataset.jobId)
+    );
+    const all = loadAll();
+    let changed = false;
+    Object.keys(all).forEach(function (id) {
+      if (!alive.has(id)) { delete all[id]; changed = true; }
+    });
+    if (changed) saveAll(all);
+  }
+  window.addEventListener('DOMContentLoaded', pruneAndRestore);
+  window.addEventListener('pageshow', pruneAndRestore);
+  // After htmx swaps a card out (apply / skip / manual apply), prune its entry.
+  document.body.addEventListener('htmx:afterSwap', pruneAndRestore);
 })();
 
 // ── Persistent scroll position ────────────────────────────────────────────

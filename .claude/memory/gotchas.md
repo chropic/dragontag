@@ -270,3 +270,25 @@ recurring. When writing new code in one of these areas, check the pattern first.
   reaches `needs_review` now, so those items are rare — don't assume the queue is full of them.
   `coverart._probe_image` is the shared decode-bomb/JPEG-PNG normaliser for both the CAA and local
   paths.
+- **Manual tagger is multi-value + persists + participates in bulk (Round 3).** The manual panel
+  writes native multi-value ARTIST / album_artist by rendering one `<input name="artist">` per row
+  with a `+` button that clones another; `review_manual_apply` reads them via
+  `form.getlist("artist")` (so the route is `async` and takes no `Form(...)` params for the artist
+  fields), and `_apply_manual_match` sets `tags.artists = [...]` and
+  `artist_display = settings().separators.ARTIST.join(...)` (same for album_artist). If you add
+  another repeatable field, mirror this shape or you'll get a single joined blob instead of one
+  Vorbis comment per value. Every manual-panel value (including the row count) is persisted per
+  job id under `localStorage['dt.review.manual']`; the panel auto-opens for jobs with saved data
+  via `x-init` calling `window.dtManualHasSaved(id)`. The bulk `configRequest` gather emits
+  `manual_{id}_title` + `manual_{id}_artist` (repeated) + optionals for each checked card whose
+  manual form is populated; `review_bulk_apply` prefers a manual override over any MB pick, so a
+  mixed MB+manual batch resolves each card correctly. Extra manual fields (`date`, `release_type`,
+  `advisory`, `genres`) live on `TrackTags` and go through `prepare_tags` first — the lyrics step
+  in `_commit_tag_path` guards `if tags.advisory is None` so a user's explicit choice sticks.
+- **Nested htmx forms need scoped `configRequest` listeners.** The MB-search Search button lives
+  *inside* `apply-form-{id}`, so a form-level `htmx:configRequest` listener also fires on the
+  nested search GET (`evt.detail.elt` is the button). Always guard
+  `if (evt.detail.elt !== form) return;` at the top of a form-level listener or you'll mutate a
+  child request's params. The MB search inputs also had to be renamed `mb_title`/`mb_artist`/
+  `mb_album`/`mb_mbid` so they don't collide with the apply form's own submitted fields —
+  `_api_mb_search_inner` reads those param names.

@@ -702,7 +702,11 @@ def _commit_tag_path(s: Session, job: Job, src: Path, tags: TrackTags, *, score:
         )
         if fetched is not None:
             tags.lyrics = fetched
-            tags.advisory = 1 if is_explicit(fetched) else 0
+            # Only auto-fill advisory when the caller hasn't set one — a manual
+            # "explicit"/"clean" choice on the review card must survive. Safe
+            # for the auto path too where advisory starts None.
+            if tags.advisory is None:
+                tags.advisory = 1 if is_explicit(fetched) else 0
             rating = "explicit" if tags.advisory else "clean"
             _append_log(job, f"Lyrics fetched ({rating})")
         else:

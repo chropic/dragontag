@@ -11,10 +11,14 @@
   (`web/templates/library.html`, `main.py` `library_actions_run`)
 
 ### Fixed (MusicBrainz manual search — 2026-08-06)
-- **Review-card searches survive the multipart apply form.** The nested search
-  control now disinherits the parent form's multipart encoding and explicitly
-  limits its GET parameters to the four MusicBrainz fields plus the job id,
-  restoring ID/URL and title/artist/album searches. (`web/templates/queue.html`)
+- **Review-card searches are fully isolated from the Apply form.** The Search
+  button was still inheriting the parent form's `hx-disabled-elt` selector;
+  HTMX resolved the relative selector from the nested button, found no matching
+  descendant, and silently aborted before sending `/api/mb-search`. The control
+  now disinherits every ancestor HTMX attribute and explicitly defines its GET
+  parameters, result target/swap, input include, and self-disabled behavior,
+  restoring ID/URL and title/artist/album searches. (`web/templates/queue.html`,
+  `tests/test_routes_review_actions.py`)
 
 ### Added (manual-tagger upgrades — 2026-07-18)
 - **Bulk manual-tag apply.** The "apply selected" batch now includes each

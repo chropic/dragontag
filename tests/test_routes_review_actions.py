@@ -242,13 +242,18 @@ def test_mb_search_accepts_mb_prefixed_params(client, monkeypatch):
     assert "No results" in r.text
 
 
-def test_queue_mb_search_does_not_inherit_apply_multipart_encoding(client):
+def test_queue_mb_search_is_isolated_from_apply_form_htmx_attributes(client):
     jid = _review_job()
     r = client.get("/queue")
     assert r.status_code == 200
-    assert f'id="mb-search-btn-{jid}"' in r.text
-    assert f'id="mb-search-{jid}" hx-disinherit="hx-encoding"' in r.text
-    assert 'hx-params="mb_title, mb_artist, mb_album, mb_mbid, job_id"' in r.text
+    button = r.text.split(f'id="mb-search-btn-{jid}"', 1)[1].split("</button>", 1)[0]
+    assert 'hx-disinherit="*"' in button
+    assert 'hx-get="/api/mb-search"' in button
+    assert 'hx-params="mb_title, mb_artist, mb_album, mb_mbid, job_id"' in button
+    assert f'hx-target="#mb-results-{jid}"' in button
+    assert 'hx-swap="innerHTML"' in button
+    assert 'hx-disabled-elt="this"' in button
+    assert f'hx-include="#mb-search-{jid} input"' in button
 
 
 def test_library_queues_multiple_selected_actions(client, monkeypatch):

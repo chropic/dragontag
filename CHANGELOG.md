@@ -4,6 +4,18 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Added (library helper queue — 2026-08-06)
+- **Queue multiple helpers and reports together.** The Library page now uses a
+  checkbox list and one **[ queue selected ]** action; every selection starts
+  as an independent background job so selected tasks can run concurrently.
+  (`web/templates/library.html`, `main.py` `library_actions_run`)
+
+### Fixed (MusicBrainz manual search — 2026-08-06)
+- **Review-card searches survive the multipart apply form.** The nested search
+  control now disinherits the parent form's multipart encoding and explicitly
+  limits its GET parameters to the four MusicBrainz fields plus the job id,
+  restoring ID/URL and title/artist/album searches. (`web/templates/queue.html`)
+
 ### Added (manual-tagger upgrades — 2026-07-18)
 - **Bulk manual-tag apply.** The "apply selected" batch now includes each
   checked card's manual-tag panel: any card with a title + at least one artist

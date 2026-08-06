@@ -292,3 +292,9 @@ recurring. When writing new code in one of these areas, check the pattern first.
   child request's params. The MB search inputs also had to be renamed `mb_title`/`mb_artist`/
   `mb_album`/`mb_mbid` so they don't collide with the apply form's own submitted fields —
   `_api_mb_search_inner` reads those param names.
+- **Nested htmx GET controls inherit request encoding too.** A Search button inside the review
+  apply form inherits its ancestor's `hx-encoding="multipart/form-data"`; browsers do not put a
+  multipart GET body into the query string, so every MusicBrainz field can disappear even when
+  `hx-include` names the right inputs. Such controls must `hx-disinherit="hx-encoding"` and should
+  whitelist their GET fields with `hx-params` so the surrounding apply form cannot leak into the
+  request.

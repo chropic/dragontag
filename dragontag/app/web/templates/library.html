@@ -93,25 +93,22 @@
     </form>
   </div>
 
-  {# Individual helper actions: single-field backfills + read-only reports. #}
+  {# Helpers can be selected together; each becomes an independent background
+     job, so the task runner may execute them concurrently. #}
   <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 lg:col-span-2">
     <span class="dt-label">helpers &amp; reports</span>
-    <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 mt-2">
+    <form method="post" action="/library/actions" class="mt-2">
+    <input type="hidden" name="folder_id" value="{{ active_id }}">
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
       {% for key, label, desc in library_actions %}
-      <div class="flex items-center gap-2 border border-[#1f1f1f] px-2 py-1.5 hover:border-[#3a3a3a]" title="{{ desc }}">
+      <label class="flex items-center gap-2 border border-[#1f1f1f] px-2 py-1.5 hover:border-[#3a3a3a] cursor-pointer" title="{{ desc }}">
+        <input type="checkbox" name="action_keys" value="{{ key }}">
         <span class="text-xs flex-1 text-[#cfcfcf]">{{ label }}</span>
-        <button type="submit" form="action-run-{{ key }}"
-                class="text-[11px] px-2 py-0.5 border border-[#2a2a2a] text-[#8a8a8a] hover:text-white hover:border-[#3a3a3a]"
-                title="Run this action now.">run</button>
-      </div>
+      </label>
       {% endfor %}
     </div>
-    {# Per-action single-run carrier forms (buttons reference them via form=). #}
-    {% for key, label, desc in library_actions %}
-    <form id="action-run-{{ key }}" method="post" action="/library/{{ key | replace('_', '-') }}" class="hidden">
-      <input type="hidden" name="folder_id" value="{{ active_id }}">
+    <button class="mt-3 px-3 py-1.5 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f] text-xs">[ queue selected ]</button>
     </form>
-    {% endfor %}
   </div>
 
   {# Cleanup (apply). The registry "run" button above triggers the safe

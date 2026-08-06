@@ -2042,6 +2042,34 @@ def library_fetch_lyrics(
     return _toast_response("/library", "Lyrics fetch started — track it on the Jobs page.")
 
 
+@app.post("/library/actions")
+async def library_actions_run(
+    request: Request,
+    _: None = Depends(require_auth),
+    folder_id: int = Form(...),
+):
+    """Queue each selected helper/report as its own concurrent background job."""
+    from .library.actions import LIBRARY_ACTIONS
+
+    form = await request.form()
+    requested = list(dict.fromkeys(form.getlist("action_keys")))
+    selected = [(key, LIBRARY_ACTIONS[key]) for key in requested if key in LIBRARY_ACTIONS]
+    if not selected:
+        return _toast_response("/library", "Select at least one helper or report.", "error")
+
+    for key, (label, _description, fn) in selected:
+        tasks.run_task(
+            key,
+            f"{label} (folder {folder_id})",
+            lambda ctx, action=fn: action(folder_id, ctx=ctx),
+        )
+    count = len(selected)
+    return _toast_response(
+        "/library",
+        f"Queued {count} helper/report job{'s' if count != 1 else ''} — track them on the Queue page.",
+    )
+
+
 @app.post("/library/tag-advisories")
 def library_tag_advisories(
     request: Request,

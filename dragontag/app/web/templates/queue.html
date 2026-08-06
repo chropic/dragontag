@@ -405,7 +405,7 @@
          own title/artist/album fields (which would otherwise be overwritten
          when submitting the apply POST) and so the search GET doesn't submit
          those extras. #}
-      <div class="mb-2" id="mb-search-{{ j.id }}">
+      <div class="mb-2" id="mb-search-{{ j.id }}" hx-disinherit="hx-encoding">
         <div class="grid grid-cols-3 gap-1">
           <input type="text" name="mb_title" placeholder="Title"
                  class="mb-search-input p-1.5 bg-black border border-[#2a2a2a] text-white text-sm focus:outline-none">
@@ -419,6 +419,7 @@
                  class="mb-search-input flex-1 p-1.5 bg-black border border-[#2a2a2a] text-white text-sm focus:outline-none">
           <button type="button" id="mb-search-btn-{{ j.id }}"
                   hx-get="/api/mb-search"
+                  hx-params="mb_title, mb_artist, mb_album, mb_mbid, job_id"
                   hx-trigger="click"
                   hx-target="#mb-results-{{ j.id }}"
                   hx-include="#mb-search-{{ j.id }} input"

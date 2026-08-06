@@ -240,3 +240,41 @@ def test_mb_search_accepts_mb_prefixed_params(client, monkeypatch):
     assert r.status_code == 200
     assert calls == {"title": "Foo", "artist": "Bar"}
     assert "No results" in r.text
+
+
+def test_queue_mb_search_does_not_inherit_apply_multipart_encoding(client):
+    jid = _review_job()
+    r = client.get("/queue")
+    assert r.status_code == 200
+    assert f'id="mb-search-btn-{jid}"' in r.text
+    assert f'id="mb-search-{jid}" hx-disinherit="hx-encoding"' in r.text
+    assert 'hx-params="mb_title, mb_artist, mb_album, mb_mbid, job_id"' in r.text
+
+
+def test_library_queues_multiple_selected_actions(client, monkeypatch):
+    from dragontag.app import main as main_mod
+    from dragontag.app.library import actions
+
+    queued = []
+    monkeypatch.setattr(main_mod.tasks, "run_task", lambda kind, name, fn: queued.append((kind, name, fn)))
+    monkeypatch.setitem(actions.LIBRARY_ACTIONS, "test_one", ("Test one", "", lambda folder_id, ctx=None: None))
+    monkeypatch.setitem(actions.LIBRARY_ACTIONS, "test_two", ("Test two", "", lambda folder_id, ctx=None: None))
+
+    r = client.post(
+        "/library/actions",
+        data={"folder_id": "42", "action_keys": ["test_one", "test_two", "test_one"]},
+    )
+    assert r.status_code == 303
+    assert [item[0] for item in queued] == ["test_one", "test_two"]
+    assert "Queued+2+helper%2Freport+jobs" in r.headers["location"]
+
+
+def test_library_actions_requires_a_selection(client, monkeypatch):
+    from dragontag.app import main as main_mod
+
+    calls = []
+    monkeypatch.setattr(main_mod.tasks, "run_task", lambda *args: calls.append(args))
+    r = client.post("/library/actions", data={"folder_id": "42"})
+    assert r.status_code == 303
+    assert calls == []
+    assert "dt_level=error" in r.headers["location"]

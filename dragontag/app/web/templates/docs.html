@@ -123,7 +123,7 @@ Drop file  →  Read existing tags + filename clues
     <li><strong>Retag</strong> — the one tagging pass: every file goes through the full identify → tag → move pipeline. Files in the same album folder are identified <em>as a unit</em>: dragontag elects a single MusicBrainz release for the folder and tags every track from it, so release-level tags (album ID, release group, album artist, date, media, release type/status) can never scatter across editions and split the album in players. A file that isn't on the elected release, an uncertain group, or an unresolvable destination lands in the review queue instead of being guessed at. Supports a per-run dry-run override.</li>
     <li><strong>Organize</strong> — move files to their canonical <code>Album Artist/Album</code> paths per the current templates. No re-tagging, nothing deleted.</li>
     <li><strong>Recovery recipe for a damaged library</strong> — <em>Scan → Retag → Cleanup (apply)</em>. The retag pass unifies split albums (album-first identification) and produces clean folder names; Cleanup then merges left-over case-twin artist folders and edition-suffix album twins.</li>
-    <li><strong>Helpers &amp; reports</strong> — single-field backfills and read-only reports, each run individually:
+    <li><strong>Helpers &amp; reports</strong> — select one or more single-field backfills and read-only reports, then queue them together as independent background jobs:
       <ul class="ml-5 list-disc list-inside space-y-0.5 text-[#cfcfcf]">
         <li><em>Extract embedded covers</em> — write a <code>cover.jpg</code> from each album's embedded picture when none exists on disk.</li>
         <li><em>Fetch cover art</em> — Cover Art Archive fetch for tracks with an MB album ID.</li>

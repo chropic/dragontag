@@ -4,6 +4,14 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Changed (agent documentation — 2026-08-08)
+- **Agent guidance is vendor-neutral, current, and progressively disclosed.**
+  Replaced the large tool-specific memory corpus with a concise root orientation,
+  architecture map, engineering invariants, and project-specific frontend guide;
+  removed stale file/test inventories and the automatic vendor session hook.
+  (`AGENTS.md`, `docs/ARCHITECTURE.md`, `docs/INVARIANTS.md`, `frontend/README.md`,
+  `README.md`, `.github/pull_request_template.md`, `.claude/`, `CLAUDE.md`)
+
 ### Fixed
 - **Review artwork choices now embed the selected release's canonical front.**
   Review forms submit a release MBID and reuse the redirect-aware Cover Art

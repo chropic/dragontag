@@ -274,79 +274,31 @@ DRAGONTAG_CONFIG_PATH=./config alembic revision --autogenerate -m "describe chan
 DRAGONTAG_CONFIG_PATH=./config alembic upgrade head
 ```
 
-### Project layout
+### Code map
 
-```
-dragontag/app/
-├── main.py               FastAPI routes + HTMX wiring
-├── config.py             Env vars · Docker secrets · settings.json layers
-├── db.py                 SQLite engine bootstrap (SQLModel)
-├── models.py             Job · Track · LibraryFolder · ScheduledTask · FileChange · enums
-├── auth.py               argon2 verify + session helpers
-├── notify.py             Discord webhook sender (fire-and-forget)
-├── tasks.py              Background task runner (jobs with kind/progress/log)
-├── scheduler.py          Cron scheduler (croniter) dispatching tasks
-├── backup.py             Versioned backup tarball + validated restore
-├── logsetup.py           Runtime 0–4 log-verbosity application
-├── ingest/
-│   ├── pipeline.py       Per-file orchestration + background worker queue
-│   ├── watcher.py        watchdog observer with settle window
-│   ├── uploads.py        UI upload handler
-│   └── bulk.py           Folder-level bulk re-tag enqueuer
-├── identify/
-│   ├── existing_tags.py  mutagen-based normalized tag reader
-│   ├── filename_parse.py "Artist - Title" / "NN - Title" heuristics
-│   ├── musicbrainz.py    musicbrainzngs search + TrackTags assembler
-│   ├── acoustid.py       fpcalc + AcoustID lookup
-│   └── scoring.py        Confidence model (title / artist / album / duration)
-├── tagging/
-│   ├── schema.py         TrackTags dataclass + Vorbis rendering
-│   ├── formatter.py      Smart formatting (Title Case, qualifiers, grammar)
-│   ├── partial.py        Single-field write helpers (lyrics, cover, advisory, genre, album-link)
-│   ├── snapshot.py       Capture/restore a file's tags (powers revert)
-│   ├── coverart.py       Cover Art Archive fetcher
-│   ├── lyrics_fetcher.py LRCLIB client (synced + plain text)
-│   ├── advisory.py       Explicit-content classifier
-│   └── writers/          Format dispatch → flac · mp3 · mp4 · wav
-└── library/
-    ├── paths.py           sanitize_segment + build_destination
-    ├── mover.py           Move with conflict detection + cover.jpg writer
-    ├── scanner.py         Index existing files into Track table
-    ├── organizer.py       Reorganize library by current filename template
-    ├── actions.py         Individual library actions (lyrics, covers, replaygain, …)
-    ├── filters.py         Scan filter helper (regex patterns + dir/file exclusions)
-    └── revert.py          Undo a recorded FileChange / move a file back
-```
+- `dragontag/app/main.py` composes FastAPI routes and the HTMX web surface.
+- `config.py`, `db.py`, and `models.py` own configuration and persisted state.
+- `ingest/` orchestrates queued files; `identify/` resolves metadata;
+  `tagging/` renders and writes it; `library/` owns paths, moves, indexing, and
+  user-requested maintenance.
+- `tasks.py` and `scheduler.py` run tracked background and scheduled work.
+- `dragontag/app/web/` and `frontend/` contain templates, vendored assets, and
+  stylesheet sources.
 
-For AI agents: [`CLAUDE.md`](CLAUDE.md) at the repo root is the orientation page, and
-`.claude/memory/` holds the deep working notes (architecture, conventions, workflow, gotchas,
-testing, maintainer preferences) — read the index before non-trivial changes and update the
-notes as part of them. Neither is user-facing documentation.
+For implementation work, start with [`AGENTS.md`](AGENTS.md). Stable data flow
+and extension points are documented in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md); file-safety and correctness
+contracts are in [`docs/INVARIANTS.md`](docs/INVARIANTS.md). These guides point
+to source symbols and representative tests instead of duplicating exhaustive
+inventories.
 
 ### Tests
 
-Pure-logic, no-network tests cover the most failure-prone paths:
-
-| File | What it checks |
-|---|---|
-| `test_paths.py` | `sanitize_segment` strips only forbidden chars; correct single- and multi-disc destination paths |
-| `test_schema_vorbis.py` | `TrackTags.to_vorbis()` matches the reference field-for-field, including exact casing and native multi-value lists |
-| `test_writers_multivalue.py` | WAV/ID3 round-trip writes multi-value ARTIST/ALBUMARTIST/GENRE as separate values |
-| `test_snapshot.py` | Revert snapshot captures then restores a file's original tags |
-| `test_atomic_writes.py` | A tag write injected to fail mid-save leaves the original byte-identical and leaves no temp behind |
-| `test_scoring.py` | Perfect match scores high; wrong title scores low |
-| `test_scoring_unicode.py` | Scores match across unicode forms (NFC/NFD) and casing; a 0-second duration still participates |
-| `test_musicbrainz_credits.py` | Artist-credit extraction tolerates malformed/partial MB payloads without raising |
-| `test_release_consensus.py` | Near-tied candidates converge on one deterministic release (Official → library majority → larger edition); distant candidates never win |
-| `test_fix_album_splits.py` | Split albums are re-unified onto the canonical release on disk and in the DB; bonus/protected tracks are left alone; MB-less groups fall back to the offline vote |
-| `test_existing_tags_corrupt.py` | A corrupt/unreadable file degrades to empty clues instead of erroring the job |
-| `test_watcher_settle.py` | A file is released for ingest only once its size is stable across the settle window |
-| `test_tasks_reaper.py` | Heartbeat-stale `running` jobs are reaped to `error`; fresh ones are left alone |
-| `test_mover_verify.py` | `samefile` survives a vanished source; truncated moves are detected; cover writes are atomic |
-| `test_lyrics_advisory.py` | Lyrics embedded correctly per format; explicit classifier fires on known words, respects word boundaries |
-| `test_scan_filters.py` | Regex patterns, directory exclusions, and file exclusions all filter correctly |
-| `test_bug_sweep_core.py` | Notify never raises into the pipeline; job-log cap is byte-accurate; zero track/disc totals are omitted; cron fires in local time |
-| `test_bug_sweep_rollbacks.py` | Failed rollback moves report divergence instead of success; the reaper spares live worker threads; failed upload streams leave no partial file |
+The pytest suite is self-contained and avoids live MusicBrainz, AcoustID, and
+lyrics services. Test modules follow the subsystem or regression behavior they
+cover, so search `tests/` by the symbol or contract being changed. Run focused
+tests while iterating and `pytest -q` before handoff. Representative safety
+tests are linked from [`docs/INVARIANTS.md`](docs/INVARIANTS.md).
 
 ---
 

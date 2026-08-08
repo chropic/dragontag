@@ -658,7 +658,7 @@ def _apply_review_match(
     job_id: int,
     rec: str,
     rel: str,
-    cover_url: str,
+    cover_release_id: str,
     *,
     cover_bytes: bytes | None = None,
     cover_mime: str | None = None,
@@ -672,8 +672,8 @@ def _apply_review_match(
     review state (e.g. applied by a concurrent action).
 
     ``cover_bytes`` (a request-scoped upload read before backgrounding) wins
-    over ``cover_url``; both are optional and fall back to the pipeline's own
-    CAA fetch + local-cover fallback."""
+    over ``cover_release_id``; both are optional and fall back to the
+    pipeline's own CAA fetch + local-cover fallback."""
     def step(ctx) -> None:
         with session() as s:
             job = s.get(Job, job_id)
@@ -690,22 +690,80 @@ def _apply_review_match(
             if cover_bytes:
                 tags.cover_bytes = cover_bytes
                 tags.cover_mime = cover_mime or "image/jpeg"
-            elif cover_url:
-                from .net import fetch_bytes
+            elif cover_release_id:
+                from .tagging.coverart import fetch_for_release
                 try:
-                    r, body = fetch_bytes(
-                        cover_url, timeout=10, max_bytes=32 * 1024 * 1024,
-                        validate=True, allow_redirects=False,
-                    )
-                    r.raise_for_status()
-                    tags.cover_bytes = body
-                    tags.cover_mime = r.headers.get("content-type", "image/jpeg")
+                    cover = fetch_for_release(cover_release_id)
+                    if cover:
+                        tags.cover_bytes = cover.data
+                        tags.cover_mime = cover.mime
                 except Exception:
                     pass  # fall back to the normal CAA fetch in _commit_tag_path
             from .ingest.pipeline import _commit_tag_path
             _commit_tag_path(s, job, Path(job.source_path), tags, score=job.score or 1.0)
         ctx.log(f"applied job {job_id}")
     return step
+
+
+def _manual_tags(fields: dict[str, Any]):
+    """Build canonical manual ``TrackTags`` for preflight and background use."""
+    from .tagging.schema import TrackTags
+
+    seps = settings().separators
+    artists: list[str] = [a for a in (fields.get("artists") or []) if a]
+    album_artists: list[str] = [a for a in (fields.get("album_artists") or []) if a] or artists
+    artist_display = seps.ARTIST.join(artists) if artists else None
+    album_artist_display = seps.album_artist.join(album_artists) if album_artists else None
+    genres_val = fields.get("genres") or []
+    if isinstance(genres_val, str):
+        genres_val = [g.strip() for g in genres_val.split(",") if g.strip()]
+    return TrackTags(
+        title=fields.get("title") or None,
+        artist_display=artist_display,
+        artists=artists,
+        album=fields.get("album") or None,
+        album_artist_display=album_artist_display,
+        album_artists=album_artists,
+        track=fields.get("track"),
+        track_total=fields.get("track_total"),
+        disc=fields.get("disc"),
+        disc_total=fields.get("disc_total"),
+        date=fields.get("date") or None,
+        genres=list(genres_val),
+        release_type=fields.get("release_type") or None,
+        advisory=fields.get("advisory"),
+    )
+
+
+def _candidate_probe_tags(job: Job, rec: str, rel: str):
+    """Build the metadata-only tag probe used by review duplicate preflight."""
+    from .tagging.schema import TrackTags
+
+    item = next(
+        (
+            candidate
+            for candidate in (job.candidates_json or {}).get("items", [])
+            if candidate.get("recording_id") == rec and candidate.get("release_id") == rel
+        ),
+        {},
+    )
+    return TrackTags(
+        title=item.get("title"),
+        artist_display=item.get("artist"),
+        album=item.get("album"),
+        mb_track_id=rec,
+        mb_album_id=rel,
+    )
+
+
+def _preflight_duplicate(s, job: Job, tags) -> list[str]:
+    """Route a first duplicate attempt to review; a second is the override."""
+    if job.review_reason == ReviewReason.duplicate_detected:
+        return []
+    paths = pipeline.find_library_duplicate_paths(Path(job.source_path), tags)
+    if paths:
+        pipeline.route_duplicate_to_review(s, job, tags, paths, score=job.score or 1.0)
+    return paths
 
 
 def _apply_manual_match(job_id: int, fields: dict[str, Any]):
@@ -726,31 +784,7 @@ def _apply_manual_match(job_id: int, fields: dict[str, Any]):
             job = s.get(Job, job_id)
             if not job or job.status != JobStatus.needs_review:
                 return
-            from .tagging.schema import TrackTags
-            seps = settings().separators
-            artists: list[str] = [a for a in (fields.get("artists") or []) if a]
-            album_artists: list[str] = [a for a in (fields.get("album_artists") or []) if a] or artists
-            artist_display = seps.ARTIST.join(artists) if artists else None
-            album_artist_display = seps.album_artist.join(album_artists) if album_artists else None
-            genres_val = fields.get("genres") or []
-            if isinstance(genres_val, str):
-                genres_val = [g.strip() for g in genres_val.split(",") if g.strip()]
-            tags = TrackTags(
-                title=fields.get("title") or None,
-                artist_display=artist_display,
-                artists=artists,
-                album=fields.get("album") or None,
-                album_artist_display=album_artist_display,
-                album_artists=album_artists,
-                track=fields.get("track"),
-                track_total=fields.get("track_total"),
-                disc=fields.get("disc"),
-                disc_total=fields.get("disc_total"),
-                date=fields.get("date") or None,
-                genres=list(genres_val),
-                release_type=fields.get("release_type") or None,
-                advisory=fields.get("advisory"),
-            )
+            tags = _manual_tags(fields)
             from .ingest.pipeline import prepare_tags, _commit_tag_path
             prepare_tags(job, tags)
             _commit_tag_path(s, job, Path(job.source_path), tags, score=job.score or 1.0)
@@ -767,7 +801,7 @@ async def review_bulk_apply(request: Request, _: None = Depends(require_auth)):
     Per job the chosen recording/release comes from a ``pick_{id}`` field
     ("recording|release", from the candidate radio or a manual MB search),
     falling back to the job's stored top candidate when the user left it
-    untouched. An optional ``cover_{id}`` carries the per-job cover selection.
+    untouched. An optional ``cover_{id}`` carries the selected cover release.
     """
     form = await request.form()
     job_ids = [int(v) for v in form.getlist("job_ids") if str(v).strip().isdigit()]
@@ -777,6 +811,7 @@ async def review_bulk_apply(request: Request, _: None = Depends(require_auth)):
 
     steps: list[tuple[str, Any]] = []
     applied_ids: list[int] = []
+    duplicate_ids: list[int] = []
     with session() as s:
         for job_id in job_ids:
             job = s.get(Job, job_id)
@@ -811,6 +846,9 @@ async def review_bulk_apply(request: Request, _: None = Depends(require_auth)):
                     advisory=advisory,
                     genres=str(form.get(f"manual_{job_id}_genres", "")).strip(),
                 )
+                if _preflight_duplicate(s, job, _manual_tags(fields)):
+                    duplicate_ids.append(job_id)
+                    continue
                 steps.append((f"Manual job {job_id}", _apply_manual_match(job_id, fields)))
                 applied_ids.append(job_id)
                 continue
@@ -834,16 +872,28 @@ async def review_bulk_apply(request: Request, _: None = Depends(require_auth)):
                     )
                     continue
                 rec, rel = candidates[0]["recording_id"], candidates[0]["release_id"]
-            cover_url = str(form.get(f"cover_{job_id}", "")).strip()
-            steps.append((f"Apply job {job_id}", _apply_review_match(job_id, rec, rel, cover_url)))
+            if _preflight_duplicate(s, job, _candidate_probe_tags(job, rec, rel)):
+                duplicate_ids.append(job_id)
+                continue
+            cover_release_id = str(form.get(f"cover_{job_id}", "")).strip()
+            steps.append((
+                f"Apply job {job_id}",
+                _apply_review_match(job_id, rec, rel, cover_release_id),
+            ))
             applied_ids.append(job_id)
 
     if not steps:
-        msg = "Nothing to apply — select review items first."
+        msg = (
+            f"Found {len(duplicate_ids)} duplicate(s) — review and apply again to override."
+            if duplicate_ids
+            else "Nothing to apply — select review items first."
+        )
         return _toast(msg, "error") if _is_htmx(request) else _toast_response("/queue", msg, "error")
     n = len(steps)
     new_job_id = tasks.run_chain("review_bulk", f"Apply {n} review match(es)", steps)
     msg = f"Applying {n} match(es) in the background…"
+    if duplicate_ids:
+        msg += f" {len(duplicate_ids)} duplicate(s) left for review."
     if _is_htmx(request):
         # hx-swap=none on the bulk form: the card removal is driven by the
         # reviewApplied event (a JS listener drops those cards + their persisted
@@ -863,7 +913,7 @@ async def review_apply(
     manual_recording_id: str = Form(default=""),
     manual_release_id: str = Form(default=""),
     release_type_override: str | None = Form(None),
-    cover_art_url: str = Form(default=""),
+    cover_release_id: str = Form(default=""),
     cover_art_file: UploadFile = File(default=None),
 ):
     """Apply a user-chosen MB candidate to a job stuck in review.
@@ -879,7 +929,7 @@ async def review_apply(
     a manual MB search) → the manual id-entry inputs. If none resolve we bounce
     back to /review with a toast instead of raising.
 
-    If the user selected a cover from the thumbnail strip (``cover_art_url``)
+    If the user selected a cover from the thumbnail strip (``cover_release_id``)
     or uploaded a custom image (``cover_art_file``), those bytes are set on
     the tags object before calling ``_commit_tag_path`` — which skips its own
     CAA fetch when ``tags.cover_bytes`` is already populated.
@@ -906,6 +956,9 @@ async def review_apply(
             # would fail and flip a done job to error.
             msg = f"Job {job_id} is not awaiting review."
             return _toast(msg, "error") if _is_htmx(request) else _toast_response("/queue", msg, "error")
+        if _preflight_duplicate(s, job, _candidate_probe_tags(job, rec, rel)):
+            msg = "Duplicate found in the destination library. Review it, then Apply again to override."
+            return _toast(msg, "error") if _is_htmx(request) else _toast_response("/queue", msg, "error")
 
     # Read any uploaded cover bytes now (request-scoped upload), then hand the
     # slow commit — MB assemble, cover/lyrics fetch, tag write, library move —
@@ -920,7 +973,7 @@ async def review_apply(
         cover_mime = cover_art_file.content_type or "image/jpeg"
 
     step = _apply_review_match(
-        job_id, rec, rel, cover_art_url,
+        job_id, rec, rel, cover_release_id,
         cover_bytes=cover_bytes, cover_mime=cover_mime,
         release_type_override=(release_type_override or ""),
     )
@@ -1014,6 +1067,11 @@ async def review_manual_apply(
         advisory=advisory,
         genres=str(form.get("genres", "")).strip(),
     )
+    with session() as s:
+        job = s.get(Job, job_id)
+        if job and _preflight_duplicate(s, job, _manual_tags(fields)):
+            msg = "Duplicate found in the destination library. Review it, then Apply again to override."
+            return _toast(msg, "error") if _is_htmx(request) else _toast_response("/queue", msg, "error")
     tasks.run_chain(
         "review_manual", f"Manual tag (job {job_id})",
         [(f"Manual job {job_id}", _apply_manual_match(job_id, fields))],

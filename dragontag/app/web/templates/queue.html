@@ -190,7 +190,11 @@
     // reloads, so the selection stays exactly as it is.
     bulk.addEventListener('htmx:configRequest', function (evt) {
       const params = evt.detail.parameters;
-      const checked = bulk.querySelectorAll('input[name=job_ids]:checked');
+      // These controls are associated through form="review-bulk-form" but
+      // live beside the form in the DOM, so form.querySelectorAll() cannot see
+      // them. Query the document for form-associated checked controls.
+      const checked = document.querySelectorAll(
+        'input[name=job_ids][form=review-bulk-form]:checked');
       let resolved = 0;
       // Some params (repeated artist rows) must round-trip as arrays so
       // form.getlist() sees every value; htmx sends arrays as repeated keys.
@@ -246,7 +250,7 @@
         if (!rec || !rel) return;  // nothing resolvable — leave it out of the batch
         params['pick_' + id] = rec + '|' + rel;
         resolved++;
-        const coverEl = jobForm.querySelector('input[name=cover_art_url]');
+        const coverEl = jobForm.querySelector('input[name=cover_release_id]');
         if (coverEl && coverEl.value) params['cover_' + id] = coverEl.value;
       });
       if (resolved === 0) {
@@ -291,6 +295,17 @@
      directories) is visible without opening the job screen. source_path still
      points at the pre-move location while the job is in review. #}
   <div class="ml-6 text-xs text-[#5a5a5a] truncate" title="{{ j.source_path }}">{{ j.source_path.rsplit('/', 1)[0] }}/</div>
+  {% endif %}
+
+  {% set duplicate_paths = j.candidates_json.get("duplicates", []) if j.candidates_json else [] %}
+  {% if j.review_reason and j.review_reason.value == "duplicate_detected" %}
+  <div class="ml-6 mt-2 border border-[#4a4326] bg-black px-3 py-2 text-xs">
+    <div class="text-[#f2e5b5] font-bold">Possible duplicate already in this library</div>
+    {% for duplicate_path in duplicate_paths %}
+    <div class="mt-1 text-[#8a8a8a] break-all">{{ duplicate_path }}</div>
+    {% endfor %}
+    <div class="mt-1 text-[#5a5a5a]">Apply again only if you intentionally want another copy.</div>
+  </div>
   {% endif %}
 
   {% if not (j.review_reason and j.review_reason.value in ["destination_conflict", "dry_run"]) %}
@@ -354,7 +369,11 @@
           <input name="genres" class="bg-black border border-[#2a2a2a] text-white px-2 py-1 focus:outline-none"></label>
       </div>
       <p class="text-xs text-[#5a5a5a]">Title + at least one artist required. Cover art (local fallback) and lyrics are fetched automatically, then the file is moved into the library.</p>
+      {% if j.review_reason and j.review_reason.value == "duplicate_detected" %}
+      <button class="manual-submit-btn px-3 py-1.5 border border-[#4a4326] bg-[#0c0e0c] text-[#f2e5b5] hover:bg-[#0f140f] text-xs">[ apply anyway ]</button>
+      {% else %}
       <button class="manual-submit-btn px-3 py-1.5 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f] text-xs">[ apply manual tags ]</button>
+      {% endif %}
     </form>
   </div>
   {% endif %}
@@ -450,7 +469,9 @@
           <label class="flex items-center gap-2 p-2 hover:bg-[#0d0d0d]">
             <input type="radio" name="pick" value="{{ c.recording_id }}|{{ c.release_id }}" {% if loop.first %}checked{% endif %}>
             <span class="text-xs text-[#8a8a8a]">{{ "%.2f"|format(c.score) }}</span>
-            <span class="text-[#cfcfcf]">{{ c.title }} — {{ c.album }}</span>
+            <span class="text-[#cfcfcf]">{{ c.title or "Unknown title" }}</span>
+            {% if c.artist %}<span class="text-[#9a9a9a]">· {{ c.artist }}</span>{% endif %}
+            {% if c.album %}<span class="text-[#8a8a8a]">— {{ c.album }}</span>{% endif %}
             <a class="ml-auto text-xs text-[#cfcfcf] hover:underline" target="_blank"
                href="https://musicbrainz.org/recording/{{ c.recording_id }}">MB</a>
           </label>
@@ -501,12 +522,12 @@
             // user uploaded a custom file or explicitly picked a thumbnail —
             // otherwise a manual-search pick would silently embed the first
             // candidate's cover instead of the selected release's.
-            const coverOut = form.querySelector('input[name=cover_art_url]');
+            const coverOut = form.querySelector('input[name=cover_release_id]');
             const fileInput = form.querySelector('input[name=cover_art_file]');
             const hasFile = fileInput && fileInput.files && fileInput.files.length;
             if (coverOut && rel && !hasFile && form.dataset.coverPicked !== '1') {
-              coverOut.value = 'https://coverartarchive.org/release/' + rel + '/front';
-              evt.detail.parameters['cover_art_url'] = coverOut.value;
+              coverOut.value = rel;
+              evt.detail.parameters['cover_release_id'] = coverOut.value;
             }
           });
         })();
@@ -517,24 +538,28 @@
       <div class="space-y-2">
         <div class="text-[#5a5a5a] text-xs uppercase tracking-widest">Cover art</div>
         <div class="flex gap-2 flex-wrap" id="covers-{{ j.id }}">
+          {% set cover_ns = namespace(seen=[]) %}
           {% for c in cands %}
+          {% if c.release_id and c.release_id not in cover_ns.seen %}
+          {% set cover_ns.seen = cover_ns.seen + [c.release_id] %}
           <button type="button"
-            data-url="https://coverartarchive.org/release/{{ c.release_id }}/front"
-            onclick="selectCover(this, 'covers-{{ j.id }}', 'cover_url_{{ j.id }}')"
+            data-release-id="{{ c.release_id }}"
+            onclick="selectCover(this, 'covers-{{ j.id }}', 'cover_release_{{ j.id }}')"
             class="cover-btn overflow-hidden border-2 border-transparent focus:outline-none {% if loop.first %}border-[#c7f0c7]{% endif %}"
             title="{{ c.album }}">
             <img src="https://coverartarchive.org/release/{{ c.release_id }}/front-250"
                  onerror="this.closest('button').style.display='none'"
                  class="w-20 h-20 object-cover block">
           </button>
+          {% endif %}
           {% endfor %}
         </div>
-        <input type="hidden" name="cover_art_url" id="cover_url_{{ j.id }}"
-               value="https://coverartarchive.org/release/{{ cands[0].release_id }}/front">
+        <input type="hidden" name="cover_release_id" id="cover_release_{{ j.id }}"
+               value="{{ cands[0].release_id }}">
         <label class="flex items-center gap-2 text-xs text-[#8a8a8a]">
           <span>Custom cover:</span>
           <input type="file" name="cover_art_file" accept="image/*"
-                 onchange="if(this.value) document.getElementById('cover_url_{{ j.id }}').value=''"
+                 onchange="if(this.value) document.getElementById('cover_release_{{ j.id }}').value=''"
                  class="text-xs text-[#cfcfcf]">
         </label>
       </div>
@@ -546,7 +571,7 @@
           });
           btn.classList.remove('border-transparent');
           btn.classList.add('border-[#c7f0c7]');
-          document.getElementById(urlInputId).value = btn.dataset.url;
+          document.getElementById(urlInputId).value = btn.dataset.releaseId;
           // Mark an explicit cover choice so the submit handler won't override
           // it with the chosen release's default front cover.
           btn.closest('form').dataset.coverPicked = '1';
@@ -569,6 +594,9 @@
         {% if j.review_reason and j.review_reason.value == "dry_run" %}
         <button type="submit" class="review-submit-btn ml-auto px-3 py-1 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f]"
                 data-label="Commit">Commit</button>
+        {% elif j.review_reason and j.review_reason.value == "duplicate_detected" %}
+        <button type="submit" class="review-submit-btn ml-auto px-3 py-1 border border-[#4a4326] bg-[#0c0e0c] text-[#f2e5b5] hover:bg-[#0f140f]"
+                data-label="Apply anyway">Apply anyway</button>
         {% else %}
         <button type="submit" class="review-submit-btn ml-auto px-3 py-1 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f]"
                 data-label="Apply">Apply</button>

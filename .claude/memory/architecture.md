@@ -68,6 +68,11 @@ dragontag/app/
                            _finalize_and_commit → _commit_tag_path (snapshot → write_tags →
                            move, under path_lock; DestinationUnresolved → needs_review with a
                            FileChange for the in-place write) → _record_change/_upsert_track.
+                           Before any cover/lyrics request or audio mutation,
+                           _commit_tag_path queries the selected destination library's Track
+                           index through library/duplicates.py; a match routes the untouched
+                           source to duplicate_detected review. That existing reason is the
+                           explicit second-apply bypass.
                            start_worker/_worker_loop (ONE thread), submit, resubmit_pending
                            (boot recovery). Identification order: album-group election first
                            (job.group_key set → ingest/album.py elects ONE release for the
@@ -135,6 +140,9 @@ dragontag/app/
                            os.replace → fsync dir. Orphan sweeper for leftover temps.
       _id3common.py        Shared ID3v2.4 frame builder (TXXX_FIELDS, dedicated TSOP/TSO2, UFID).
   library/
+    duplicates.py          Shared likely-duplicate semantics used by both ingest and reports:
+                           exact MB recording id OR normalized artist/title with known
+                           durations within 3 seconds; supports same-path exclusion.
     filelock.py            path_lock(path) — per-resolved-path threading.Lock. See "Locking".
     paths.py               sanitize_segment (NFC + zero-width strip + exotic dash/curly-quote →
                            ASCII + forbidden chars → "_" + Windows reserved names defused;

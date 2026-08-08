@@ -39,6 +39,18 @@ def candidates_for_file(
     matches = acoustid.lookup(path)
     if matches and matches[0].recording_id:
         cands = mbq.candidates_from_mbid(matches[0].recording_id)
+        # Recording lookups return release summaries that are not guaranteed
+        # to carry status, release-group secondary types, or full artist
+        # credits. Hydrate before applying the automatic compilation policy;
+        # a directly pasted MBID bypasses this function as the explicit override.
+        hydrated = []
+        for candidate in cands[:limit]:
+            try:
+                candidate.raw_release = mbq.fetch_release(candidate.release_id)
+            except Exception:
+                continue
+            hydrated.append(candidate)
+        cands = mbq.filter_matchmaking_candidates(hydrated, album_hint=album)
         if cands:
             return cands, True
     if not text_fallback:

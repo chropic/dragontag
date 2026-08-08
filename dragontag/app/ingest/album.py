@@ -204,7 +204,10 @@ def _candidate_release_ids(clue_by_job: dict[int, dict]) -> list[str]:
                 except Exception:
                     continue
                 for rel in (rec.get("release-list") or [])[:3]:
-                    votes[rel["id"]] += 1
+                    if mbq.matchmaking_release_allowed(
+                        rel, album_hints=clues.get("album")
+                    ):
+                        votes[rel["id"]] += 1
         for c in cands:
             votes[c.release_id] += 1
 
@@ -248,11 +251,15 @@ def elect_release(group_key: str) -> GroupElection | None:
         return None
 
     best: tuple | None = None  # (pref_key, rid, rel, recording_by_job, score)
+    album_hints = [clues.get("album") for clues in clue_by_job.values() if clues.get("album")]
     for rid in candidate_ids:
         try:
             rel = mbq.fetch_release(rid)
         except Exception as e:
             log.info("album election: could not fetch release %s: %s", rid, e)
+            continue
+        if not mbq.matchmaking_release_allowed(rel, album_hints=album_hints):
+            log.info("album election: filtered compilation release %s", rid)
             continue
         recording_by_job: dict[int, str] = {}
         match_scores: list[float] = []

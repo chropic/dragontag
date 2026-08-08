@@ -51,14 +51,21 @@ def atomic_inplace(path: Path) -> Iterator[Path]:
 
 
 def _fsync_file(p: Path) -> None:
-    fd = os.open(str(p), os.O_RDONLY)
-    try:
-        os.fsync(fd)
-    finally:
-        os.close(fd)
+    # Windows' ``FlushFileBuffers`` rejects the read-only descriptor produced
+    # by ``os.open(..., O_RDONLY)``. A writable binary handle works on Windows
+    # and POSIX and does not alter the already-written bytes.
+    with p.open("rb+") as handle:
+        handle.flush()
+        os.fsync(handle.fileno())
 
 
 def _fsync_dir(d: Path) -> None:
+    # Windows does not support opening a directory with ``os.open`` for
+    # ``fsync`` (it raises EBADF after the atomic replacement already
+    # succeeded). The rename is still atomic there; directory durability is a
+    # POSIX-only strengthening.
+    if os.name == "nt":
+        return
     fd = os.open(str(d), os.O_RDONLY)
     try:
         os.fsync(fd)

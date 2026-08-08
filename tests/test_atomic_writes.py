@@ -79,7 +79,9 @@ def test_atomic_inplace_fsyncs_before_and_after_swap(tmp_path, monkeypatch):
         tmp.write_bytes(b"newdata")
 
     assert p.read_bytes() == b"newdata"
-    assert len(calls) == 2  # one for the temp file's data, one for the directory
+    # Windows cannot fsync a directory handle; POSIX strengthens durability
+    # with a second fsync after the rename.
+    assert len(calls) == (1 if _atomic.os.name == "nt" else 2)
 
 
 def test_cleanup_orphaned_temp_files_sweeps_stale_temps(tmp_path):

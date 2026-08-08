@@ -120,6 +120,9 @@ def _stubbed_mb(monkeypatch):
         )
 
     monkeypatch.setattr(mbq, "assemble_tags", assemble_stub)
+    # Album-election behavior is isolated from the ingest duplicate gate;
+    # recording ids are intentionally reused across tests in this module.
+    monkeypatch.setattr(pipeline, "find_library_duplicate_paths", lambda *a, **kw: [])
     monkeypatch.setattr(pipeline, "fetch_for_release", lambda _rid: None)
     from dragontag.app.tagging import lyrics_fetcher
     monkeypatch.setattr(lyrics_fetcher, "fetch", lambda **kw: None)
@@ -203,6 +206,9 @@ def test_low_score_group_routes_all_to_review(tmp_path, _stubbed_mb, monkeypatch
             # group consensus.
             first = row.candidates_json["items"][0]
             assert first["release_id"] == "rel-good"
+            assert first["title"] is not None
+            assert first["artist"] == "Artist"
+            assert first["album"] == "Terrified"
 
 
 def test_dry_run_group_stays_preview(tmp_path, _stubbed_mb):

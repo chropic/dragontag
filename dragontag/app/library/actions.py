@@ -24,6 +24,7 @@ from . import filelock
 from .mover import _image_width
 from .mover import move as _safe_move
 from .mover import move_lyric_sidecar as _move_lyric_sidecar
+from .duplicates import DURATION_TOLERANCE_SECONDS, normalize_identity
 from .paths import (
     album_fold_key,
     artist_fold_key,
@@ -612,16 +613,15 @@ def duplicate_groups(tracks: list[Track]) -> list[list[Track]]:
     Shared by the ``find_duplicates`` action (job-log report) and the
     Completions page's live duplicates section.
     """
-    def _norm(v: str | None) -> str:
-        return re.sub(r"\s+", " ", (v or "").strip().lower())
-
     by_mbid: dict[str, list[Track]] = {}
     by_tags: dict[tuple[str, str], list[Track]] = {}
     for t in tracks:
         if t.mb_track_id:
             by_mbid.setdefault(t.mb_track_id, []).append(t)
         if t.title and t.artist:
-            by_tags.setdefault((_norm(t.artist), _norm(t.title)), []).append(t)
+            by_tags.setdefault(
+                (normalize_identity(t.artist), normalize_identity(t.title)), []
+            ).append(t)
 
     groups: list[list[Track]] = [g for g in by_mbid.values() if len(g) > 1]
     seen_paths = {t.path for g in groups for t in g}
@@ -629,10 +629,13 @@ def duplicate_groups(tracks: list[Track]) -> list[list[Track]]:
         cand = [t for t in g if t.path not in seen_paths]
         if len(cand) < 2:
             continue
-        cand.sort(key=lambda t: t.duration or 0)
+        cand = [t for t in cand if t.duration is not None]
+        if len(cand) < 2:
+            continue
+        cand.sort(key=lambda t: float(t.duration))
         cluster: list[Track] = [cand[0]]
         for t in cand[1:]:
-            if abs((t.duration or 0) - (cluster[-1].duration or 0)) <= 3:
+            if abs(float(t.duration) - float(cluster[-1].duration)) <= DURATION_TOLERANCE_SECONDS:
                 cluster.append(t)
             else:
                 if len(cluster) > 1:

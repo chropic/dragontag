@@ -4,6 +4,7 @@ produced phantom files on a case-insensitive view of the library share).
 Strict fold equality only; conservative cover handling (distinct images stay
 in the album folder, only byte-identical duplicates are quarantined)."""
 from pathlib import Path
+import os
 
 import pytest
 from sqlmodel import select
@@ -11,6 +12,12 @@ from sqlmodel import select
 from dragontag.app.db import session
 from dragontag.app.library import actions
 from dragontag.app.models import LibraryFolder, Track
+
+
+pytestmark = pytest.mark.skipif(
+    os.name == "nt",
+    reason="case-twin directories cannot be created on case-insensitive NTFS",
+)
 
 
 @pytest.fixture()

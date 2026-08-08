@@ -105,6 +105,118 @@ class Candidate:
     raw_release: dict[str, Any] = field(default_factory=dict)
 
 
+_VARIOUS_ARTISTS_MBID = "89ad4ac3-39f7-470e-963a-56509c546377"
+_COMPILATION_ALBUM_SIMILARITY = 0.85
+
+
+def _artist_phrase(entity: dict[str, Any]) -> str | None:
+    phrase = entity.get("artist-credit-phrase")
+    if phrase:
+        return str(phrase)
+    credits = entity.get("artist-credit") or []
+    return _credit_phrase(credits) if credits else None
+
+
+def _is_compilation_like(rel: dict[str, Any]) -> bool:
+    """Recognize explicit compilations and Various Artists release credits."""
+    rg = rel.get("release-group") or {}
+    primary = str(rg.get("primary-type") or rg.get("type") or "").casefold()
+    secondary = {
+        str(value).casefold()
+        for value in (rg.get("secondary-type-list") or rg.get("secondary-types") or [])
+    }
+    if primary == "compilation" or "compilation" in secondary:
+        return True
+    for credit in rel.get("artist-credit") or []:
+        if not isinstance(credit, dict):
+            continue
+        artist = credit.get("artist") or {}
+        if artist.get("id") == _VARIOUS_ARTISTS_MBID:
+            return True
+        if str(artist.get("name") or credit.get("name") or "").casefold() == "various artists":
+            return True
+    return str(rel.get("artist-credit-phrase") or "").casefold() == "various artists"
+
+
+def matchmaking_release_allowed(
+    rel: dict[str, Any], *, album_hints: str | list[str] | tuple[str, ...] | None
+) -> bool:
+    """Apply the context-aware compilation policy to one release payload.
+
+    Non-compilation releases pass unchanged. Compilation-like releases are
+    eligible only when MusicBrainz marks the edition Official and at least one
+    source album clue closely matches its title. Direct user-supplied MBIDs do
+    not call this helper and remain the explicit escape hatch.
+    """
+    if not _is_compilation_like(rel):
+        return True
+    if str(rel.get("status") or "").casefold() != "official":
+        return False
+    if isinstance(album_hints, str) or album_hints is None:
+        hints = [album_hints] if album_hints else []
+    else:
+        hints = [hint for hint in album_hints if hint]
+    from .scoring import _sim
+    return any(
+        _sim(str(hint), rel.get("title")) >= _COMPILATION_ALBUM_SIMILARITY
+        for hint in hints
+    )
+
+
+def filter_matchmaking_candidates(
+    candidates: list[Candidate], *, album_hint: str | None
+) -> list[Candidate]:
+    """Remove compilation noise from automatic or text-search candidates."""
+    kept = [
+        candidate
+        for candidate in candidates
+        if matchmaking_release_allowed(candidate.raw_release, album_hints=album_hint)
+    ]
+    if len(kept) != len(candidates):
+        log.info("filtered %d compilation candidate(s)", len(candidates) - len(kept))
+    return kept
+
+
+def matchmaking_tags_allowed(tags: TrackTags, *, album_hint: str | None) -> bool:
+    """Apply the same policy after an existing-MBID lookup assembled tags."""
+    compilation_like = bool(tags.compilation) or any(
+        str(value).casefold() == "various artists"
+        for value in (tags.album_artists or [])
+    )
+    if not compilation_like:
+        return True
+    if str(tags.release_status or "").casefold() != "official" or not album_hint:
+        return False
+    from .scoring import _sim
+    return _sim(album_hint, tags.album) >= _COMPILATION_ALBUM_SIMILARITY
+
+
+def candidate_payload(candidate: Candidate, *, score: float | None = None) -> dict[str, Any]:
+    """Return the stable JSON/UI view of a candidate, including artist."""
+    return {
+        "recording_id": candidate.recording_id,
+        "release_id": candidate.release_id,
+        "score": candidate.score if score is None else score,
+        "title": candidate.raw_recording.get("title") or candidate.track.get("title"),
+        "artist": _artist_phrase(candidate.raw_recording)
+        or _artist_phrase(candidate.track)
+        or _artist_phrase(candidate.raw_release),
+        "album": candidate.raw_release.get("title"),
+    }
+
+
+def recording_on_release(
+    rel: dict[str, Any], recording_id: str
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return ``(recording, track)`` for an id in a full release document."""
+    for medium in rel.get("medium-list") or []:
+        for track in medium.get("track-list") or []:
+            recording = track.get("recording") or {}
+            if recording.get("id") == recording_id:
+                return recording, track
+    return {}, {}
+
+
 # ---------------------------------------------------------------------------
 # Search
 # ---------------------------------------------------------------------------
@@ -177,7 +289,7 @@ def search_candidates(
                         raw_release=rel,
                     )
                 )
-        return out
+        return filter_matchmaking_candidates(out, album_hint=album)
 
     results = _run_query(include_album=True, include_dur=True)
     # Only retry without album if album was actually part of the first query —

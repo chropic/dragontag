@@ -3,6 +3,8 @@ schema totals, musicbrainz credit phrase, scheduler cron timezone)."""
 import time
 from datetime import datetime, timezone
 
+import pytest
+
 from dragontag.app import logsetup, notify
 from dragontag.app.identify.musicbrainz import _credit_phrase
 from dragontag.app.models import MAX_JOB_LOG_BYTES, append_job_log
@@ -88,6 +90,8 @@ def test_credit_phrase_with_null_artist_entry():
 
 def test_next_run_interprets_cron_in_local_time(monkeypatch):
     import importlib
+    if not hasattr(time, "tzset"):
+        pytest.skip("time.tzset is not available on Windows")
     monkeypatch.setenv("TZ", "America/Los_Angeles")
     time.tzset()
     try:

@@ -4,6 +4,38 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Fixed
+- **Review artwork choices now embed the selected release's canonical front.**
+  Review forms submit a release MBID and reuse the redirect-aware Cover Art
+  Archive release fetcher used by normal ingest; custom uploads still win, and
+  repeated candidate releases render only one thumbnail. (`main.py`,
+  `web/templates/queue.html`)
+- **Review batches once again include form-associated card checkboxes.** The
+  bulk collector queries checked controls globally (they live outside the bulk
+  form despite `form="review-bulk-form"`), restoring selected MB, manual, and
+  mixed batches whether submitted from a card or **apply selected**. Candidate
+  rows now persist and show title, artist, and album instead of `None` labels.
+  (`web/templates/queue.html`, `main.py`, `ingest/pipeline.py`)
+- **Automatic matchmaking suppresses compilation noise.** Releases marked
+  Compilation or credited to MusicBrainz's Various Artists are excluded from
+  text, AcoustID, existing-MBID, and album-election paths unless the edition is
+  Official and its title closely matches the source album clue. A directly
+  pasted recording/release MBID remains an explicit override.
+  (`identify/musicbrainz.py`, `identify/relookup.py`, `ingest/album.py`)
+
+### Added
+- **Likely duplicates stop before artwork, lyrics, tag writes, or moves.** The
+  destination library's Track index is checked by exact MusicBrainz recording
+  id or normalized artist/title plus duration within three seconds, excluding
+  the same physical path. The source remains byte-identical in review, matching
+  paths are shown on the card, and a second **Apply anyway** is the deliberate
+  override. (`library/duplicates.py`, `ingest/pipeline.py`, `main.py`,
+  `web/templates/queue.html`)
+- **Windows test/runtime support now includes IANA timezone data and compatible
+  atomic fsync behavior.** File data is fsynced through a writable handle and
+  unsupported Windows directory fsync is skipped after the atomic replacement.
+  (`pyproject.toml`, `tagging/writers/_atomic.py`)
+
 ### Added (library helper queue — 2026-08-06)
 - **Queue multiple helpers and reports together.** The Library page now uses a
   checkbox list and one **[ queue selected ]** action; every selection starts

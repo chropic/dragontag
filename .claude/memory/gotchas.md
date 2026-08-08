@@ -166,6 +166,16 @@ recurring. When writing new code in one of these areas, check the pattern first.
 
 ## Web layer
 
+- **A control associated with a form is not necessarily a DOM descendant of
+  that form.** Review checkboxes use `form="review-bulk-form"` while living in
+  sibling cards, so `form.querySelectorAll(...)` returns none even though the
+  browser submits them with the form. Query the document with both `name` and
+  `[form=...]` when collecting form-associated controls outside the form.
+- **Cover Art Archive `/front` endpoints redirect.** Do not pass those URLs to
+  the generic review downloader with redirects disabled. Submit the release
+  MBID and call `tagging.coverart.fetch_for_release`, which follows CAA's
+  trusted redirect chain, validates/normalizes the image, and returns bytes
+  whose MIME matches the payload.
 - Jinja autoescape protects HTML contexts but **not URL contexts** — interpolating a user string
   into an `href` query needs `| urlencode` or `&`/`#`/`+` in a search query corrupts the link
   (filter silently dropped when sorting/paging). Check every `href="...{{ q }}..."` — this
@@ -190,6 +200,13 @@ recurring. When writing new code in one of these areas, check the pattern first.
 
 ## Pipeline semantics
 
+- **Duplicate prevention belongs before every network artwork/lyrics call and
+  every audio mutation.** `pipeline._commit_tag_path` is the shared choke point:
+  query only the chosen destination `LibraryFolder`, exclude the current
+  physical path for in-library retags, persist `chosen_tags_json` plus matching
+  paths, and return with `ReviewReason.duplicate_detected`. A second apply is
+  the explicit override; do not add a separate force flag that bulk and manual
+  paths can forget to carry.
 - **Dry-run must gate every path that writes or moves** — the MBID short-circuit once bypassed
   it and a "dry-run" bulk re-tag rewrote the whole library. Any new identify path must funnel
   through `_finalize_and_commit`.

@@ -132,6 +132,7 @@ class ReviewReason(str, Enum):
     dry_run = "dry_run"  # dry-run mode: preview without writing
     destination_unresolved = "destination_unresolved"  # library dir scan failed; moving could mint a case twin
     album_mismatch = "album_mismatch"  # file doesn't appear on the release its album folder matched
+    duplicate_detected = "duplicate_detected"  # resolved recording already exists in destination library
 
 
 class Job(SQLModel, table=True):
@@ -171,7 +172,8 @@ class Job(SQLModel, table=True):
     log: str = Field(default="")  # human-readable progress messages
 
     # Top-N candidates from the identifier (recording_id, release_id, score,
-    # title, album). Used to render the review UI without re-querying MB.
+    # title, artist, album), plus optional duplicate paths. Used to render the
+    # review UI without re-querying MB.
     candidates_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
 
     # The TrackTags dict we *intended* to write — saved before the move so the

@@ -74,6 +74,7 @@ def test_concurrent_case_variants_converge_on_one_dir(tmp_path):
 def test_scan_failure_is_fail_closed(tmp_path, monkeypatch):
     lib = tmp_path / "lib"
     (lib / "Fakemink" / "AlbumA").mkdir(parents=True)
+    before = sorted(p.name for p in lib.iterdir())
 
     real_scandir = os.scandir
 
@@ -84,13 +85,12 @@ def test_scan_failure_is_fail_closed(tmp_path, monkeypatch):
 
     monkeypatch.setattr(paths_mod.os, "scandir", flaky_scandir)
 
-    before = sorted(p.name for p in lib.iterdir())
     with pytest.raises(DestinationUnresolved):
         build_destination(
             _tags("fakemink", "T"), ".flac", library_root=lib, ensure_dirs=True
         )
     # Nothing was created: no fakemink twin next to Fakemink.
-    assert sorted(p.name for p in lib.iterdir()) == before
+    assert sorted(entry.name for entry in real_scandir(lib)) == before
 
 
 def test_missing_parent_still_degrades_benignly(tmp_path):

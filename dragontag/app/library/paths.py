@@ -250,8 +250,6 @@ def _reuse_folded_dir(parent: Path, wanted: str, *, edition_fold: bool = False) 
     if not parent_exists:
         return wanted
     try:
-        if (parent / wanted).exists():
-            return wanted
         target = fold_text(wanted)
         if not target:
             return wanted
@@ -260,8 +258,10 @@ def _reuse_folded_dir(parent: Path, wanted: str, *, edition_fold: bool = False) 
         edition_candidates: list[str] = []
         with os.scandir(parent) as it:
             for entry in it:
-                if entry.name == wanted or not entry.is_dir():
+                if not entry.is_dir():
                     continue
+                if entry.name == wanted:
+                    return wanted
                 if fold_text(entry.name) == target:
                     return entry.name  # exact case/punct fold wins immediately
                 if wanted_ekey and album_fold_key(entry.name) == wanted_ekey:

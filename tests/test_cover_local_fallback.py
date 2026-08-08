@@ -129,6 +129,9 @@ def test_commit_uses_local_cover_instead_of_review(tmp_path, monkeypatch):
         raise requests.exceptions.SSLError("certificate verify failed")
 
     monkeypatch.setattr(net.requests, "get", boom)
+    # This test isolates cover fallback; duplicate-gate behavior has dedicated
+    # coverage and shared test DB rows may reuse the intentionally generic T/A.
+    monkeypatch.setattr(pipeline, "find_library_duplicate_paths", lambda *a, **kw: [])
 
     # Stop right after the cover stage so the test needs no real library/move.
     def stop(*a, **k):

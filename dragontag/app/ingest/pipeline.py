@@ -32,6 +32,7 @@ from ..identify import existing_tags, filename_parse
 from ..identify import musicbrainz as mbq
 from ..identify.scoring import score_candidate
 from ..library import filelock
+from ..library.duplicates import find_duplicate_tracks
 from ..library.mover import move, move_lyric_sidecar, write_cover_jpg
 from ..library.paths import DestinationUnresolved, build_destination
 from ..models import FileChange, Job, JobStatus, ReviewReason, append_job_log
@@ -321,16 +322,23 @@ def _process_inner(s: Session, job: Job) -> None:
             log.exception("album election failed for %s", job.group_key)
         if election is not None:
             if job.id in election.recording_by_job:
+                recording_id = election.recording_by_job[job.id]
+                recording_doc, track_doc = mbq.recording_on_release(
+                    election.release_doc, recording_id
+                )
+                elected_candidate = mbq.Candidate(
+                    score=election.score,
+                    recording_id=recording_id,
+                    release_id=election.release_id,
+                    track=track_doc,
+                    raw_recording=recording_doc,
+                    raw_release=election.release_doc,
+                )
+                item = mbq.candidate_payload(elected_candidate, score=election.score)
+                item["title"] = item.get("title") or clues.get("title")
+                item["artist"] = item.get("artist") or clues.get("artist")
                 job.candidates_json = {
-                    "items": [
-                        {
-                            "recording_id": election.recording_by_job[job.id],
-                            "release_id": election.release_id,
-                            "score": election.score,
-                            "title": None,
-                            "album": election.release_doc.get("title"),
-                        }
-                    ]
+                    "items": [item]
                 }
                 _append_log(
                     job,
@@ -341,7 +349,7 @@ def _process_inner(s: Session, job: Job) -> None:
                     try:
                         tags = mbq.assemble_tags(
                             release_id=election.release_id,
-                            recording_id=election.recording_by_job[job.id],
+                            recording_id=recording_id,
                             rel=election.release_doc,
                         )
                     except Exception as e:
@@ -402,8 +410,10 @@ def _process_inner(s: Session, job: Job) -> None:
             # entries. Fall through to the regular search path.
             _append_log(job, f"MBID short-circuit failed: {e}")
         else:
-            _finalize_and_commit(s, job, src, tags, score=1.0)
-            return
+            if mbq.matchmaking_tags_allowed(tags, album_hint=clues.get("album")):
+                _finalize_and_commit(s, job, src, tags, score=1.0)
+                return
+            _append_log(job, "Existing MBIDs point to an unwanted compilation; searching again")
 
     # ----- step 2: MB text search -----
     cands = mbq.search_candidates(
@@ -427,6 +437,14 @@ def _process_inner(s: Session, job: Job) -> None:
             # AcoustID gives us a recording; we still need a release to
             # form a Candidate. Expand into the first few releases.
             for rel in (rec.get("release-list") or [])[:3]:
+                try:
+                    full_rel = mbq.fetch_release(rel["id"])
+                except Exception:
+                    continue
+                if not mbq.matchmaking_release_allowed(
+                    full_rel, album_hints=clues.get("album")
+                ):
+                    continue
                 cands.append(
                     mbq.Candidate(
                         score=m.score,
@@ -434,7 +452,7 @@ def _process_inner(s: Session, job: Job) -> None:
                         release_id=rel["id"],
                         acoustid_id=m.acoustid_id,
                         raw_recording=rec,
-                        raw_release=rel,
+                        raw_release=full_rel,
                     )
                 )
 
@@ -459,16 +477,7 @@ def _process_inner(s: Session, job: Job) -> None:
 
     # Persist the top 5 so the review UI doesn't need to re-query MB.
     job.candidates_json = {
-        "items": [
-            {
-                "recording_id": c.recording_id,
-                "release_id": c.release_id,
-                "score": t,
-                "title": c.raw_recording.get("title"),
-                "album": c.raw_release.get("title"),
-            }
-            for (t, _, c) in scored[:5]
-        ]
+        "items": [mbq.candidate_payload(c, score=t) for (t, _, c) in scored[:5]]
     }
     best_total, _, best = _select_candidate(scored)
     _append_log(job, f"Best candidate score={best_total:.3f}")
@@ -630,6 +639,78 @@ def _find_local_cover(src: Path):
     return find_local_cover(src, siblings)
 
 
+def find_library_duplicate_paths(
+    src: Path,
+    tags: TrackTags,
+    *,
+    library_root: Path | None = None,
+) -> list[str]:
+    """Find likely copies of ``tags`` in the selected destination library.
+
+    The Track index is the library inventory used by the rest of the app. The
+    source path is excluded so an in-library re-tag never detects itself.
+    """
+    from ..models import LibraryFolder, Track
+
+    root = library_root or _pick_library_folder()
+    try:
+        duration = existing_tags.read(src).get("duration")
+    except Exception:
+        duration = None
+    with session() as lookup:
+        folder = lookup.exec(
+            select(LibraryFolder).where(LibraryFolder.path == str(root))
+        ).first()
+        if not folder:
+            return []
+        tracks = lookup.exec(
+            select(Track).where(Track.library_folder_id == folder.id)
+        ).all()
+    matches = find_duplicate_tracks(
+        tracks,
+        mb_track_id=tags.mb_track_id,
+        artist=tags.artist_display,
+        title=tags.title,
+        duration=duration,
+        exclude_paths=[src],
+    )
+    return sorted({track.path for track in matches})
+
+
+def route_duplicate_to_review(
+    s: Session, job: Job, tags: TrackTags, duplicate_paths: list[str], *, score: float
+) -> None:
+    """Persist a no-write duplicate warning with enough data to override it."""
+    job.chosen_tags_json = _tags_to_dict(tags)
+    candidate_data = dict(job.candidates_json or {})
+    items = list(candidate_data.get("items") or [])
+    if tags.mb_track_id and tags.mb_album_id and not any(
+        item.get("recording_id") == tags.mb_track_id
+        and item.get("release_id") == tags.mb_album_id
+        for item in items
+    ):
+        items.insert(0, {
+            "recording_id": tags.mb_track_id,
+            "release_id": tags.mb_album_id,
+            "score": score,
+            "title": tags.title,
+            "artist": tags.artist_display,
+            "album": tags.album,
+        })
+    candidate_data["items"] = items
+    candidate_data["duplicates"] = duplicate_paths
+    job.candidates_json = candidate_data
+    _append_log(job, "Duplicate detected: " + " | ".join(duplicate_paths))
+    _set(
+        job,
+        status=JobStatus.needs_review,
+        review_reason=ReviewReason.duplicate_detected,
+        score=score,
+    )
+    s.add(job)
+    s.commit()
+
+
 def _commit_tag_path(s: Session, job: Job, src: Path, tags: TrackTags, *, score: float) -> None:
     """Final 'happy path' actions: cover art + write + move.
 
@@ -637,6 +718,13 @@ def _commit_tag_path(s: Session, job: Job, src: Path, tags: TrackTags, *, score:
     candidate or overrides RELEASETYPE), so it must be safe to call with a
     pre-assembled ``tags`` object.
     """
+
+    lib_root = _pick_library_folder()
+    if job.review_reason != ReviewReason.duplicate_detected:
+        duplicate_paths = find_library_duplicate_paths(src, tags, library_root=lib_root)
+        if duplicate_paths:
+            route_duplicate_to_review(s, job, tags, duplicate_paths, score=score)
+            return
 
     # ----- cover art (best resolution available) -----
     # Skip the CAA fetch when the caller already supplied cover bytes
@@ -735,7 +823,6 @@ def _commit_tag_path(s: Session, job: Job, src: Path, tags: TrackTags, *, score:
             return
 
         # ----- move into library -----
-        lib_root = _pick_library_folder()
         try:
             dest = build_destination(tags, src.suffix, library_root=lib_root, ensure_dirs=True)
         except DestinationUnresolved as e:

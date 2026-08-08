@@ -1,27 +1,61 @@
-# frontend/
+# Frontend
 
-Front-end build toolchain for dragontag's UI stylesheet.
+dragontag uses server-rendered Jinja2 templates with HTMX and Alpine.js. The
+interface is deliberately a compact terminal/TUI rather than a generic web-app
+theme. Preserve that identity when changing templates or styles.
 
-- `app.input.css` — Tailwind CSS entry point (`@tailwind base/components/utilities`). Also holds
-  the terminal-UI **`@layer components` block** — the reusable `.dt-*` "TUI texture" primitives
-  (`.dt-panel` + corner reticles, `.dt-label`, `.dt-statusbar`/`.dt-key`, `.dt-cursor`, `.dt-meter`)
-  that keep the page templates readable. Edit these here, then rebuild.
-- `tailwind.config.js` — font, colour, safelist config. The font stack is JetBrains Mono-first
-  (`mono`/`sans` → `JetBrains Mono` → `IBM Plex Mono` → `monospace`); the `safelist` lists classes
-  applied only dynamically (Alpine `:class` / JS `classList`) so the scanner can't see them.
-- `build_css.sh` — downloads the Tailwind standalone CLI (no Node required) and compiles
-  `dragontag/app/web/static/app.css`; re-run whenever you add or remove utility classes (or edit
-  the `.dt-*` layer) in `dragontag/app/web/templates/` or `app.input.css`.
+## Visual contract
 
-```
+- **Palette:** true or near black surfaces with one restrained phosphor-green
+  accent. Green indicates focus, active state, progress, or success; amber is
+  review/warning and red is failure. Do not add gradients, decorative color
+  blooms, or unrelated accent colors.
+- **Type:** use the vendored JetBrains Mono family with IBM Plex Mono fallback.
+  The interface is monospace throughout. Keep ASCII art compatible with the
+  available font subsets; unsupported box-drawing glyphs can break alignment.
+- **Geometry:** corners stay square. Do not introduce rounded cards, pill-shaped
+  decoration, floating card stacks, or generic icon tiles.
+- **Texture:** reuse the established `.dt-*` components—panels and reticles,
+  labels, status bar and keys, cursor, and meter. The scanline and restrained
+  phosphor text treatment are the intentional CRT effects; do not add box
+  glows, pulsing dots, or entrance effects that hide content until JavaScript
+  runs.
+- **Hierarchy:** reserve chips for real status values, keep copy concise and
+  human-readable, and make every control that looks interactive work. Preserve
+  deliberate gutters, alignment, contrast, and keyboard hints.
+- **Responsive behavior:** wide tables scroll within their containers and the
+  navigation row scrolls rather than widening the page. New layouts must remain
+  usable at the existing narrow breakpoint.
+
+Templates extend `dragontag/app/web/templates/base.html`. HTMX fragments use a
+leading underscore. Global shortcuts register through the `dtKeys` registry in
+`base.html`; page-specific bindings stay with their template. Every shortcut
+shown in a status bar must be implemented.
+
+All browser assets are self-hosted. Fonts live under
+`dragontag/app/web/static/fonts`, while HTMX and Alpine live under
+`web/static/vendor`. Do not add CDN dependencies.
+
+## Stylesheet build
+
+`app.input.css` is the Tailwind entry point and contains the reusable `.dt-*`
+component layer. `tailwind.config.js` defines the palette, typography,
+zero-radius geometry, and safelist for classes applied only by JavaScript.
+
+The generated stylesheet is committed at
+`dragontag/app/web/static/app.css`. Rebuild it whenever templates add or remove
+utility classes or when `app.input.css` changes:
+
+```bash
 bash frontend/build_css.sh
 ```
 
-## Fonts
+The script downloads Tailwind's standalone CLI into the ignored `build_tmp/`
+directory when needed; Node.js is not required. If the download is unavailable,
+do not assume a new class exists—check the committed CSS or defer generation to
+an environment that can run the build.
 
-The UI renders in **JetBrains Mono**, self-hosted (no CDN) for air-gapped boxes. Two woff2 files
-live in `dragontag/app/web/static/fonts/` (`JetBrainsMono-Regular.woff2`, `JetBrainsMono-Bold.woff2`)
-and are declared in that directory's `fonts.css`. If they're ever absent, `fonts.css` falls back to
-the also-vendored IBM Plex Mono — the UI never lands in a broken/missing-glyph state. The vendored
-latin subset omits box-drawing glyphs (`U+2500…`), which fall back to IBM Plex Mono per the
-`unicode-range`; swap in a full JetBrains Mono build if you want its native box glyphs.
+After UI changes, verify the affected flow in a browser at desktop and narrow
+widths. Check actual clicks, HTMX swaps, form fallbacks, keyboard controls,
+overflow, text contrast, and alignment rather than relying only on template
+inspection.

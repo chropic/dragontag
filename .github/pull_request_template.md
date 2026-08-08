@@ -3,7 +3,7 @@
   This template is a scaffold, not a gate. Fill in what's relevant, delete what
   isn't, and keep it readable. A short, honest PR beats a long, padded one.
 
-  A few house rules worth remembering (see CLAUDE.md for the full list):
+  A few house rules worth remembering (see AGENTS.md for the full list):
     • Work on a topic branch; update the CHANGELOG.md "WIP" section.
     • Re-run `bash frontend/build_css.sh` if you touched templates or CSS.
     • New tag fields go into all four writers + schema; new settings touch
@@ -32,7 +32,7 @@
 - [ ] Bug fix — corrects incorrect behaviour without changing the public surface
 - [ ] New feature — adds behaviour users can see or invoke
 - [ ] Refactor / internal — no behaviour change, code health only
-- [ ] Documentation — docs, comments, or agent memory only
+- [ ] Documentation — guides, user docs, or comments only
 - [ ] Chore / tooling — build, CI, dependencies, project config
 - [ ] Breaking change — existing behaviour, data, or config changes meaning
 
@@ -73,6 +73,6 @@ _None — no user-visible change._
 - [ ] `CHANGELOG.md` "WIP" section updated (grouped Added / Changed / Fixed)
 - [ ] Version bumped for this change (see `docs/VERSIONING.md`)
 - [ ] Tests added or updated for the change
-- [ ] Docs / in-app help / agent memory updated if behaviour changed
+- [ ] Relevant guides or in-app help updated if durable behaviour changed
 - [ ] `bash frontend/build_css.sh` re-run if templates or CSS changed
 - [ ] No secrets, credentials, or internal hostnames in the diff

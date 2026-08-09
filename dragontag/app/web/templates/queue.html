@@ -413,8 +413,13 @@
   {% endif %}
 
   {% if j.review_reason and j.review_reason.value == "destination_conflict" %}
+    <form id="review-delete-form-{{ j.id }}" method="post" action="/review/{{ j.id }}/delete"
+          hx-post="/review/{{ j.id }}/delete" hx-target="closest .dt-review-item" hx-swap="outerHTML"></form>
     <form method="post" action="/review/{{ j.id }}/resolve_conflict" class="mt-2 flex gap-2 text-sm items-center flex-wrap">
       <span class="text-[#8a8a8a] min-w-0 break-all">Destination exists: <span class="text-[#cfcfcf]">{{ j.destination_path }}</span></span>
+      <button type="submit" form="review-delete-form-{{ j.id }}"
+              class="px-3 py-1 border border-[#5a3a3a] text-[#ffb4b4] hover:border-[#ffb4b4]"
+              onclick="return confirm('Delete this source audio file and its lyric sidecar? This cannot be undone.');">Delete</button>
       <button name="action" value="replace" class="px-3 py-1 border border-[#5a3a3a] bg-[#0e0808] text-[#ffb4b4] hover:border-[#ffb4b4]">Replace</button>
       <button name="action" value="rename" class="px-3 py-1 border border-[#2a2a2a] bg-[#0c0c0c] text-[#cfcfcf] hover:border-[#3a3a3a]">Rename (-1)</button>
       <button name="action" value="skip" class="px-3 py-1 border border-[#2a2a2a] text-[#8a8a8a] hover:border-[#3a3a3a]">Skip</button>
@@ -424,6 +429,8 @@
               onclick="return confirm('Delete the incoming duplicate file? The existing destination file will be kept. This cannot be undone.');">Skip + Delete</button>
     </form>
   {% else %}
+    <form id="review-delete-form-{{ j.id }}" method="post" action="/review/{{ j.id }}/delete"
+          hx-post="/review/{{ j.id }}/delete" hx-target="closest .dt-review-item" hx-swap="outerHTML"></form>
     <form hx-post="/review/{{ j.id }}/apply" hx-encoding="multipart/form-data"
           hx-target="closest .dt-review-item" hx-swap="outerHTML" hx-disabled-elt="find .review-submit-btn"
           action="/review/{{ j.id }}/apply" method="post" enctype="multipart/form-data"
@@ -650,12 +657,21 @@
         {# htmx submits the form on click (no full-page navigation); hx-disabled-elt
            on the form disables this button for the request. #}
         {% if j.review_reason and j.review_reason.value == "dry_run" %}
+        <button type="submit" form="review-delete-form-{{ j.id }}"
+                class="px-3 py-1 border border-[#5a3a3a] text-[#ffb4b4] hover:border-[#ffb4b4]"
+                onclick="return confirm('Delete this source audio file and its lyric sidecar? This cannot be undone.');">Delete</button>
         <button type="submit" class="review-submit-btn ml-auto px-3 py-1 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f]"
                 data-label="Commit">Commit</button>
         {% elif j.review_reason and j.review_reason.value == "duplicate_detected" %}
+        <button type="submit" form="review-delete-form-{{ j.id }}"
+                class="px-3 py-1 border border-[#5a3a3a] text-[#ffb4b4] hover:border-[#ffb4b4]"
+                onclick="return confirm('Delete this source audio file and its lyric sidecar? This cannot be undone.');">Delete</button>
         <button type="submit" class="review-submit-btn ml-auto px-3 py-1 border border-[#4a4326] bg-[#0c0e0c] text-[#f2e5b5] hover:bg-[#0f140f]"
                 data-label="Apply anyway">Apply anyway</button>
         {% else %}
+        <button type="submit" form="review-delete-form-{{ j.id }}"
+                class="px-3 py-1 border border-[#5a3a3a] text-[#ffb4b4] hover:border-[#ffb4b4]"
+                onclick="return confirm('Delete this source audio file and its lyric sidecar? This cannot be undone.');">Delete</button>
         <button type="submit" class="review-submit-btn ml-auto px-3 py-1 border border-[#335533] bg-[#0c0e0c] text-[#c7f0c7] hover:bg-[#0f140f]"
                 data-label="Apply">Apply</button>
         {% endif %}

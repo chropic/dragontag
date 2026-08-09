@@ -237,7 +237,10 @@ async def _web_hardening(request: Request, call_next):
     response.headers.setdefault(
         "Content-Security-Policy",
         "default-src 'self'; img-src 'self' data:; font-src 'self'; "
-        "script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+        # Alpine evaluates its declarative x-* expressions at runtime.  Keep
+        # this narrowly scoped exception until the vendored CSP Alpine build
+        # can replace the expression-driven templates.
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; "
         "connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
     )
     return response
@@ -356,6 +359,38 @@ def api_docs(request: Request, _: None = Depends(require_auth)):
     return get_swagger_ui_html(openapi_url="/openapi.json", title="dragontag API")
 
 
+def _progress_payload(active: Job | None, queued: int) -> dict[str, Any]:
+    """Serialize the single active job for the shared progress indicator."""
+    if active is None:
+        # Queued work is intentionally not an active progress indication.  It
+        # may be waiting for the single ingest worker, or be intentionally
+        # held for manual review, and showing an indeterminate bar for it is
+        # both misleading and visually noisy.
+        return {"active": False, "label": "", "percent": None, "queued": queued}
+
+    percent = None
+    current = active.progress_current
+    total = active.progress_total
+    label = (active.original_name or "").strip() or active.kind or "Background task"
+    if total and total > 0:
+        percent = max(0, min(100, round(100 * (current or 0) / total)))
+    else:
+        label = f"{label} — {active.status.value}"
+    return {
+        "active": True,
+        "label": label,
+        "percent": percent,
+        "current": current,
+        "total": total,
+        "item": active.progress_item,
+        "queued": queued,
+        # Running background tasks (scan/organize/…) can be stopped via
+        # POST /jobs/{id}/cancel; pipeline ingest jobs cannot.
+        "job_id": active.id,
+        "stoppable": active.status == JobStatus.running,
+    }
+
+
 @app.get("/api/progress")
 def api_progress(request: Request, _: None = Depends(require_auth)):
     """Lightweight poll target for the universal top-of-page progress bar."""
@@ -368,35 +403,7 @@ def api_progress(request: Request, _: None = Depends(require_auth)):
         queued = s.exec(
             select(func.count(Job.id)).where(Job.status == JobStatus.queued)
         ).one() or 0
-        if active is None and queued:
-            active = s.exec(
-                select(Job).where(Job.status == JobStatus.queued).order_by(Job.updated_at.desc())
-            ).first()
-
-    if active is None:
-        return JSONResponse({"active": False, "label": "", "percent": None, "queued": 0})
-
-    percent = None
-    current = active.progress_current
-    total = active.progress_total
-    label = active.original_name or active.kind
-    if total:
-        percent = round(100 * (current or 0) / total)
-    else:
-        label = f"{label} — {active.status.value}"
-    return JSONResponse({
-        "active": True,
-        "label": label,
-        "percent": percent,
-        "current": current,
-        "total": total,
-        "item": active.progress_item,
-        "queued": queued,
-        # Running background tasks (scan/organize/…) can be stopped via
-        # POST /jobs/{id}/cancel; pipeline ingest jobs cannot.
-        "job_id": active.id,
-        "stoppable": active.status == JobStatus.running,
-    })
+    return JSONResponse(_progress_payload(active, queued))
 
 
 @app.get("/api/cron-describe")
@@ -1813,6 +1820,68 @@ def review_skip(job_id: int, request: Request, _: None = Depends(require_auth)):
         s.add(job)
         s.commit()
     msg = "Removed from review."
+    return _hx_remove(msg) if _is_htmx(request) else _toast_response("/queue", msg)
+
+
+@app.post("/review/{job_id}/delete")
+def review_delete(job_id: int, request: Request, _: None = Depends(require_auth)):
+    """Delete the source audio (and lyric sidecar) for one review item."""
+    from .library.filelock import path_lock
+
+    with session() as s:
+        job = s.get(Job, job_id)
+        if not job:
+            raise HTTPException(404)
+        if job.status != JobStatus.needs_review:
+            msg = f"Job {job_id} is not awaiting review."
+            return _toast(msg, "error") if _is_htmx(request) else _toast_response("/queue", msg, "error")
+        source = Path(job.source_path)
+        if source.is_symlink() or source.is_dir() or not source.is_file():
+            msg = f"Refusing to delete {source.name or 'review source'}: it is not a regular audio file."
+            return _toast(msg, "error") if _is_htmx(request) else _toast_response("/queue", msg, "error")
+
+        sidecar_error: OSError | None = None
+        try:
+            # A review file can also be an in-library manual re-tag target;
+            # serialize its removal against every other file mutator.
+            with path_lock(source):
+                source.unlink()
+                sidecar = source.with_suffix(".lrc")
+                try:
+                    sidecar.unlink(missing_ok=True)
+                except OSError as exc:
+                    sidecar_error = exc
+        except OSError as exc:
+            msg = f"Could not delete {source.name}: {exc}"
+            return _toast(msg, "error") if _is_htmx(request) else _toast_response("/queue", msg, "error")
+
+        job.status = JobStatus.skipped
+        job.log = append_job_log(job.log, f"Review source deleted: {source}\n")
+        # A re-tag review can point at an indexed library file. Remove its
+        # stale index row and detach historical jobs before retaining this
+        # skipped audit row.
+        indexed = s.exec(select(Track).where(Track.path == str(source))).first()
+        if indexed is not None:
+            for linked_job in s.exec(select(Job).where(Job.track_id == indexed.id)).all():
+                linked_job.track_id = None
+                s.add(linked_job)
+            s.delete(indexed)
+        from .review_state import cleanup_review_state
+        cleanup_review_state(s, job_id)
+        s.add(job)
+        try:
+            s.commit()
+        except Exception as exc:
+            # The unlink is already complete, so surface any database failure
+            # as divergence instead of implying that the review state is clean.
+            s.rollback()
+            log.critical("review-delete: DIVERGED — %s was deleted but job %s was not updated", source, job_id, exc_info=True)
+            msg = f"Deleted {source.name}, but the database update failed: {exc}"
+            return _toast(msg, "error") if _is_htmx(request) else _toast_response("/queue", msg, "error")
+    if sidecar_error:
+        msg = f"Deleted {source.name}, but its lyric sidecar could not be deleted: {sidecar_error}"
+        return _hx_remove(msg, "error") if _is_htmx(request) else _toast_response("/queue", msg, "error")
+    msg = f"Deleted {source.name} from review."
     return _hx_remove(msg) if _is_htmx(request) else _toast_response("/queue", msg)
 
 

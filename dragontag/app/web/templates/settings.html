@@ -17,7 +17,9 @@
 
   {# Sticky save button: follows the user down the page, glows red while
      there are unsaved changes. #}
-  <div class="fixed top-[56px] right-4 z-40 flex items-center gap-3 pointer-events-none">
+  {# The inline offset intentionally overrides the existing compiled top-[56px]
+     utility: it leaves room for the shared progress status chip (44–76px). #}
+  <div class="fixed top-[56px] right-4 z-40 flex items-center gap-3 pointer-events-none" style="top: 5.5rem">
     <span class="text-xs text-[#ffb4b4]" x-show="dirty" x-cloak>unsaved changes</span>
     {% if saved %}<span class="text-[#c7f0c7] text-sm" x-show="!dirty">✓ saved</span>{% endif %}
     <button class="pointer-events-auto px-4 py-2 font-semibold transition-all duration-300 border"

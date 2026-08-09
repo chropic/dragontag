@@ -302,6 +302,14 @@ class Env(BaseSettings):
     drop_path: Path = Path("/drop")
     config_path: Path = Path("/config")
 
+    # Deployment-only web boundary controls. They deliberately remain outside
+    # UserSettings: a browser user must not be able to weaken container policy.
+    allowed_hosts: str = "localhost,127.0.0.1,[::1],testserver"
+    trusted_proxy_ips: str = ""
+    session_cookie_secure: bool = False
+    max_request_bytes: int = 2 * 1024 * 1024 * 1024
+    max_upload_bytes: int = 2 * 1024 * 1024 * 1024
+
     def resolve_password(self) -> str | None:
         """Return the configured password, checking three sources in priority order:
         Docker secret file → inline env var → wizard-written hash in config dir.

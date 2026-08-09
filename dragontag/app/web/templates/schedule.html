@@ -73,6 +73,7 @@ Queue page like any other task. Times are interpreted in the display timezone ({
         <th class="text-left pr-3">task</th>
         <th class="text-left pr-3">next run</th>
         <th class="text-left pr-3">last run</th>
+        <th class="text-left pr-3">last skipped</th>
         <th class="text-left pr-3">status</th>
         <th class="text-left">actions</th>
       </tr>
@@ -97,6 +98,7 @@ Queue page like any other task. Times are interpreted in the display timezone ({
         </td>
         <td class="pr-3 text-xs text-[#8a8a8a]">{% if t.enabled %}{{ format_local(t.next_run_at) }}{% else %}—{% endif %}</td>
         <td class="pr-3 text-xs text-[#8a8a8a]">{{ format_local(t.last_run_at) }}</td>
+        <td class="pr-3 text-xs text-[#f2e5b5]">{{ format_local(t.last_skipped_at) }}</td>
         <td class="pr-3 text-xs">
           {% if t.last_status == 'ok' or t.last_status == 'ok (manual)' %}
             <span class="text-[#c7f0c7]">{{ t.last_status }}</span>

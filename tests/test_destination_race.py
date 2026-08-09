@@ -112,9 +112,7 @@ def _make_wav(path: Path) -> None:
 
 
 def test_pipeline_routes_unresolved_destination_to_review(tmp_path, monkeypatch):
-    """An unresolvable destination sends the job to review — and because tags
-    were already rewritten in place, the write must stay auditable via a
-    FileChange row (revert still works)."""
+    """An unresolvable destination is detected before any tag rewrite."""
     from dragontag.app.db import session
     from dragontag.app.ingest import pipeline
     from dragontag.app.models import FileChange, Job, JobStatus, ReviewReason
@@ -150,9 +148,7 @@ def test_pipeline_routes_unresolved_destination_to_review(tmp_path, monkeypatch)
         row = s.get(Job, job.id)
         assert row.status == JobStatus.needs_review
         assert row.review_reason == ReviewReason.destination_unresolved
-        change = s.exec(
-            select(FileChange).where(FileChange.job_id == job.id)
-        ).first()
-        assert change is not None
-        assert change.file_path == str(p)  # file stayed where it was
+        change = s.exec(select(FileChange).where(FileChange.job_id == job.id)).first()
+        assert change is None
+        assert p.exists()  # file stayed where it was
     assert p.exists()

@@ -54,11 +54,25 @@
       {{ hint("Per-request timeout for outbound MusicBrainz and AcoustID calls. Bounds a half-open connection so a stalled network can't hang the ingest worker indefinitely. 15s is a sensible default; raise it on a slow link.") }}
     </div>
     <div>
+      <label class="block"><span class="text-[#8a8a8a]">Fingerprint timeout (seconds)</span>
+        <input type="number" name="fingerprint_timeout_seconds" step="1" min="1" value="{{ settings.fingerprint_timeout_seconds }}" class="mt-1 p-1.5 bg-black border border-[#2a2a2a] text-white w-32 focus:outline-none">
+      </label>
+      {{ hint("Hard limit for the local fpcalc process. A corrupt audio file cannot hold the ingest worker forever.") }}
+    </div>
+    <div>
       <label class="flex items-center gap-2">
         <input type="checkbox" name="watcher_enabled" {% if settings.watcher_enabled %}checked{% endif %}>
         Watch drop folder for new files
       </label>
       {{ hint("Automatically enqueue any new audio file that appears in /drop. Disable if you only want manual uploads or scheduled bulk re-tags.") }}
+    </div>
+    <div>
+      <label class="block"><span class="text-[#8a8a8a]">Watcher settle seconds</span>
+        <input type="number" name="watcher_settle_seconds" step="0.5" min="0.5" value="{{ settings.watcher_settle_seconds }}" class="mt-1 p-1.5 bg-black border border-[#2a2a2a] text-white w-32 focus:outline-none">
+      </label>
+      <label class="block mt-2"><span class="text-[#8a8a8a]">Watcher ignore patterns (one per line)</span>
+        <textarea name="watcher_ignore_patterns_raw" rows="3" class="mt-1 w-full p-1.5 bg-black border border-[#2a2a2a] text-white text-xs focus:outline-none">{{ settings.watcher_ignore_patterns | join('\n') }}</textarea>
+      </label>
     </div>
     <div>
       <label class="flex items-center gap-2">
@@ -73,6 +87,12 @@
         Allow release-group cover fallback
       </label>
       {{ hint("When a specific release has no cover in the Cover Art Archive, fall back to the release-group cover. That image is shared across every edition in the group, so enabling this can apply the same art to different releases. Off by default to prevent cover bleed.") }}
+    </div>
+    <div>
+      <label class="block"><span class="text-[#8a8a8a]">Minimum cover overwrite pixels</span>
+        <input type="number" name="cover_min_overwrite_pixels" min="1" value="{{ settings.cover_min_overwrite_pixels }}" class="mt-1 p-1.5 bg-black border border-[#2a2a2a] text-white w-32 focus:outline-none">
+      </label>
+      {{ hint("A smaller downloaded cover cannot overwrite a hand-curated album cover.") }}
     </div>
     <div>
       <label class="block">
@@ -346,17 +366,26 @@
       </label>
       {{ hint("Fire the webhook each time a job transitions to 'error'. Useful for catching MB or filesystem failures.") }}
     </div>
+    <div class="pt-2 border-t border-[#1f1f1f]">
+      <label class="block"><span class="text-[#8a8a8a]">MusicBrainz server</span>
+        <input name="musicbrainz_server" value="{{ settings.musicbrainz_server }}" class="mt-1 w-full p-1.5 bg-black border border-[#2a2a2a] text-white text-xs focus:outline-none">
+      </label>
+      <label class="block mt-2"><span class="text-[#8a8a8a]">MusicBrainz user agent</span>
+        <input name="musicbrainz_user_agent" value="{{ settings.musicbrainz_user_agent }}" class="mt-1 w-full p-1.5 bg-black border border-[#2a2a2a] text-white text-xs focus:outline-none">
+      </label>
+      {{ hint("Advanced identification endpoint settings. Use the official server and a truthful user agent unless you operate a compatible local mirror.") }}
+    </div>
   </div>
 
   <div class="relative border border-[#242424] bg-[#0a0a0a] pt-5 px-4 pb-4 space-y-3">
     <span class="dt-label">maintenance</span>
     <div>
       <label class="block">
-        <span class="text-[#8a8a8a]">Recent changes kept (0 = unlimited)</span>
+        <span class="text-[#8a8a8a]">Legacy audit retention setting (audit is permanent)</span>
         <input type="number" name="max_recent_changes" min="0" value="{{ settings.max_recent_changes }}"
                class="mt-1 p-1.5 bg-black border border-[#2a2a2a] text-white w-32 focus:outline-none">
       </label>
-      {{ hint("How many entries the Changes page retains. Older audit rows are pruned automatically when new changes are recorded; pruned rows can no longer be reverted. 0 disables pruning entirely.") }}
+      {{ hint("Change and contribution audit records are permanent. This legacy value is retained for compatibility and no longer prunes history.") }}
     </div>
     <div x-data="{ v: {{ settings.log_verbosity }} }">
       <span class="text-[#8a8a8a]">Log verbosity</span>

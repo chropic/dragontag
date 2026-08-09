@@ -139,6 +139,15 @@ Open **http://localhost:7593** and log in. First boot redirects to `/setup` if n
 
 > **Migration note:** Variables were renamed from the `AIO_` prefix to `DRAGONTAG_`. Update your `docker-compose.yml` accordingly.
 
+### Reverse proxy and request security
+
+Direct Docker use works with the default localhost-only host policy. If dragontag
+sits behind HTTPS, set `DRAGONTAG_ALLOWED_HOSTS` to the public host,
+`DRAGONTAG_TRUSTED_PROXY_IPS` to the proxy's source IP, and
+`DRAGONTAG_SESSION_COOKIE_SECURE=true`. Request and per-upload limits are
+configured through `DRAGONTAG_MAX_REQUEST_BYTES` and
+`DRAGONTAG_MAX_UPLOAD_BYTES` (both default to 2 GiB).
+
 ### Settings UI
 
 The **Settings** page covers everything below — changes are written atomically to `/config/settings.json`:

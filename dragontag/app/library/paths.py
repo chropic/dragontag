@@ -21,6 +21,7 @@ import os
 import re
 import threading
 import unicodedata
+import hashlib
 from pathlib import Path
 
 from ..config import env, settings
@@ -205,6 +206,39 @@ class DestinationUnresolved(Exception):
         self.wanted = wanted
 
 
+class DestinationUnsafe(ValueError):
+    """A generated destination cannot be represented safely on this filesystem."""
+
+
+_PORTABLE_COMPONENT_LIMIT = 255
+_WINDOWS_PATH_LIMIT = 240  # Leave headroom below legacy MAX_PATH.
+
+
+def _shorten_segment(value: str, limit: int, *, suffix: str = "") -> str:
+    """Deterministically fit a UTF-8 component without dropping its extension."""
+    if len(value.encode("utf-8")) <= limit:
+        return value
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+    marker = "~" + digest + suffix
+    if len(marker.encode("utf-8")) > limit:
+        raise DestinationUnsafe("filesystem component limit is too small")
+    out: list[str] = []
+    used = len(marker.encode("utf-8"))
+    for char in value[: len(value) - len(suffix) if suffix else len(value)]:
+        size = len(char.encode("utf-8"))
+        if used + size > limit:
+            break
+        out.append(char)
+        used += size
+    return "".join(out).rstrip(". ") + marker
+
+
+def _safe_component(value: str, *, extension: str = "") -> str:
+    clean = sanitize_segment(value)
+    suffix = extension if extension and clean.lower().endswith(extension.lower()) else ""
+    return _shorten_segment(clean, _PORTABLE_COMPONENT_LIMIT, suffix=suffix)
+
+
 # One global lock serializing destination resolution + directory creation.
 # path_lock keys on the *file* path, so two files of the same artist processed
 # by different threads never serialize on it — this lock is what makes the
@@ -290,7 +324,7 @@ def render_filename(tags: TrackTags, ext: str) -> str:
     # Disc N folder would give every disc's tracks colliding filenames.
     multidisc = (tags.disc_total or 1) > 1 and tags.disc is not None
     tmpl = s.filename_template_multidisc if multidisc else s.filename_template_single
-    return sanitize_segment(
+    rendered = sanitize_segment(
         tmpl.format(
             track=tags.track or 0,
             disc=tags.disc or 1,
@@ -301,6 +335,10 @@ def render_filename(tags: TrackTags, ext: str) -> str:
             tracktotal=tags.track_total or 0,
         )
     )
+    extension = "." + ext.lstrip(".")
+    if not rendered.lower().endswith(extension.lower()):
+        raise DestinationUnsafe("filename template must preserve the source extension")
+    return _safe_component(rendered, extension=extension)
 
 
 def build_destination(
@@ -331,12 +369,12 @@ def build_destination(
     # Prefer album_artist (band on the cover) over artist_display
     # (featured-credits string) for the folder name, then reduce it to the
     # primary artist so "Artist feat. Guest" tracks land under "Artist".
-    artist_seg = sanitize_segment(
+    artist_seg = _safe_component(
         primary_artist(
             tags.album_artist_display or tags.artist_display or "Unknown Artist"
         )
     )
-    album_seg = sanitize_segment(tags.album or "Unknown Album")
+    album_seg = _safe_component(tags.album or "Unknown Album")
 
     with _dir_resolve_lock:
         # Converge on an existing folder that differs only by case/punctuation
@@ -351,10 +389,37 @@ def build_destination(
             disc_folder = settings().multidisc_folder_template.format(
                 disc=tags.disc, disctotal=tags.disc_total
             )
-            parts.append(sanitize_segment(disc_folder))
+            parts.append(_safe_component(disc_folder))
 
         filename = render_filename(tags, source_ext)
         dest = Path(*parts) / filename
+        # POSIX exposes byte-based PATH_MAX; Windows counts UTF-16 units and
+        # needs a conservative legacy-safe cap unless long paths are enabled.
+        path_limit = _WINDOWS_PATH_LIMIT if os.name == "nt" else 4096
+        measured = len(str(dest)) if os.name == "nt" else len(os.fsencode(dest))
+        if measured > path_limit:
+            # Preserve identity in every shortened component and try the file
+            # name first, then album and artist. Never silently change ext.
+            excess = measured - path_limit
+            extension = "." + source_ext.lstrip(".")
+            filename = _shorten_segment(
+                filename, max(len(extension) + 14, len(filename.encode("utf-8")) - excess - 16),
+                suffix=extension,
+            )
+            dest = Path(*parts) / filename
+            measured = len(str(dest)) if os.name == "nt" else len(os.fsencode(dest))
+            for index in range(len(parts) - 1, 0, -1):
+                if measured <= path_limit:
+                    break
+                current = str(parts[index])
+                target = max(24, len(current.encode("utf-8")) - excess - 16)
+                parts[index] = _shorten_segment(current, target)
+                dest = Path(*parts) / filename
+                measured = len(str(dest)) if os.name == "nt" else len(os.fsencode(dest))
+                if measured <= path_limit:
+                    break
+            if measured > path_limit:
+                raise DestinationUnsafe("destination path exceeds filesystem limit")
         # Defence-in-depth: ``sanitize_segment`` already neutralizes path
         # separators and traversal sequences (mapping them to "_"), but verify
         # the fully resolved destination still lives under the library root

@@ -17,10 +17,13 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import shutil
 import sqlite3
 import tarfile
 import tempfile
+import threading
+import uuid
 from pathlib import Path
 
 from .timeutil import now_utc
@@ -33,6 +36,7 @@ _KEEP_BACKUPS = 10
 # Config-dir files included in a bundle (besides the DB). Optional ones are
 # skipped when absent.
 _CONFIG_FILES = ("settings.json", "password.hash", "acoustid.key")
+_backup_lock = threading.Lock()
 
 
 def _sha256(p: Path) -> str:
@@ -51,55 +55,94 @@ def backups_dir() -> Path:
 
 
 def create_backup() -> Path:
-    """Write a new backup tarball into ``/config/backups`` and return its path."""
+    """Build, verify, and atomically publish a collision-safe backup.
+
+    The temporary archive lives in the backup directory (not system ``/tmp``),
+    so publication never crosses filesystems.  ``os.link`` is an atomic
+    no-replace publish primitive on the local filesystems dragontag supports:
+    readers see either no final name or a complete, verified archive.
+    """
     from .config import env
 
     config = env().config_path
     stamp = now_utc().strftime("%Y%m%d-%H%M%S")
-    out = backups_dir() / f"dragontag-backup-{stamp}.tar.gz"
+    out_dir = backups_dir()
+    temp_path: Path | None = None
 
-    with tempfile.TemporaryDirectory() as td:
-        staging = Path(td)
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            staging = Path(td)
 
-        # Consistent DB snapshot even while the app is writing.
-        db_path = config / "dragontag.db"
-        files: dict[str, str] = {}
-        if db_path.exists():
-            snap = staging / "dragontag.db"
-            src = sqlite3.connect(str(db_path))
-            try:
-                dst = sqlite3.connect(str(snap))
+            # Consistent DB snapshot even while the app is writing.
+            db_path = config / "dragontag.db"
+            files: dict[str, str] = {}
+            if db_path.exists():
+                snap = staging / "dragontag.db"
+                src = sqlite3.connect(str(db_path))
                 try:
-                    src.backup(dst)
+                    dst = sqlite3.connect(str(snap))
+                    try:
+                        src.backup(dst)
+                    finally:
+                        dst.close()
                 finally:
-                    dst.close()
-            finally:
-                src.close()
-            files["dragontag.db"] = _sha256(snap)
+                    src.close()
+                files["dragontag.db"] = _sha256(snap)
 
-        for name in _CONFIG_FILES:
-            p = config / name
-            if p.exists():
-                target = staging / name
-                target.write_bytes(p.read_bytes())
-                files[name] = _sha256(target)
+            for name in _CONFIG_FILES:
+                p = config / name
+                if p.exists():
+                    target = staging / name
+                    target.write_bytes(p.read_bytes())
+                    files[name] = _sha256(target)
 
-        manifest = {
-            "app": "dragontag",
-            "format_version": FORMAT_VERSION,
-            "created_at": now_utc().isoformat() + "Z",
-            "files": files,
-        }
-        (staging / "manifest.json").write_text(
-            json.dumps(manifest, indent=2), encoding="utf-8"
-        )
+            manifest = {
+                "app": "dragontag",
+                "format_version": FORMAT_VERSION,
+                "created_at": now_utc().isoformat() + "Z",
+                "files": files,
+            }
+            (staging / "manifest.json").write_text(
+                json.dumps(manifest, indent=2), encoding="utf-8"
+            )
 
-        with tarfile.open(out, "w:gz") as tar:
-            tar.add(staging / "manifest.json", arcname="manifest.json")
-            for name in files:
-                tar.add(staging / name, arcname=name)
+            # A named sibling lets us fsync and validate the exact bytes before
+            # making a final name visible. Never use a predictable ``.tmp`` name:
+            # concurrent scheduled/manual backups may share a second.
+            with tempfile.NamedTemporaryFile(
+                mode="wb", suffix=".tar.gz", prefix=".dragontag-backup-",
+                dir=out_dir, delete=False,
+            ) as temp:
+                temp_path = Path(temp.name)
+            with tarfile.open(temp_path, "w:gz") as tar:
+                tar.add(staging / "manifest.json", arcname="manifest.json")
+                for name in files:
+                    tar.add(staging / name, arcname=name)
+            with temp_path.open("rb+") as f:
+                os.fsync(f.fileno())
+            checked = validate_bundle(temp_path)
+            checked["tmpdir"].cleanup()
 
-    _prune_backups()
+        assert temp_path is not None
+        with _backup_lock:
+            # A UUID makes collisions extraordinarily unlikely; link() still
+            # supplies the actual no-overwrite guarantee if one occurs.
+            while True:
+                out = out_dir / f"dragontag-backup-{stamp}-{uuid.uuid4().hex}.tar.gz"
+                try:
+                    os.link(temp_path, out)
+                    break
+                except FileExistsError:
+                    continue
+            temp_path.unlink()
+            temp_path = None
+            _prune_backups()
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                log.warning("could not remove failed backup temporary file: %s", temp_path)
     log.info("backup written: %s", out)
     return out
 

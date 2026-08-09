@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Record MusicBrainz return â€” dragontag{% endblock %}
+{% block content %}
+<div class="max-w-xl mx-auto">
+  <h2 class="font-bold text-lg mb-3">Record MusicBrainz return</h2>
+  <p class="text-sm text-[#8a8a8a] mb-4">This GET page has not changed local state. Confirm the returned identifier with the POST below.</p>
+  <form method="post" action="/review/{{ job.id }}/contribution/{{ contribution.id }}/result" class="border border-[#242424] p-4">
+    <label class="text-sm text-[#8a8a8a]">Release MBID
+      <input name="release_mbid" value="{{ release_mbid }}" class="block w-full mt-1 bg-black border border-[#2a2a2a] text-white px-2 py-1">
+    </label>
+    <label class="block text-sm text-[#8a8a8a] mt-3">Recording MBID (optional; required if the release is ambiguous)
+      <input name="recording_mbid" class="block w-full mt-1 bg-black border border-[#2a2a2a] text-white px-2 py-1">
+    </label>
+    <button class="mt-4 px-3 py-1.5 border border-[#335533] text-[#c7f0c7]">record as submitted/pending</button>
+  </form>
+</div>
+{% endblock %}

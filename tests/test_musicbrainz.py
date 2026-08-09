@@ -45,6 +45,8 @@ def test_release_url_lists_tracks(monkeypatch):
     cands = mbq.candidates_from_mbid(f"https://musicbrainz.org/release/{_UUID}")
     assert {c.recording_id for c in cands} == {"rec-a", "rec-b"}
     assert all(c.release_id == _UUID for c in cands)
+    payloads = [mbq.candidate_payload(candidate) for candidate in cands]
+    assert [payload["title"] for payload in payloads] == ["Song A", "Song B"]
 
 
 def test_release_url_filters_by_title_hint(monkeypatch):
@@ -66,3 +68,23 @@ def test_junk_input_returns_empty(monkeypatch):
     _patch(monkeypatch, recording=_RECORDING)
     assert mbq.candidates_from_mbid("not an mbid") == []
     assert mbq.candidates_from_mbid("") == []
+
+
+def test_candidate_normalization_preserves_each_valid_neighbor():
+    payload = mbq.normalize_candidate_payload({
+        "recording_id": "rec",
+        "release_id": "rel",
+        "score": "bad",
+        "title": "Valid title",
+        "artist": None,
+        "album": "Valid album",
+        "raw_recording": {"artist-credit-phrase": "Valid artist"},
+    })
+    assert payload == {
+        "recording_id": "rec",
+        "release_id": "rel",
+        "score": 0.0,
+        "title": "Valid title",
+        "artist": "Valid artist",
+        "album": "Valid album",
+    }

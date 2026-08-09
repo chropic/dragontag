@@ -907,6 +907,10 @@ def _commit_tag_path(s: Session, job: Job, src: Path, tags: TrackTags, *, score:
     job.track_id = track.id
     _set(job, status=JobStatus.done, destination_path=str(dest))
     _append_log(job, f"Done -> {dest}")
+    # Resolve server-side review drafts in this existing final transaction.
+    # Submitted/verified contribution outcomes are retained by the helper.
+    from ..review_state import cleanup_review_state
+    cleanup_review_state(s, job.id)
     s.add(job)
     s.commit()
 

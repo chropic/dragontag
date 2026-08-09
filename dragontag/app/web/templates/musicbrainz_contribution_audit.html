@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}MusicBrainz contribution audit — dragontag{% endblock %}
+{% block content %}
+<div class="max-w-3xl mx-auto">
+  <a href="/musicbrainz/contributions" class="text-[#8a8a8a] hover:text-white">&larr; contribution history</a>
+  <h2 class="font-bold text-lg mt-4">Contribution #{{ contribution.id }}</h2>
+  <div class="grid grid-cols-3 gap-3 my-4 text-xs">
+    <div class="border border-[#242424] p-3"><span class="text-[#5a5a5a]">job</span><div>{{ contribution.job_id }}</div></div>
+    <div class="border border-[#242424] p-3"><span class="text-[#5a5a5a]">mode</span><div>{{ contribution.mode }}</div></div>
+    <div class="border border-[#242424] p-3"><span class="text-[#5a5a5a]">status</span><div>{{ contribution.status | replace('_', ' ') }}</div></div>
+  </div>
+  {% for label, value in [
+    ('returned MBIDs', contribution.returned_mbids_json),
+    ('returned URLs', contribution.returned_urls_json),
+    ('warnings', contribution.warnings_json),
+    ('verified preview', contribution.preview_json),
+    ('duplicate decisions', contribution.decisions_json),
+    ('immutable snapshot', contribution.draft_snapshot_json)
+  ] %}
+  <details class="border border-[#242424] p-3 mb-2" {% if loop.first %}open{% endif %}>
+    <summary class="text-sm text-[#8a8a8a] cursor-pointer">{{ label }}</summary>
+    <pre class="mt-3 text-xs text-[#cfcfcf] whitespace-pre-wrap break-all">{{ value | tojson(indent=2) }}</pre>
+  </details>
+  {% endfor %}
+  {% if contribution.log %}<pre class="border border-[#242424] p-3 mt-3 text-xs text-[#8a8a8a] whitespace-pre-wrap">{{ contribution.log }}</pre>{% endif %}
+</div>
+{% endblock %}

@@ -195,6 +195,50 @@ class Job(SQLModel, table=True):
     track_id: int | None = Field(default=None, foreign_key="track.id")
 
 
+class ReviewDraft(SQLModel, table=True):
+    """Server-side autosave for the manual fields of one review job.
+
+    Browser storage remains useful for purely presentational queue state, but
+    user-entered metadata must survive another browser/device and must not be
+    pruned merely because pagination removed a card from the current DOM.
+    """
+
+    job_id: int = Field(primary_key=True, foreign_key="job.id")
+    fields_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    created_at: datetime = Field(default_factory=now_utc)
+    updated_at: datetime = Field(default_factory=now_utc, index=True)
+
+
+class MusicBrainzContribution(SQLModel, table=True):
+    """Persistent, auditable state for a seeded MusicBrainz editor handoff.
+
+    ``job_id`` intentionally is not a foreign key.  Once a draft has been
+    handed off, its submitted/verified/applied outcome remains useful even if
+    the ordinary Job history is later cleared.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    job_id: int = Field(index=True)
+    mode: str = Field(index=True)  # "release" | "standalone"
+    status: str = Field(default="draft", index=True)
+    draft_snapshot_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    duplicate_results_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    decisions_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    seed_payload_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    returned_mbids_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    returned_urls_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    preview_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    warnings_json: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    log: str = ""
+    task_id: int | None = Field(default=None, index=True)
+    task_ids_json: list[int] = Field(default_factory=list, sa_column=Column(JSON))
+    created_at: datetime = Field(default_factory=now_utc, index=True)
+    updated_at: datetime = Field(default_factory=now_utc, index=True)
+    handed_off_at: datetime | None = None
+    verified_at: datetime | None = None
+    applied_at: datetime | None = None
+
+
 class IncompleteAlbum(SQLModel, table=True):
     """An album whose local track count is below the MusicBrainz track count.
 

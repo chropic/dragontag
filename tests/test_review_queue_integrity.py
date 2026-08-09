@@ -86,18 +86,33 @@ def test_queue_renders_metadata_and_one_cover_per_release(client, tmp_path):
     assert "Good for You" in response.text
     assert response.text.count(f"/release/{release}/front-250") == 1
     assert f'id="cover_release_{job_id}"' in response.text
+    assert f'id="cover_release_explicit_{job_id}"' in response.text
     assert "bulk.querySelectorAll('input[name=job_ids]:checked')" not in response.text
     assert "input[name=job_ids][form=review-bulk-form]:checked" in response.text
 
 
-def test_single_and_bulk_apply_embed_selected_release_art(client, tmp_path, monkeypatch):
+def test_single_and_bulk_apply_ignore_stale_default_and_embed_selected_release_art(
+    client, tmp_path, monkeypatch
+):
     token = uuid.uuid4().hex
+    stale_single_rel = f"stale-single-{token}"
+    stale_bulk_rel_a = f"stale-bulk-a-{token}"
+    stale_bulk_rel_b = f"stale-bulk-b-{token}"
     single_rel = f"single-{token}"
     bulk_rel_a = f"bulk-a-{token}"
     bulk_rel_b = f"bulk-b-{token}"
-    single = _review_job(tmp_path, [_candidate(f"rec-s-{token}", single_rel)])
-    bulk_a = _review_job(tmp_path, [_candidate(f"rec-a-{token}", bulk_rel_a)])
-    bulk_b = _review_job(tmp_path, [_candidate(f"rec-b-{token}", bulk_rel_b)])
+    single = _review_job(tmp_path, [
+        _candidate(f"old-rec-s-{token}", stale_single_rel),
+        _candidate(f"rec-s-{token}", single_rel),
+    ])
+    bulk_a = _review_job(tmp_path, [
+        _candidate(f"old-rec-a-{token}", stale_bulk_rel_a),
+        _candidate(f"rec-a-{token}", bulk_rel_a),
+    ])
+    bulk_b = _review_job(tmp_path, [
+        _candidate(f"old-rec-b-{token}", stale_bulk_rel_b),
+        _candidate(f"rec-b-{token}", bulk_rel_b),
+    ])
     expected = {
         single_rel: (b"single-jpeg", "image/jpeg"),
         bulk_rel_a: (b"bulk-a-png", "image/png"),
@@ -141,7 +156,9 @@ def test_single_and_bulk_apply_embed_selected_release_art(client, tmp_path, monk
         f"/review/{single}/apply",
         data={
             "pick": f"rec-s-{token}|{single_rel}",
-            "cover_release_id": single_rel,
+            # Original/top-candidate form default. Without an explicit marker,
+            # artwork must follow the newly selected tagging release.
+            "cover_release_id": stale_single_rel,
         },
         headers={"HX-Request": "true"},
     )
@@ -152,9 +169,9 @@ def test_single_and_bulk_apply_embed_selected_release_art(client, tmp_path, monk
         data={
             "job_ids": [str(bulk_a), str(bulk_b)],
             f"pick_{bulk_a}": f"rec-a-{token}|{bulk_rel_a}",
-            f"cover_{bulk_a}": bulk_rel_a,
+            f"cover_{bulk_a}": stale_bulk_rel_a,
             f"pick_{bulk_b}": f"rec-b-{token}|{bulk_rel_b}",
-            f"cover_{bulk_b}": bulk_rel_b,
+            f"cover_{bulk_b}": stale_bulk_rel_b,
         },
         headers={"HX-Request": "true"},
     )
@@ -167,6 +184,61 @@ def test_single_and_bulk_apply_embed_selected_release_art(client, tmp_path, monk
     assert captured[bulk_a] == expected[bulk_rel_a]
     assert captured[bulk_b] == expected[bulk_rel_b]
     assert set(fetched) == {single_rel, bulk_rel_a, bulk_rel_b}
+
+
+def test_review_apply_honors_explicit_alternate_cover_release(client, tmp_path, monkeypatch):
+    token = uuid.uuid4().hex
+    tagging_rel = f"tagging-{token}"
+    alternate_rel = f"alternate-{token}"
+    job_id = _review_job(tmp_path, [
+        _candidate(f"rec-{token}", tagging_rel),
+        _candidate(f"other-rec-{token}", alternate_rel),
+    ])
+    captured: dict[int, bytes] = {}
+
+    monkeypatch.setattr(
+        mbq,
+        "assemble_tags",
+        lambda *, release_id, recording_id: TrackTags(
+            title="Caroline",
+            artist_display="AminÃ©",
+            artists=["AminÃ©"],
+            album="Good for You",
+            mb_track_id=recording_id,
+            mb_album_id=release_id,
+            release_type="Album",
+        ),
+    )
+
+    from dragontag.app.tagging import coverart
+    monkeypatch.setattr(
+        coverart,
+        "fetch_for_release",
+        lambda release_id: CoverArt(
+            data=f"cover:{release_id}".encode(), mime="image/jpeg", width=1000, height=1000
+        ),
+    )
+
+    def fake_commit(s, job, src, tags, *, score):
+        captured[job.id] = tags.cover_bytes
+        job.status = JobStatus.done
+        s.add(job)
+        s.commit()
+
+    monkeypatch.setattr(pipeline, "_commit_tag_path", fake_commit)
+
+    response = client.post(
+        f"/review/{job_id}/apply",
+        data={
+            "pick": f"rec-{token}|{tagging_rel}",
+            "cover_release_id": alternate_rel,
+            "cover_release_explicit": "1",
+        },
+        headers={"HX-Request": "true"},
+    )
+    assert response.status_code == 200
+    _wait_for(captured, 1)
+    assert captured[job_id] == f"cover:{alternate_rel}".encode()
 
 
 def test_first_duplicate_apply_keeps_card_second_queues_override(

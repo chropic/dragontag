@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}MusicBrainz contribution â€” dragontag{% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto">
+  <div class="flex items-center gap-3 mb-5">
+    <a href="/queue" class="text-[#8a8a8a] hover:text-white">&larr; queue</a>
+    <h2 class="font-bold text-lg">MusicBrainz contribution</h2>
+    <span class="text-xs px-2 py-0.5 border border-[#4a4326] text-[#f2e5b5]">{{ mode }}</span>
+  </div>
+
+  <div class="border border-[#242424] bg-[#0a0a0a] p-4 mb-4 text-sm">
+    <div class="text-white font-medium">{{ job.original_name }}</div>
+    <p class="text-[#8a8a8a] mt-1">dragontag prepares an official editor seed. MusicBrainz authentication and the final submission stay in your browser session; no credentials or tokens are stored here.</p>
+    <p class="text-[#f2e5b5] mt-1">A returned MBID means submitted/available, not accepted. Review the refreshed metadata before applying it locally.</p>
+  </div>
+
+  <div class="flex gap-2 mb-4">
+    <a href="/review/{{ job.id }}/contribute?mode=release" class="px-3 py-1 border {% if mode == 'release' %}border-[#c7f0c7] text-[#c7f0c7]{% else %}border-[#2a2a2a] text-[#8a8a8a]{% endif %}">release</a>
+    <a href="/review/{{ job.id }}/contribute?mode=standalone" class="px-3 py-1 border {% if mode == 'standalone' %}border-[#c7f0c7] text-[#c7f0c7]{% else %}border-[#2a2a2a] text-[#8a8a8a]{% endif %}">standalone recording</a>
+  </div>
+
+  {% if contribution %}
+  <div class="border border-[#242424] p-3 mb-4 text-xs">
+    <span class="text-[#8a8a8a]">contribution #{{ contribution.id }}</span>
+    <span class="ml-2 text-[#cfcfcf]">{{ contribution.status | replace('_', ' ') }}</span>
+    {% if contribution.task_id %}<a href="/jobs/{{ contribution.task_id }}" class="ml-2 text-[#c7f0c7] hover:underline">tracked task {{ contribution.task_id }}</a>{% endif %}
+    {% if contribution.status in ['preflight', 'refreshing'] and contribution.task_id %}
+    <form method="post" action="/jobs/{{ contribution.task_id }}/cancel" class="inline ml-2"><button class="text-[#ffb4b4] hover:underline">cancel</button></form>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if not contribution or contribution.status in ['draft', 'preflight', 'preflight_error', 'preflight_cancelled'] %}
+  <form method="post" action="/review/{{ job.id }}/contribution/preflight" class="border border-[#242424] p-4 mb-4">
+    <input type="hidden" name="mode" value="{{ mode }}">
+    <input type="hidden" name="contribution_id" value="{{ contribution.id if contribution else 0 }}">
+    <label class="block text-xs text-[#8a8a8a] mb-2">Contribution draft JSON</label>
+    <textarea name="draft_json" rows="28" spellcheck="false" class="w-full bg-black border border-[#2a2a2a] text-[#cfcfcf] p-3 font-mono text-xs focus:outline-none">{{ draft_json }}</textarea>
+    <p class="text-xs text-[#5a5a5a] mt-2">Release drafts accept any number of media and tracks. Validation covers credits, positions, partial dates, country, type/status, labels/catalog numbers, GTIN barcode, provenance, and edit note.</p>
+    <button class="mt-3 px-3 py-1.5 border border-[#335533] text-[#c7f0c7]">run duplicate preflight</button>
+  </form>
+  {% else %}
+  <details class="border border-[#242424] p-3 mb-4">
+    <summary class="text-[#8a8a8a] cursor-pointer">immutable handoff snapshot</summary>
+    <pre class="mt-3 text-xs text-[#cfcfcf] whitespace-pre-wrap">{{ draft_json }}</pre>
+  </details>
+  {% endif %}
+
+  {% if contribution and contribution.duplicate_results_json %}
+  <div class="border border-[#242424] p-4 mb-4">
+    <h3 class="font-bold mb-2">Duplicate review</h3>
+    {% set ns = namespace(plausible=0) %}
+    {% for entity_type, searches in contribution.duplicate_results_json.items() %}
+      {% for query, rows in searches.items() %}
+        {% for row in rows %}
+          {% if row.plausible %}
+          {% set ns.plausible = ns.plausible + 1 %}
+          {% set decision_key = entity_type ~ ':' ~ query ~ ':' ~ row.id %}
+          <div class="grid grid-cols-3 gap-3 items-center border-t border-[#1f1f1f] py-2 text-xs">
+            <div><span class="text-[#8a8a8a]">{{ entity_type | replace('_', ' ') }}</span><div class="text-white">{{ row.name }}</div></div>
+            <div class="text-[#8a8a8a]">score {{ "%.2f"|format(row.score) }}{% if row.disambiguation %} â€” {{ row.disambiguation }}{% endif %}<div class="font-mono text-[#5a5a5a]">{{ row.id }}</div></div>
+            <select required class="dt-duplicate-decision bg-black border border-[#2a2a2a] text-white px-2 py-1" data-key="{{ decision_key }}">
+              <option value="">decideâ€¦</option>
+              <option value="reuse" {% if contribution.decisions_json.get(decision_key) == 'reuse' %}selected{% endif %}>reuse this entity</option>
+              <option value="new" {% if contribution.decisions_json.get(decision_key) == 'new' %}selected{% endif %}>create new</option>
+              <option value="different_edition" {% if contribution.decisions_json.get(decision_key) == 'different_edition' %}selected{% endif %}>different edition</option>
+            </select>
+          </div>
+          {% endif %}
+        {% endfor %}
+      {% endfor %}
+    {% endfor %}
+    {% if ns.plausible == 0 %}<p class="text-xs text-[#8a8a8a]">No plausible duplicates crossed the preflight threshold.</p>{% endif %}
+  </div>
+  {% endif %}
+
+  {% if contribution and contribution.status == 'draft' %}
+  <form id="handoff-form" method="post" action="/review/{{ job.id }}/contribution/{{ contribution.id }}/handoff" class="border border-[#335533] p-4 mb-4">
+    <input type="hidden" name="decisions_json" value="{}">
+    <p class="text-sm text-[#cfcfcf]">Preview the immutable snapshot and every duplicate decision, then prepare the official MusicBrainz editor handoff.</p>
+    <button class="mt-3 px-3 py-1.5 border border-[#335533] text-[#c7f0c7]">prepare editor handoff</button>
+  </form>
+  <script>
+    document.getElementById('handoff-form').addEventListener('submit', function (event) {
+      const decisions = {};
+      let missing = false;
+      document.querySelectorAll('.dt-duplicate-decision').forEach(function (select) {
+        if (!select.value) missing = true;
+        else decisions[select.dataset.key] = select.value;
+      });
+      if (missing) { event.preventDefault(); alert('Choose a decision for every plausible duplicate.'); return; }
+      this.querySelector('input[name=decisions_json]').value = JSON.stringify(decisions);
+    });
+  </script>
+  {% endif %}
+
+  {% if contribution and contribution.status in ['handoff', 'submitted', 'ambiguous', 'refresh_error', 'refresh_cancelled', 'verified', 'apply_failed', 'apply_blocked'] %}
+  <form method="post" action="/review/{{ job.id }}/contribution/{{ contribution.id }}/result" class="border border-[#242424] p-4 mb-4 text-sm">
+    <h3 class="font-bold mb-2">Record the editor result</h3>
+    {% if contribution.mode == 'standalone' %}<p class="text-xs text-[#f2e5b5] mb-2">The standalone editor has no documented callback. Paste the resulting recording MBID after submission.</p>{% endif %}
+    <div class="grid grid-cols-2 gap-2">
+      <label class="text-[#8a8a8a]">Release MBID
+        <input name="release_mbid" value="{{ contribution.returned_mbids_json.get('release', '') }}" class="block w-full mt-1 bg-black border border-[#2a2a2a] text-white px-2 py-1">
+      </label>
+      <label class="text-[#8a8a8a]">Recording MBID
+        <input name="recording_mbid" value="{{ contribution.returned_mbids_json.get('recording', '') }}" class="block w-full mt-1 bg-black border border-[#2a2a2a] text-white px-2 py-1">
+      </label>
+    </div>
+    <button class="mt-3 px-3 py-1 border border-[#2a2a2a] text-[#cfcfcf]">record as submitted/pending</button>
+  </form>
+  {% endif %}
+
+  {% if contribution and contribution.status in ['submitted', 'ambiguous', 'refresh_error', 'refresh_cancelled', 'verified'] %}
+  <form method="post" action="/review/{{ job.id }}/contribution/{{ contribution.id }}/refresh" class="mb-4">
+    <button class="px-3 py-1.5 border border-[#2a2a2a] text-[#cfcfcf]">refresh from MusicBrainz</button>
+    <span class="text-xs text-[#8a8a8a] ml-2">read-only; never writes or moves the audio file</span>
+  </form>
+  {% endif %}
+
+  {% if contribution and contribution.preview_json %}
+  <div class="border border-[#242424] p-4 mb-4">
+    <h3 class="font-bold mb-2">Refreshed metadata preview</h3>
+    {% if contribution.preview_json.state == 'ambiguous' %}
+      <p class="text-[#f2e5b5] text-sm">{{ contribution.preview_json.warning }}</p>
+      {% for choice in contribution.preview_json.recording_choices %}<div class="text-xs mt-1"><code>{{ choice.id }}</code> â€” {{ choice.title }}</div>{% endfor %}
+    {% else %}
+      <div class="text-sm">{{ contribution.preview_json.title or 'Unknown title' }} â€” {{ contribution.preview_json.artist or 'Unknown artist' }} â€” {{ contribution.preview_json.album or 'Unknown album' }}</div>
+      <div class="text-xs text-[#8a8a8a] mt-1">recording {{ contribution.preview_json.recording_id }}{% if contribution.preview_json.release_id %} Â· release {{ contribution.preview_json.release_id }}{% endif %}</div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if contribution and contribution.status == 'verified' %}
+  <form method="post" action="/review/{{ job.id }}/contribution/{{ contribution.id }}/apply" class="border border-[#335533] p-4 mb-4">
+    <p class="text-sm text-[#cfcfcf]">Confirm only after comparing the normalized MusicBrainz preview above. This starts the normal atomic tag/write/move pipeline.</p>
+    <button class="mt-3 px-3 py-1.5 border border-[#335533] text-[#c7f0c7]">confirm and apply locally</button>
+  </form>
+  {% endif %}
+
+  {% if contribution and contribution.warnings_json %}
+  <div class="border border-[#5a3a3a] p-3 text-xs text-[#ffb4b4] mb-4">{% for warning in contribution.warnings_json %}<div>{{ warning }}</div>{% endfor %}</div>
+  {% endif %}
+</div>
+{% endblock %}

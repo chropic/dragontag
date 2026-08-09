@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}MusicBrainz editor handoff â€” dragontag{% endblock %}
+{% block content %}
+<div class="max-w-3xl mx-auto">
+  <a href="/review/{{ job.id }}/contribute?mode={{ mode }}&contribution_id={{ contribution.id }}" class="text-[#8a8a8a] hover:text-white">&larr; contribution</a>
+  <h2 class="font-bold text-lg mt-4 mb-3">Official MusicBrainz editor handoff</h2>
+  <div class="border border-[#4a4326] p-4 text-sm mb-4">
+    <p class="text-[#f2e5b5]">Review the seeded editor carefully. The external submission is made by you in your MusicBrainz browser session, not by dragontag.</p>
+    <p class="text-[#8a8a8a] mt-2">A returned MBID is recorded as submitted/pending until a later WS/2 refresh verifies the entity. No local audio file changes at this stage.</p>
+  </div>
+  <form action="{{ editor_url }}" method="{% if mode == 'release' %}post{% else %}get{% endif %}" target="_blank" class="mb-4">
+    {% for name, value in seed_fields %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+    <button class="px-4 py-2 border border-[#335533] text-[#c7f0c7]">open seeded {{ mode }} editor â†—</button>
+  </form>
+  {% if mode == 'standalone' %}
+  <p class="text-xs text-[#8a8a8a]">After submitting, return to the contribution page and paste the recording MBID; MusicBrainz does not document a standalone-recording callback.</p>
+  {% endif %}
+</div>
+{% endblock %}

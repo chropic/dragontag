@@ -4,6 +4,26 @@
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 
+### Added (destination conflict cleanup — 2026-08-08)
+- **Destination conflicts can discard the incoming duplicate in one step.** The review card now
+  offers a confirmed **Skip + Delete** action that keeps the existing library file, deletes only
+  the incoming audio and matching lyric sidecar under the file lock, removes any now-phantom
+  library index row, and refuses aliased source / destination paths. Conflict actions are now
+  allowlisted so malformed form values cannot fall through to Rename, and long destination paths
+  wrap on narrow screens instead of pushing actions off-canvas. A post-delete database failure is
+  reported as explicit divergence rather than a false success. (`main.py`, `web/templates/queue.html`)
+
+### Fixed (release hardening — 2026-08-08)
+- **Tracked task results now obey the 256 KiB log ceiling.** Large per-file result dictionaries can
+  no longer bypass the normal log cap and inflate a Job row without bound. Source checkouts also
+  stamp tags and MusicBrainz requests with the repository version instead of the stale `0.9.5`
+  fallback. (`tasks.py`, `tagging/schema.py`, `identify/musicbrainz.py`)
+- **The settings route no longer rescans the host timezone database on every request.** Its
+  immutable timezone catalog is built once per process, keeping authenticated routes responsive
+  while MusicBrainz calls are in flight and removing a cold-filesystem CI timing flake. (`main.py`)
+- **CI actions now run natively on Node.js 24.** Checkout and Python setup use their current major
+  releases, removing GitHub's forced-runtime deprecation warnings. (`.github/workflows/ci.yml`)
+
 ### Changed (agent documentation — 2026-08-08)
 - **Agent guidance is vendor-neutral, current, and progressively disclosed.**
   Replaced the large tool-specific memory corpus with a concise root orientation,

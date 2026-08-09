@@ -178,7 +178,11 @@ def run_task(kind: str, name: str, fn: Callable[[TaskCtx], Any]) -> int:
                 if j:
                     j.status = JobStatus.done
                     if result is not None:
-                        j.log = (j.log or "") + f"Result: {result}\n"
+                        # Results from maintenance jobs can contain one entry
+                        # per file (for example organizer errors). Keep the
+                        # same byte cap as every TaskCtx log append so a single
+                        # large library cannot create an unbounded SQLite row.
+                        j.log = append_job_log(j.log, f"Result: {result}\n")
                     j.updated_at = now_utc()
                     s.add(j)
                     s.commit()

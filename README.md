@@ -190,7 +190,7 @@ The **Settings** page covers everything below — changes are written atomically
                           └──────────────────────────────────────┘
 ```
 
-Files in the review queue show the top 5 MB candidates with scores and links. Destination conflicts get **replace / rename / skip** buttons.
+Files in the review queue show the top 5 MB candidates with scores and links. Destination conflicts get **replace / rename / skip / skip + delete** buttons; the last option keeps the existing library file and permanently deletes the incoming duplicate after confirmation.
 
 ### Data-integrity guarantees
 

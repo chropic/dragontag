@@ -3,7 +3,7 @@ import time
 
 from dragontag.app import tasks
 from dragontag.app.db import session
-from dragontag.app.models import Job, JobStatus
+from dragontag.app.models import MAX_JOB_LOG_BYTES, Job, JobStatus
 
 
 def _wait_for(job_id: int, timeout: float = 10.0) -> Job:
@@ -66,3 +66,15 @@ def test_progress_item_persisted():
     assert job.status == JobStatus.done
     # progress_item carries the last reported item label
     assert job.progress_item and "some-file.flac" in job.progress_item
+
+
+def test_large_task_result_is_capped():
+    job = _wait_for(
+        tasks.run_task(
+            "test_task",
+            "large result",
+            lambda ctx: "x" * (MAX_JOB_LOG_BYTES * 2),
+        )
+    )
+    assert job.status == JobStatus.done
+    assert len(job.log.encode("utf-8")) <= MAX_JOB_LOG_BYTES

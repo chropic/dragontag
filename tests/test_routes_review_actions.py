@@ -1,4 +1,4 @@
-"""Review-queue per-item actions: X (skip) and manual-tag apply.
+"""Review-queue per-item actions: skip, source deletion, and manual-tag apply.
 
 Both answer htmx (in-place card removal + toast) and plain form posts. The
 manual-apply path builds a TrackTags from hand-entered fields and runs the same
@@ -6,10 +6,12 @@ background commit as an MB match.
 """
 import time
 import types
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 
+from dragontag.app.config import env
 from dragontag.app.db import session
 from dragontag.app.identify import musicbrainz as mbq  # noqa: F401 (kept parallel to other suites)
 from dragontag.app.ingest import pipeline as pipeline_mod
@@ -58,6 +60,44 @@ def test_skip_non_review_is_error_toast(client):
     assert r.status_code == 204  # htmx does not swap on 204 → card stays
     with session() as s:
         assert s.get(Job, jid).status == JobStatus.done  # untouched
+
+
+# ---- Delete listing ----
+
+def test_delete_review_source_also_removes_lyric_sidecar(client):
+    source = env().drop_path / f"review-delete-{uuid4().hex}.flac"
+    sidecar = source.with_suffix(".lrc")
+    source.write_bytes(b"audio")
+    sidecar.write_text("lyrics", encoding="utf-8")
+    with session() as s:
+        job = Job(source_path=str(source), original_name=source.name, status=JobStatus.needs_review)
+        s.add(job)
+        s.commit()
+        s.refresh(job)
+        job_id = job.id
+
+    try:
+        response = client.post(f"/review/{job_id}/delete", headers={"HX-Request": "true"})
+
+        assert response.status_code == 200
+        assert response.text == ""
+        assert f"Deleted {source.name}" in response.headers["HX-Trigger"]
+        assert not source.exists()
+        assert not sidecar.exists()
+        with session() as s:
+            assert s.get(Job, job_id).status == JobStatus.skipped
+    finally:
+        source.unlink(missing_ok=True)
+        sidecar.unlink(missing_ok=True)
+
+
+def test_queue_renders_delete_before_apply_for_each_review_item(client):
+    job_id = _review_job()
+    response = client.get("/queue")
+    assert response.status_code == 200
+    start = response.text.index(f'id="review-delete-form-{job_id}"')
+    apply = response.text.index('data-label="Apply"', start)
+    assert response.text.index(">Delete</button>", start) < apply
 
 
 # ---- manual-apply ----

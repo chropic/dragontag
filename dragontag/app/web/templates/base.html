@@ -181,7 +181,7 @@
   </nav>
 
   <!-- Universal progress bar: thin line pinned under the nav, visible on every
-       page while any job/scan/task is active. Polls /api/progress. -->
+       page while work is actually running. Queued jobs do not show it. -->
   <div x-data="progressBar()" x-init="poll()" x-show="active" x-cloak
        class="sticky top-[44px] z-40">
     <div class="h-1.5 bg-[#1a1a1a] w-full overflow-hidden">
@@ -315,11 +315,18 @@
               if (r.ok && (r.headers.get('content-type') || '').includes('json')) {
                 const d = await r.json();
                 this.active = !!d.active;
+                if (!this.active) {
+                  this.percent = null;
+                  this.stoppable = false;
+                  this.jobId = null;
+                  this.display = '';
+                  return;
+                }
                 this.percent = (d.percent === undefined) ? null : d.percent;
                 this.stoppable = !!d.stoppable;
                 this.jobId = (d.job_id === undefined) ? null : d.job_id;
                 // Build "Task (123/456) · current item · 3 queued" from the parts.
-                let parts = [d.label || ''];
+                let parts = [d.label || 'Working…'];
                 if (d.total) parts[0] += ` (${d.current || 0}/${d.total})`;
                 if (d.item) parts.push(d.item);
                 if (d.queued) parts.push(`${d.queued} queued`);

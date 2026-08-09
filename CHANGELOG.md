@@ -7,6 +7,8 @@
 - Backups are verified and atomically published under collision-safe names; missed schedules are recorded as skipped instead of replayed; and manual re-tag selections cannot run unattended.
 - Skip + Delete now requires a locked full-content duplicate check. Durable change and MusicBrainz contribution audit records survive ordinary cleanup.
 - Readiness checks SQLite and storage mounts; lifecycle, webhook, destination-path, settings, folder-dependency, and bounded-queue hardening improve local release safety.
+- The global progress indicator now appears only while work is running, always has a readable fallback label, and no longer overlaps the Settings save control.
+- Every review card now places a confirmed Delete action beside Apply; it removes the reviewed audio and matching lyric sidecar under the file lock while preserving a skipped job audit.
 
 ## WIP — terminal/TUI frontend redesign (Direction A)
 

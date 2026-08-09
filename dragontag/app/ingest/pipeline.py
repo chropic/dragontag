@@ -34,7 +34,7 @@ from ..identify.scoring import score_candidate
 from ..library import filelock
 from ..library.duplicates import find_duplicate_tracks
 from ..library.mover import move, move_lyric_sidecar, write_cover_jpg
-from ..library.paths import DestinationUnresolved, build_destination
+from ..library.paths import DestinationUnresolved, DestinationUnsafe, build_destination
 from ..models import FileChange, Job, JobStatus, ReviewReason, append_job_log
 from ..tagging import snapshot
 from ..tagging.coverart import fetch_for_release, fetch_for_release_group, find_local_cover
@@ -90,6 +90,7 @@ def enqueue(
     dry_run: bool | None = None,
     requeue_reviews: bool = False,
     group_key: str | None = None,
+    manual_selection: bool = False,
 ) -> Job:
     """Persist a new ``Job`` and return it. Doesn't submit to the worker —
     callers call :func:`submit` after committing so the worker can see the row.
@@ -130,6 +131,7 @@ def enqueue(
                     error=None,
                     dry_run_override=dry_run,
                     group_key=group_key,
+                    manual_selection=manual_selection,
                 )
                 s.add(existing)
                 s.commit()
@@ -144,6 +146,7 @@ def enqueue(
             status=JobStatus.queued,
             dry_run_override=dry_run,
             group_key=group_key,
+            manual_selection=manual_selection,
         )
         s.add(job)
         s.commit()
@@ -592,14 +595,15 @@ def _finalize_and_commit(s: Session, job: Job, src: Path, tags: TrackTags, *, sc
         lib_root = _pick_library_folder()
         try:
             dest = build_destination(tags, src.suffix, library_root=lib_root)
-        except DestinationUnresolved as e:
+        except (DestinationUnresolved, DestinationUnsafe, ValueError) as e:
             _append_log(job, f"Destination unresolved (library scan failed): {e}")
             job.chosen_tags_json = _tags_to_dict(tags)
             _set(
                 job,
                 score=score,
                 status=JobStatus.needs_review,
-                review_reason=ReviewReason.destination_unresolved,
+                review_reason=(ReviewReason.destination_unresolved if isinstance(e, DestinationUnresolved)
+                               else ReviewReason.destination_unsafe),
             )
             s.add(job)
             s.commit()
@@ -726,6 +730,25 @@ def _commit_tag_path(s: Session, job: Job, src: Path, tags: TrackTags, *, score:
             route_duplicate_to_review(s, job, tags, duplicate_paths, score=score)
             return
 
+    # Fail before fetching/writing anything if templates cannot produce a
+    # portable destination. The review record keeps only a bounded diagnostic.
+    try:
+        build_destination(tags, src.suffix, library_root=lib_root)
+    except (DestinationUnresolved, DestinationUnsafe, ValueError) as e:
+        _append_log(job, f"Unsafe destination: {e}")
+        payload = dict(job.candidates_json or {})
+        payload["destination_error"] = str(e)[:500]
+        job.candidates_json = payload
+        _set(
+            job, status=JobStatus.needs_review,
+            review_reason=(ReviewReason.destination_unresolved if isinstance(e, DestinationUnresolved)
+                           else ReviewReason.destination_unsafe),
+            score=score,
+        )
+        s.add(job)
+        s.commit()
+        return
+
     # ----- cover art (best resolution available) -----
     # Skip the CAA fetch when the caller already supplied cover bytes
     # (e.g. the review UI cover-art picker or a custom upload).
@@ -825,7 +848,7 @@ def _commit_tag_path(s: Session, job: Job, src: Path, tags: TrackTags, *, score:
         # ----- move into library -----
         try:
             dest = build_destination(tags, src.suffix, library_root=lib_root, ensure_dirs=True)
-        except DestinationUnresolved as e:
+        except (DestinationUnresolved, DestinationUnsafe, ValueError) as e:
             # Moving anyway could mint a case-variant twin directory (the
             # library-nuking failure mode on network shares) — leave the file
             # where it is and let the user retry from review. The in-place tag
@@ -835,7 +858,8 @@ def _commit_tag_path(s: Session, job: Job, src: Path, tags: TrackTags, *, score:
             _set(
                 job,
                 status=JobStatus.needs_review,
-                review_reason=ReviewReason.destination_unresolved,
+                review_reason=(ReviewReason.destination_unresolved if isinstance(e, DestinationUnresolved)
+                               else ReviewReason.destination_unsafe),
             )
             s.add(job)
             s.commit()
@@ -939,7 +963,7 @@ def _record_change(
     new_tags: dict,
     cover_jpg_created: bool,
 ) -> None:
-    """Persist a FileChange audit row, then prune to the most recent rows."""
+    """Persist a durable FileChange audit row."""
     change = FileChange(
         job_id=job.id,
         file_path=str(dest),
@@ -952,19 +976,8 @@ def _record_change(
     s.add(change)
     s.commit()
 
-    # 0 = unlimited (same convention as genre_limit).
-    cap = settings().max_recent_changes
-    if cap <= 0:
-        return
-    stale = s.exec(
-        select(FileChange.id).order_by(FileChange.id.desc()).offset(cap)
-    ).all()
-    if stale:
-        for cid in stale:
-            obj = s.get(FileChange, cid)
-            if obj:
-                s.delete(obj)
-        s.commit()
+    # Audit records are not ordinary housekeeping data. Retention is an
+    # explicit future product feature, never an implicit ingest side effect.
 
 
 def _pick_library_folder() -> Path:
@@ -1075,8 +1088,11 @@ def _tags_to_dict(tags) -> dict:
 # Background worker
 # ---------------------------------------------------------------------------
 
-_q: "queue.Queue[int]" = queue.Queue()
+_QUEUE_CAPACITY = 128
+_q: "queue.Queue[int]" = queue.Queue(maxsize=_QUEUE_CAPACITY)
 _worker_started = False
+_worker_thread: threading.Thread | None = None
+_worker_stop = threading.Event()
 
 
 def _worker_loop() -> None:
@@ -1085,8 +1101,11 @@ def _worker_loop() -> None:
     Single-threaded by design: MB rate-limits to 1 req/sec, so parallelism
     wouldn't help, and serialization keeps the SQLite write traffic simple.
     """
-    while True:
-        job_id = _q.get()
+    while not _worker_stop.is_set():
+        try:
+            job_id = _q.get(timeout=0.25)
+        except queue.Empty:
+            continue
         try:
             process(job_id)
         except Exception:
@@ -1097,18 +1116,35 @@ def _worker_loop() -> None:
 
 def start_worker() -> None:
     """Idempotently start the worker thread. Called from FastAPI's startup hook."""
-    global _worker_started
+    global _worker_started, _worker_thread
     if _worker_started:
         return
-    t = threading.Thread(target=_worker_loop, name="dragontag-pipeline", daemon=True)
-    t.start()
+    _worker_stop.clear()
+    _worker_thread = threading.Thread(target=_worker_loop, name="dragontag-pipeline", daemon=True)
+    _worker_thread.start()
     _worker_started = True
 
 
-def submit(job_id: int) -> None:
-    """Enqueue a job for the worker (and ensure the worker is running)."""
+def submit(job_id: int, *, ctx=None) -> None:
+    """Enqueue a job with bounded memory and cancellable backpressure."""
     start_worker()
-    _q.put(job_id)
+    while True:
+        try:
+            _q.put(job_id, timeout=0.25)
+            return
+        except queue.Full:
+            if ctx is not None:
+                ctx.check_cancelled()
+
+
+def stop_worker() -> None:
+    """Stop after the active item; queued database rows survive for recovery."""
+    global _worker_started, _worker_thread
+    _worker_stop.set()
+    if _worker_thread is not None:
+        _worker_thread.join(timeout=10)
+    _worker_thread = None
+    _worker_started = False
 
 
 def resubmit_pending() -> None:
@@ -1128,7 +1164,15 @@ def resubmit_pending() -> None:
         # resume — mark them failed instead of feeding them to the pipeline.
         resubmit_ids: list[int] = []
         for j in rows:
-            if j.kind != "ingest" or j.status == JobStatus.running:
+            if j.manual_selection:
+                if j.status in (JobStatus.tagging, JobStatus.moving):
+                    j.status = JobStatus.needs_review
+                    j.error = "manual selection interrupted by restart; review before retrying"
+                else:
+                    j.status = JobStatus.skipped
+                    j.error = "manual selection not resumed after restart"
+                s.add(j)
+            elif j.kind != "ingest" or j.status == JobStatus.running:
                 j.status = JobStatus.error
                 j.error = "interrupted by restart"
                 s.add(j)

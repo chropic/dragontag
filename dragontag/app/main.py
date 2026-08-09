@@ -20,6 +20,8 @@ import json
 import logging
 import os
 import time
+import hashlib
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -32,9 +34,10 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError as PydanticValidationError
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, text
 from sqlmodel import select
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from . import auth, logsetup, scheduler, tasks
 from . import __version__
@@ -145,6 +148,36 @@ def _is_htmx(request: Request) -> bool:
     return request.headers.get("HX-Request") == "true"
 
 
+def _verified_duplicate(source: Path, destination: Path) -> tuple[bool, str]:
+    """Compare bytes under locks and reject files changed during verification."""
+    try:
+        before_source, before_destination = source.stat(), destination.stat()
+        if before_source.st_size != before_destination.st_size:
+            return False, "incoming and destination sizes differ"
+        source_hash, destination_hash = hashlib.sha256(), hashlib.sha256()
+        with source.open("rb") as left, destination.open("rb") as right:
+            while True:
+                a, b = left.read(1 << 20), right.read(1 << 20)
+                if a != b:
+                    return False, "incoming and destination bytes differ"
+                if not a:
+                    break
+                source_hash.update(a)
+                destination_hash.update(b)
+        if source_hash.digest() != destination_hash.digest():
+            return False, "incoming and destination digests differ"
+        after_source, after_destination = source.stat(), destination.stat()
+        if (before_source.st_size, before_source.st_mtime_ns, before_source.st_ino) != (
+            after_source.st_size, after_source.st_mtime_ns, after_source.st_ino
+        ) or (before_destination.st_size, before_destination.st_mtime_ns, before_destination.st_ino) != (
+            after_destination.st_size, after_destination.st_mtime_ns, after_destination.st_ino
+        ):
+            return False, "a file changed during duplicate verification"
+        return True, ""
+    except OSError:
+        return False, "could not read both files to prove they are duplicates"
+
+
 def _hx_remove(message: str, level: str = "success", extra: dict | None = None) -> Response:
     """Empty 200 that lets htmx swap a review card out of the DOM
     (``hx-swap=outerHTML``) while firing a ``showToast`` — plus any extra
@@ -168,6 +201,8 @@ log = logging.getLogger(__name__)
 # not shadow our custom user-manual route at GET /docs (see docs() below).
 # Auth-guarded equivalents are served at /api-docs and /openapi.json instead.
 app = FastAPI(title="dragontag", version=__version__, docs_url=None, redoc_url=None, openapi_url=None)
+_allowed_hosts = [host.strip() for host in env().allowed_hosts.split(",") if host.strip()]
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=_allowed_hosts or ["*"])
 
 # Cookie-signing secret comes from the session-secret Docker secret. The
 # middleware itself implements signed but unencrypted cookies — fine for
@@ -175,9 +210,34 @@ app = FastAPI(title="dragontag", version=__version__, docs_url=None, redoc_url=N
 app.add_middleware(
     SessionMiddleware,
     secret_key=env().resolve_session_secret(),
-    https_only=False,
+    https_only=env().session_cookie_secure,
     max_age=86400 * 7,  # 7-day cookie lifetime
+    same_site="lax",
 )
+
+
+@app.middleware("http")
+async def _web_hardening(request: Request, call_next):
+    """Apply low-cost local deployment protections without proxy guesswork."""
+    length = request.headers.get("content-length")
+    if length and length.isdigit() and int(length) > env().max_request_bytes:
+        return JSONResponse({"detail": "request exceeds configured size limit"}, status_code=413)
+    trusted = {v.strip() for v in env().trusted_proxy_ips.split(",") if v.strip()}
+    if trusted and request.client and request.client.host in trusted:
+        proto = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
+        if proto in {"http", "https"}:
+            request.scope["scheme"] = proto
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; img-src 'self' data:; font-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+        "connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+    )
+    return response
 
 # Static dir is created on first import so the StaticFiles mount doesn't
 # error on a fresh checkout (we don't ship any static assets yet).
@@ -189,7 +249,6 @@ templates.env.globals["format_local"] = _format_local
 templates.env.globals["describe_cron"] = scheduler.describe_cron
 
 
-@app.on_event("startup")
 def _startup() -> None:
     """Initialize config + DB, start worker, resume in-flight jobs, start watcher."""
     log.info(r"""
@@ -226,9 +285,48 @@ def _startup() -> None:
     scheduler.start()
 
 
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    _startup()
+    try:
+        yield
+    finally:
+        scheduler.stop()
+        watcher.stop()
+        pipeline.stop_worker()
+        tasks.stop_all()
+
+
+app.router.lifespan_context = _lifespan
+
+
+@app.get("/health/live")
+def health_live():
+    return JSONResponse({"status": "alive"})
+
+
 @app.get("/health")
+@app.get("/health/ready")
 def health():
-    return JSONResponse({"status": "ok"})
+    """Readiness checks are bounded and never write to mounted user storage."""
+    checks: dict[str, dict[str, str]] = {}
+    try:
+        with session() as s:
+            s.exec(text("SELECT 1")).one()
+        checks["database"] = {"status": "ok"}
+    except Exception:
+        checks["database"] = {"status": "unavailable"}
+    for name, path in (("library", env().library_path), ("drop", env().drop_path)):
+        try:
+            if not path.is_dir() or not os.access(path, os.R_OK | os.W_OK | os.X_OK):
+                raise OSError("mount unavailable")
+            with os.scandir(path):
+                pass
+            checks[name] = {"status": "ok"}
+        except OSError:
+            checks[name] = {"status": "unavailable"}
+    ready = all(value["status"] == "ok" for value in checks.values())
+    return JSONResponse({"status": "ok" if ready else "unavailable", "checks": checks}, status_code=200 if ready else 503)
 
 
 def require_auth(request: Request) -> None:
@@ -1889,7 +1987,18 @@ def resolve_conflict(
 
             sidecar_error: OSError | None = None
             try:
-                with path_lock(src):
+                # Lock in stable order so simultaneous conflict forms cannot
+                # race comparison/deletion or deadlock each other.
+                first, second = sorted((src, dest), key=lambda p: str(p))
+                with path_lock(first), path_lock(second):
+                    duplicate, reason = _verified_duplicate(src, dest)
+                    if not duplicate:
+                        job.log = append_job_log(job.log, f"Skip + Delete refused: {reason}\n")
+                        s.add(job)
+                        s.commit()
+                        return _toast_response(
+                            "/queue", f"Kept {src.name}: {reason}. The conflict remains in review.", "error"
+                        )
                     src.unlink(missing_ok=True)
                     sidecar = src.with_suffix(".lrc")
                     try:
@@ -2044,6 +2153,7 @@ def settings_update(
     format_grammar_fix_punct_spacing: str | None = Form(None),
     score_threshold: float = Form(...),
     network_timeout_seconds: float = Form(15.0),
+    fingerprint_timeout_seconds: float = Form(30.0),
     filename_template_single: str = Form(...),
     filename_template_multidisc: str = Form(...),
     multidisc_folder_template: str = Form(...),
@@ -2051,8 +2161,11 @@ def settings_update(
     fold_edition_suffixes: str | None = Form(None),
     quarantine_path: str = Form(""),
     cover_allow_release_group_fallback: str | None = Form(None),
+    cover_min_overwrite_pixels: int = Form(1000),
     replaygain_tool_path: str = Form(""),
     watcher_enabled: str | None = Form(None),
+    watcher_settle_seconds: float = Form(2.0),
+    watcher_ignore_patterns_raw: str = Form(""),
     genre_limit: int = Form(3),
     genre_casing: str = Form("title"),
     genre_whitelist_enabled: str | None = Form(None),
@@ -2072,6 +2185,8 @@ def settings_update(
     webhook_url: str = Form(""),
     webhook_on_done: str | None = Form(None),
     webhook_on_error: str | None = Form(None),
+    musicbrainz_user_agent: str = Form(""),
+    musicbrainz_server: str = Form("musicbrainz.org"),
     max_recent_changes: int = Form(500),
     log_verbosity: int = Form(3),
     scan_filter_patterns_raw: str = Form(""),
@@ -2099,6 +2214,7 @@ def settings_update(
         "format_grammar_fix_punct_spacing": bool(format_grammar_fix_punct_spacing),
         "score_threshold": score_threshold,
         "network_timeout_seconds": network_timeout_seconds,
+        "fingerprint_timeout_seconds": fingerprint_timeout_seconds,
         "filename_template_single": filename_template_single,
         "filename_template_multidisc": filename_template_multidisc,
         "multidisc_folder_template": multidisc_folder_template,
@@ -2106,8 +2222,13 @@ def settings_update(
         "fold_edition_suffixes": bool(fold_edition_suffixes),
         "quarantine_path": quarantine_path.strip(),
         "cover_allow_release_group_fallback": bool(cover_allow_release_group_fallback),
+        "cover_min_overwrite_pixels": cover_min_overwrite_pixels,
         "replaygain_tool_path": replaygain_tool_path.strip(),
         "watcher_enabled": bool(watcher_enabled),
+        "watcher_settle_seconds": watcher_settle_seconds,
+        "watcher_ignore_patterns": [
+            ln.strip() for ln in watcher_ignore_patterns_raw.splitlines() if ln.strip()
+        ],
         "genre_limit": genre_limit,
         "genre_casing": genre_casing,
         "genre_whitelist_enabled": bool(genre_whitelist_enabled),
@@ -2130,6 +2251,8 @@ def settings_update(
         "webhook_url": webhook_url,
         "webhook_on_done": bool(webhook_on_done),
         "webhook_on_error": bool(webhook_on_error),
+        "musicbrainz_user_agent": musicbrainz_user_agent.strip(),
+        "musicbrainz_server": musicbrainz_server.strip(),
         "max_recent_changes": max_recent_changes,
         "log_verbosity": log_verbosity,
         "scan_filter_patterns": [
@@ -2179,7 +2302,7 @@ def settings_test_webhook(request: Request, _: None = Depends(require_auth)):
             '<span class="text-[#ffb4b4]">No webhook URL configured.</span>',
             status_code=200,
         )
-    from .notify import post_done
+    from .notify import WebhookDeliveryError, deliver
     dummy_job = Job(
         id=0, source_path="test.flac", original_name="test.flac",
         status=JobStatus.done, score=1.0,
@@ -2187,9 +2310,12 @@ def settings_test_webhook(request: Request, _: None = Depends(require_auth)):
     from .tagging.schema import TrackTags
     dummy_tags = TrackTags(title="Test Track", artist_display="dragontag Test", album="Test Album")
     try:
-        post_done(dummy_job, dummy_tags)
-        return HTMLResponse('<span class="text-[#c7f0c7]">Webhook fired successfully.</span>')
-    except Exception as e:
+        deliver(url, {"embeds": [{
+            "title": dummy_tags.title,
+            "description": f"{dummy_tags.artist_display} â€” {dummy_tags.album}",
+        }]})
+        return HTMLResponse('<span class="text-[#c7f0c7]">Webhook delivered successfully.</span>')
+    except WebhookDeliveryError as e:
         return HTMLResponse(f'<span class="text-[#ffb4b4]">Webhook error: {e}</span>')
 
 
@@ -2380,11 +2506,33 @@ def library_folders_add(
 
 @app.post("/library/folders/{folder_id}/delete")
 def library_folders_delete(folder_id: int, request: Request, _: None = Depends(require_auth)):
+    from .models import HealthItem, IncompleteAlbum
     with session() as s:
         f = s.get(LibraryFolder, folder_id)
-        if f:
-            s.delete(f)
-            s.commit()
+        if not f:
+            raise HTTPException(404)
+        track_ids = select(Track.id).where(Track.library_folder_id == folder_id)
+        prefix = f.path.rstrip("/\\") + os.sep + "%"
+        dependencies = {
+            "indexed tracks": s.exec(select(func.count(Track.id)).where(Track.library_folder_id == folder_id)).one() or 0,
+            "scheduled tasks": s.exec(select(func.count(ScheduledTask.id)).where(
+                func.json_extract(ScheduledTask.params_json, "$.folder_id") == folder_id
+            )).one() or 0,
+            "jobs": s.exec(select(func.count(Job.id)).where(
+                or_(Job.track_id.in_(track_ids), Job.source_path.like(prefix), Job.destination_path.like(prefix))
+            )).one() or 0,
+            "health records": s.exec(select(func.count(HealthItem.id)).where(HealthItem.library_folder_id == folder_id)).one() or 0,
+            "incomplete-album records": s.exec(select(func.count(IncompleteAlbum.id)).where(IncompleteAlbum.library_folder_id == folder_id)).one() or 0,
+        }
+        present = [f"{count} {name}" for name, count in dependencies.items() if count]
+        if present:
+            return _toast_response(
+                "/library/folders",
+                "Cannot remove this library folder; first remove or reassign " + ", ".join(present) + ". Files on disk were not touched.",
+                "error",
+            )
+        s.delete(f)
+        s.commit()
     return RedirectResponse("/library/folders", status_code=303)
 
 
@@ -2453,8 +2601,8 @@ def library_bulk_retag(
     use_dry_run = bool(dry_run)
 
     def _run(ctx) -> str:
-        ids = enqueue_folder(src, dry_run=use_dry_run, ctx=ctx)
-        return f"{len(ids)} file(s) enqueued"
+        count = enqueue_folder(src, dry_run=use_dry_run, ctx=ctx)
+        return f"{count} file(s) enqueued"
 
     job_id = tasks.run_task("retag", f"Re-tag {sp}", _run)
     msg = "Re-tag queued — files are being enqueued in the background; track progress on the Queue page."
@@ -2503,7 +2651,9 @@ def library_retag_selected(
             # so a track whose previous run is stuck in needs_review must be
             # reset to queued and actually reprocessed — without it the dedup
             # hit is counted as "queued" but silently skipped by process().
-            job = pipeline.enqueue(p, dry_run=bool(dry_run), requeue_reviews=True)
+            job = pipeline.enqueue(
+                p, dry_run=bool(dry_run), requeue_reviews=True, manual_selection=True
+            )
             pipeline.submit(job.id)
             queued += 1
     return _toast_response("/library", f"Queued {queued} track(s) for re-tagging.")
@@ -3368,13 +3518,9 @@ def changes_move_back(change_id: int, request: Request, _: None = Depends(requir
 
 @app.post("/changes/clear")
 def changes_clear(request: Request, _: None = Depends(require_auth)):
-    """Delete all FileChange audit rows (the files themselves are untouched)."""
-    with session() as s:
-        rows = s.exec(select(FileChange)).all()
-        for r in rows:
-            s.delete(r)
-        s.commit()
-    return _toast_response("/changes", f"Cleared {len(rows)} change record(s).")
+    return _toast_response(
+        "/changes", "Audit history is permanent; it cannot be cleared here.", "error"
+    )
 
 
 @app.post("/settings/clear-scan-filters")

@@ -34,14 +34,10 @@ def _run_dispatch(monkeypatch, params) -> dict:
     return captured
 
 
-def test_bulk_retag_truthy_dry_run_becomes_true(monkeypatch):
-    captured = _run_dispatch(monkeypatch, {"source_path": "/some/path", "dry_run": 1})
-    assert captured["dry_run"] is True
-
-
-def test_bulk_retag_missing_dry_run_becomes_false(monkeypatch):
-    captured = _run_dispatch(monkeypatch, {"source_path": "/some/path"})
-    assert captured["dry_run"] is False
+def test_bulk_retag_is_rejected_for_unattended_dispatch(monkeypatch):
+    import pytest
+    with pytest.raises(ValueError, match="unknown task type"):
+        _run_dispatch(monkeypatch, {"source_path": "/some/path", "dry_run": 1})
 
 
 def test_cleanup_dispatch_runs_chain_with_apply(monkeypatch, tmp_path):
@@ -91,6 +87,5 @@ def test_registry_sanity():
                  "check_album_consistency", "fix_disc_folders", "normalize_filenames"):
         assert gone not in LIBRARY_ACTIONS
     assert "cleanup" in scheduler.TASK_TYPES
-    assert "retag" in scheduler.TASK_TYPES
-    for gone in ("batch_organize", "batch_retag", "bulk_retag"):
+    for gone in ("batch_organize", "batch_retag", "bulk_retag", "retag"):
         assert gone not in scheduler.TASK_TYPES

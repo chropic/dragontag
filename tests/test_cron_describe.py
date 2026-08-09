@@ -18,7 +18,7 @@ def test_describe_invalid_returns_none():
 
 
 def test_task_types_registered():
-    assert "retag" in scheduler.TASK_TYPES
+    assert "retag" not in scheduler.TASK_TYPES
     # The batch compositions were retired on purpose.
     assert "batch_organize" not in scheduler.TASK_TYPES
     assert "batch_retag" not in scheduler.TASK_TYPES

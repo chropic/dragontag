@@ -82,10 +82,13 @@ async def save_uploads(files: Iterable[UploadFile]) -> tuple[list[int], list[str
         # Stream chunks rather than loading the whole file into memory —
         # FLACs from a high-bitrate rip can easily be 100MB+.
         written = 0
+        max_bytes = getattr(env(), "max_upload_bytes", 2 * 1024 * 1024 * 1024)
         try:
             with target.open("wb") as out:
                 while chunk := await upload.read(1 << 20):
                     written += len(chunk)
+                    if written > max_bytes:
+                        raise ValueError("upload exceeds configured size limit")
                     out.write(chunk)
         except Exception as e:
             # Don't leave a truncated file in the watched drop folder — the

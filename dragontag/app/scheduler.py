@@ -40,12 +40,15 @@ TASK_TYPES = {
     "cleanup": "Library cleanup (report or quarantine)",
     "backup": "Create config backup",
 }
+# Re-tagging a selected source is intentionally manual-only. Keep old rows in
+# history via _RETIRED_TASK_TYPES below, but do not expose it in new schedules.
+TASK_TYPES.pop("retag", None)
 
 # Removed task kinds (the old batch compositions). Rows with these types are
 # disabled at boot instead of deleted, so the user's schedule history survives
 # and nothing compound ever runs unattended again. "bulk_retag" is accepted as
 # a legacy alias for "retag" at dispatch time.
-_RETIRED_TASK_TYPES = {"batch_organize", "batch_retag"}
+_RETIRED_TASK_TYPES = {"batch_organize", "batch_retag", "bulk_retag", "retag"}
 
 
 def is_valid_cron(expr: str) -> bool:
@@ -142,20 +145,6 @@ def run_task_by_type(task: ScheduledTask) -> int | None:
         ]
         return tasks.run_chain("cleanup", name, steps)
 
-    if kind in ("retag", "bulk_retag"):  # bulk_retag: legacy alias
-        src = str(params.get("source_path") or "").strip()
-        if not src:
-            raise ValueError("source_path required")
-        dry = bool(params.get("dry_run"))
-        from .ingest.bulk import enqueue_folder
-
-        def _run(ctx):
-            ids = enqueue_folder(Path(src), dry_run=dry, ctx=ctx)
-            ctx.log(f"Enqueued {len(ids)} file(s) from {src}")
-            return f"{len(ids)} jobs enqueued"
-
-        return tasks.run_task("retag", name, _run)
-
     if kind == "fetch_lyrics":
         fid = int(params.get("folder_id", 0))
         from .library.actions import fetch_lyrics_for_folder
@@ -183,15 +172,16 @@ def _tick() -> None:
         rows = s.exec(select(ScheduledTask)).all()
 
     for t in rows:
-        # Refresh next_run_at for display (and as the due-ness marker).
-        base = t.last_run_at or t.created_at
-        due_at = next_run(t.cron, base)
+        # next_run_at is the persisted due marker. Recalculating from an old
+        # last_run_at here would replay work that happened while offline.
+        due_at = t.next_run_at or next_run(t.cron)
         with session() as s:
             row = s.get(ScheduledTask, t.id)
             if not row:
                 continue
             # Gate on the freshly-fetched row, not the stale loop copy ``t``:
             # the task may have been toggled between the two reads.
+            due_at = row.next_run_at or next_run(row.cron)
             row.next_run_at = due_at if row.enabled else None
             if not row.enabled or due_at is None or due_at > now:
                 s.add(row)
@@ -222,13 +212,32 @@ def _tick() -> None:
             s.commit()
 
 
+_stop_event = threading.Event()
+_thread: threading.Thread | None = None
+
+
+def _reconcile_missed_runs() -> None:
+    """Persist skipped-offline state without replaying cron occurrences."""
+    now = now_utc()
+    with session() as s:
+        rows = s.exec(select(ScheduledTask).where(ScheduledTask.enabled == True)).all()  # noqa: E712
+        for row in rows:
+            due = row.next_run_at or next_run(row.cron, row.last_run_at or row.created_at)
+            if due is not None and due <= now:
+                row.last_skipped_at = now
+                row.last_status = "skipped: missed occurrence(s) while offline"
+                row.next_run_at = next_run(row.cron, now)
+                s.add(row)
+        s.commit()
+
+
 def _loop() -> None:
-    while True:
+    while not _stop_event.is_set():
         try:
             _tick()
         except Exception:
             log.exception("scheduler tick failed")
-        time.sleep(_POLL_SECONDS)
+        _stop_event.wait(_POLL_SECONDS)
 
 
 _started = False
@@ -259,12 +268,25 @@ def _disable_retired_tasks() -> None:
 
 def start() -> None:
     """Idempotently start the scheduler thread (called from app startup)."""
-    global _started
+    global _started, _thread
     if _started:
         return
     try:
         _disable_retired_tasks()
+        _reconcile_missed_runs()
     except Exception:
         log.exception("failed to disable retired scheduled tasks")
-    threading.Thread(target=_loop, name="dragontag-scheduler", daemon=True).start()
+    _stop_event.clear()
+    _thread = threading.Thread(target=_loop, name="dragontag-scheduler", daemon=True)
+    _thread.start()
     _started = True
+
+
+def stop() -> None:
+    """Stop the loop for orderly FastAPI lifespan shutdown."""
+    global _started, _thread
+    _stop_event.set()
+    if _thread is not None:
+        _thread.join(timeout=5)
+    _thread = None
+    _started = False

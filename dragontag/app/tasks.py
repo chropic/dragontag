@@ -95,6 +95,18 @@ def request_cancel(job_id: int) -> bool:
     return True
 
 
+def stop_all(timeout: float = 5.0) -> None:
+    """Ask tracked work to stop and join briefly during application shutdown."""
+    with _cancel_lock:
+        events = list(_cancel_events.values())
+    for event in events:
+        event.set()
+    with _threads_lock:
+        threads = list(_live_threads.values())
+    for thread in threads:
+        thread.join(timeout=timeout)
+
+
 class TaskCtx:
     """Handle given to a task callable for progress + log reporting."""
 

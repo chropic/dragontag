@@ -77,17 +77,11 @@ def test_retired_schedule_rows_disabled_at_boot():
         s.commit()
 
 
-def test_legacy_bulk_retag_alias_dispatches_as_retag(tmp_path, monkeypatch):
-    captured = {}
-
-    def fake_run_task(kind, name, fn):
-        captured["kind"] = kind
-        return 1
-
-    monkeypatch.setattr(scheduler.tasks, "run_task", fake_run_task)
+def test_legacy_bulk_retag_is_not_dispatched_unattended(tmp_path, monkeypatch):
+    import pytest
     task = ScheduledTask(
         name="legacy", cron="0 6 * * *", task_type="bulk_retag",
         params_json={"source_path": str(tmp_path)},
     )
-    scheduler.run_task_by_type(task)
-    assert captured["kind"] == "retag"
+    with pytest.raises(ValueError, match="unknown task type"):
+        scheduler.run_task_by_type(task)

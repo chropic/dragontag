@@ -101,6 +101,8 @@ def _migrate(engine):
         "ALTER TABLE track ADD COLUMN mb_release_group_id VARCHAR",
         "ALTER TABLE track ADD COLUMN mb_album_artist_id VARCHAR",
         "ALTER TABLE job ADD COLUMN group_key VARCHAR",
+        "ALTER TABLE job ADD COLUMN manual_selection INTEGER DEFAULT 0",
+        "ALTER TABLE scheduledtask ADD COLUMN last_skipped_at DATETIME",
     ):
         try:
             with engine.begin() as conn:

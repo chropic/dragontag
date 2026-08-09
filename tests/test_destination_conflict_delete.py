@@ -53,7 +53,7 @@ def test_skip_delete_removes_only_incoming_file_and_sidecar(client, tmp_path):
     sidecar.write_text("incoming lyrics", encoding="utf-8")
     destination = tmp_path / "library" / "song.flac"
     destination.parent.mkdir()
-    destination.write_bytes(b"library original")
+    destination.write_bytes(b"incoming")
     job_id = _conflict_job(source, destination)
 
     with session() as s:
@@ -79,7 +79,7 @@ def test_skip_delete_removes_only_incoming_file_and_sidecar(client, tmp_path):
     assert response.status_code == 303
     assert not source.exists()
     assert not sidecar.exists()
-    assert destination.read_bytes() == b"library original"
+    assert destination.read_bytes() == b"incoming"
     with session() as s:
         job = s.get(Job, job_id)
         assert job.status == JobStatus.skipped
@@ -112,7 +112,7 @@ def test_skip_delete_reports_database_divergence(client, tmp_path, monkeypatch):
     source = tmp_path / "incoming.flac"
     source.write_bytes(b"incoming")
     destination = tmp_path / "song.flac"
-    destination.write_bytes(b"existing")
+    destination.write_bytes(b"incoming")
     job_id = _conflict_job(source, destination)
 
     def fail_commit(_self):
@@ -126,7 +126,7 @@ def test_skip_delete_reports_database_divergence(client, tmp_path, monkeypatch):
     assert response.status_code == 303
     assert "error" in response.headers["HX-Trigger"]
     assert not source.exists()  # physical truth is surfaced, never disguised
-    assert destination.read_bytes() == b"existing"
+    assert destination.read_bytes() == b"incoming"
     with session() as s:
         assert s.get(Job, job_id).status == JobStatus.needs_review
 

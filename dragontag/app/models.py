@@ -131,6 +131,7 @@ class ReviewReason(str, Enum):
     missing_releasetype = "missing_releasetype"  # MB release-group has no primary-type
     dry_run = "dry_run"  # dry-run mode: preview without writing
     destination_unresolved = "destination_unresolved"  # library dir scan failed; moving could mint a case twin
+    destination_unsafe = "destination_unsafe"  # generated path is invalid, overlong, or otherwise unsafe
     album_mismatch = "album_mismatch"  # file doesn't appear on the release its album folder matched
     duplicate_detected = "duplicate_detected"  # resolved recording already exists in destination library
 
@@ -160,6 +161,8 @@ class Job(SQLModel, table=True):
     # "follow the global settings().dry_run"; True/False is an explicit choice
     # for this job only and never mutates the global setting.
     dry_run_override: bool | None = None
+    # Explicit selections must never become an unattended batch after restart.
+    manual_selection: bool = False
 
     status: JobStatus = Field(default=JobStatus.queued, index=True)
     created_at: datetime = Field(default_factory=now_utc, index=True)
@@ -292,6 +295,9 @@ class ScheduledTask(SQLModel, table=True):
     enabled: bool = True
     created_at: datetime = Field(default_factory=now_utc)
     last_run_at: datetime | None = None
+    # Separate from last_run_at so the UI never presents an offline-skipped
+    # occurrence as work that actually ran.
+    last_skipped_at: datetime | None = None
     last_status: str | None = None     # "ok" | "error: …" | "skipped: …"
     next_run_at: datetime | None = None
 

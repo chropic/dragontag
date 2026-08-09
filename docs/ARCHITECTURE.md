@@ -22,8 +22,9 @@ SQLite lives at `${DRAGONTAG_CONFIG_PATH}/dragontag.db`. `db.session` supplies
 short-lived sessions and the engine uses `check_same_thread=False` for the
 threaded runtime. Models and shared state definitions live in `models.py`:
 `LibraryFolder`, `Track`, `Job`, `FileChange`, `ScheduledTask`,
-`IncompleteAlbum`, and `HealthItem`. Schema changes must account for both the
-boot-time compatibility migration in `db._migrate` and the Alembic history.
+`IncompleteAlbum`, `HealthItem`, `ReviewDraft`, and
+`MusicBrainzContribution`. Schema changes must account for both the boot-time
+compatibility migration in `db._migrate` and the Alembic history.
 
 `config.env()` contains deploy-time paths and credentials loaded from the
 environment or Docker secrets. `config.settings()` contains validated,
@@ -58,6 +59,28 @@ application uses the existing review state as the deliberate second-apply
 override. In-library single-track matching delegates to
 `library.retag.apply_match`.
 
+Manual review metadata is normalized and persisted by `review_state.py` so a
+reload or restart does not discard a draft. UI-only state remains reconciled in
+browser storage and is removed only by an explicit resolution event.
+
+## MusicBrainz contribution handoff
+
+No-match and album-mismatch jobs can create a `MusicBrainzContribution` without
+coupling entity creation to the read-only tagging client. The contribution
+module validates release or standalone-recording drafts, searches for plausible
+duplicate artists, recordings, releases, release groups, and labels in a
+cancellable tracked task, and freezes explicit reuse/new/different-edition
+decisions before preparing an editor seed.
+
+Core entities are created only through MusicBrainz's authenticated web editors;
+dragontag stores no MusicBrainz credentials or OAuth tokens. Release editor
+seeding can return a release MBID through the documented redirect. Standalone
+recording seeding has no documented callback, so the user pastes the resulting
+recording MBID. A returned identifier remains submitted/pending until a tracked
+read-only refresh succeeds and the user confirms the normalized preview. Only
+then does the normal tag/write/move pipeline run. Retained outcomes remain
+available through the contribution audit history after ordinary job cleanup.
+
 The ingest state progression is:
 
 ```text
@@ -79,6 +102,11 @@ thread registration prevents `tasks.reap_stale_jobs` from declaring a quiet but
 still-running task dead. New long-running work belongs here, not in request
 handlers or untracked threads.
 
+MusicBrainz lookups share a one-request-start-per-second gate. The gate protects
+only the next start slot; it never holds its mutex across the network response,
+so an interactive review search can begin while a slow ingest response remains
+in flight.
+
 `scheduler.start` runs a single periodic loop. `scheduler.TASK_TYPES` is the
 user-visible registry and `run_task_by_type` dispatches scheduled work through
 the task runner. Cron expressions use the same display-timezone resolution as
@@ -95,6 +123,10 @@ the UI, while stored timestamps remain naive UTC.
   `actions.py`, `retag.py`, and `revert.py` perform user-requested operations.
 - `tasks.py` owns generic execution state; `scheduler.py` decides when a known
   task type should run.
+- `contribute/musicbrainz.py` owns contribution validation, duplicate search,
+  seeded-editor payloads, and returned-entity normalization. It does not own
+  local file mutation.
+- `review_state.py` owns manual draft normalization, cleanup, and stale pruning.
 - `main.py` owns HTTP contracts and composition, not domain algorithms.
 
 ## Extension recipes

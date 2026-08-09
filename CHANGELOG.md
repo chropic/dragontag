@@ -11,6 +11,48 @@
   removed stale file/test inventories and the automatic vendor session hook.
   (`AGENTS.md`, `docs/ARCHITECTURE.md`, `docs/INVARIANTS.md`, `frontend/README.md`,
   `README.md`, `.github/pull_request_template.md`, `.claude/`, `CLAUDE.md`)
+### Added (review persistence and MusicBrainz contribution — 2026-08-08)
+- **No-match and album-mismatch reviews can prepare official MusicBrainz contributions.** Release
+  and standalone drafts are validated, duplicate-checked in cancellable tracked tasks, frozen with
+  explicit reuse/new/different-edition decisions, and handed to MusicBrainz's seeded web editors.
+  Returned MBIDs remain submitted/pending until a read-only refresh produces a normalized preview;
+  only a second confirmation enters the normal atomic local apply pipeline. MusicBrainz browser
+  authentication stays external and no credentials or OAuth tokens are stored. A read-only audit
+  history keeps submitted/verified/applied outcomes accessible after ordinary Job rows are cleared.
+  (`models.py`, `contribute/musicbrainz.py`, `main.py`, `web/templates/musicbrainz_*.html`)
+- **Manual review metadata now autosaves server-side.** `ReviewDraft` persists every manual field
+  through a debounced authenticated POST with visible saved/error state, explicit reset, resolution
+  cleanup, and restart-time stale pruning. Browser storage continues to reconcile UI-only choices
+  without treating an absent DOM card as stale. (`models.py`, `review_state.py`, `main.py`,
+  `web/templates/queue.html`)
+
+### Changed (review responsiveness and state safety — 2026-08-08)
+- **MusicBrainz requests serialize start slots, not response duration.** The client replaces
+  musicbrainzngs' mutex-around-network limiter with a shared one-request-start-per-second gate, so
+  an interactive search can start on its rate slot while a slow ingest response remains in flight;
+  unrelated authenticated routes and tracked tasks remain responsive. (`identify/musicbrainz.py`)
+- **Review controls retain explicit, accessible state.** Checkbox and title targets have larger
+  separation, labels, focus-visible treatment, and propagation guards. Checked items, open panels,
+  candidate/release/cover picks, and custom-cover warnings survive navigation; uploaded cover bytes
+  are explicitly never presented as restorable. Multi-item clears now describe saved-draft loss.
+  (`web/templates/queue.html`)
+- **The versioning hook now works in Windows checkouts where only `python` is executable.** It
+  probes `python3` first and falls back to `python`, preserving the automatic patch bump without
+  requiring the Microsoft Store app alias. (`.githooks/pre-commit`)
+
+### Fixed (candidate normalization — 2026-08-08)
+- **Every candidate path now preserves and renders title, artist, and album independently.** Manual
+  search uses the shared serializer, release-MBID expansion retains track data, persisted rows are
+  normalized at reload/bulk boundaries, and both stored and live results render the fixed
+  `title — artist — album` shape with per-field fallbacks. (`identify/musicbrainz.py`, `main.py`,
+  `web/templates/queue.html`, `web/templates/_mb_search_results.html`)
+
+### Fixed (review cover refresh — 2026-08-08)
+- **Applying a different review candidate now refreshes artwork from that candidate's release.**
+  Single and bulk routes treat the selected tagging release as authoritative unless the user
+  explicitly clicks an alternate cover thumbnail; stale hidden defaults can no longer keep the
+  original pipeline candidate's artwork. Explicit alternate art and custom uploads still win, and
+  restored explicit choices retain that intent marker. (`main.py`, `web/templates/queue.html`)
 
 ### Fixed
 - **Review artwork choices now embed the selected release's canonical front.**

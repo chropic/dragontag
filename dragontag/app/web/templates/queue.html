@@ -28,7 +28,7 @@
 <!-- Bulk controls -->
 <div class="flex gap-2 mb-4 items-center flex-wrap text-xs">
   <form id="jobs-bulk-form" method="post" action="/jobs/clear-selected" class="inline flex items-center gap-2"
-        onsubmit="return confirm('Delete the selected job rows? In-flight jobs are skipped.');">
+        onsubmit="return confirm('Delete the selected job rows? In-flight jobs are skipped; saved review fields and unresolved contribution drafts for deleted rows are discarded.');">
     <label class="flex items-center gap-1 text-[#8a8a8a]">
       <input type="checkbox" id="jobs-select-all"
              onchange="document.querySelectorAll('input[name=job_ids][form=jobs-bulk-form]').forEach(c=>c.checked=this.checked)">
@@ -36,21 +36,24 @@
     </label>
     <button class="px-3 py-1 border border-[#5a3a3a] text-[#ffb4b4] hover:border-[#ffb4b4]">clear selected</button>
   </form>
-  <form method="post" action="/jobs/cancel-queued" class="inline">
+  <form method="post" action="/jobs/cancel-queued" class="inline"
+        onsubmit="return confirm('Cancel every queued job? Files are kept and jobs become skipped.');">
     <button class="px-3 py-1 border border-[#2a2a2a] text-[#cfcfcf] hover:border-[#3a3a3a]">cancel all queued</button>
   </form>
-  <form method="post" action="/jobs/clear-completed" class="inline">
+  <form method="post" action="/jobs/clear-completed" class="inline"
+        onsubmit="return confirm('Delete every completed job row? File changes and retained MusicBrainz contribution outcomes remain auditable.');">
     <button class="px-3 py-1 border border-[#2a2a2a] text-[#cfcfcf] hover:border-[#3a3a3a]">clear completed</button>
   </form>
-  <form method="post" action="/jobs/clear-errors" class="inline">
+  <form method="post" action="/jobs/clear-errors" class="inline"
+        onsubmit="return confirm('Delete every error job row and any unresolved saved review state attached to it?');">
     <button class="px-3 py-1 border border-[#5a3a3a] text-[#ffb4b4] hover:border-[#ffb4b4]">clear errors</button>
   </form>
   <form method="post" action="/jobs/clear-needs-review" class="inline"
-        onsubmit="return confirm('Clear the entire review queue? This cannot be undone.');">
+        onsubmit="return confirm('Clear the entire review queue? Saved manual fields and unresolved MusicBrainz contribution drafts will be discarded; submitted outcomes are retained.');">
     <button class="px-3 py-1 border border-[#4a4326] text-[#f2e5b5] hover:border-[#f2e5b5]">clear review queue</button>
   </form>
   <form method="post" action="/jobs/clear-all" class="inline ml-auto"
-        onsubmit="return confirm('Delete every non-active job? This removes done, error, skipped, and needs-review rows.');">
+        onsubmit="return confirm('Delete every non-active job? This removes done, error, skipped, and needs-review rows plus unresolved review drafts; submitted MusicBrainz outcomes remain.');">
     <button class="px-3 py-1 border border-[#5a3a3a] text-[#ffb4b4] hover:border-[#ffb4b4]">clear all</button>
   </form>
 </div>
@@ -161,6 +164,7 @@
     <span class="text-[#f2e5b5]">&#9650;</span>
     <h3 class="font-bold text-base">needs review</h3>
     {% if items %}<span class="text-xs px-2 py-0.5 border border-[#4a4326] text-[#f2e5b5]">{{ items|length }}</span>{% endif %}
+    <a href="/musicbrainz/contributions" class="ml-auto text-xs text-[#8a8a8a] hover:text-white hover:underline">MusicBrainz contribution history</a>
   </div>
 
 {% if items %}
@@ -251,7 +255,16 @@
         params['pick_' + id] = rec + '|' + rel;
         resolved++;
         const coverEl = jobForm.querySelector('input[name=cover_release_id]');
-        if (coverEl && coverEl.value) params['cover_' + id] = coverEl.value;
+        const coverExplicit = jobForm.querySelector('input[name=cover_release_explicit]');
+        if (coverExplicit && coverExplicit.value === '1' && coverEl && coverEl.value) {
+          params['cover_' + id] = coverEl.value;
+          params['cover_explicit_' + id] = '1';
+        } else {
+          // The tagging release is authoritative unless the user clicked an
+          // alternate thumbnail. Never forward the top candidate's stale
+          // hidden default after a different candidate/manual result is picked.
+          params['cover_' + id] = rel;
+        }
       });
       if (resolved === 0) {
         evt.preventDefault();  // cancel the htmx request; keep the selection
@@ -267,14 +280,27 @@
 </script>
 {% endif %}
 
+<script>
+  window.dtServerReviewDrafts = {{ review_drafts | tojson }};
+  window.dtManualHasSaved = function (id) {
+    const value = window.dtServerReviewDrafts[String(id)] || window.dtServerReviewDrafts[Number(id)];
+    return !!(value && (value.title || (Array.isArray(value.artist) && value.artist.some(Boolean))));
+  };
+</script>
 {% for j in items %}
+{% set saved_draft = review_drafts.get(j.id, {}) %}
 <div class="relative border border-[#242424] bg-[#0a0a0a] px-3 py-2.5 mb-2 dt-review-item"
      data-job-id="{{ j.id }}"
      x-data="{ manual: false }"
-     x-init="if (window.dtManualHasSaved && window.dtManualHasSaved('{{ j.id }}')) manual = true">
-  <div class="flex items-center gap-2">
-    <input type="checkbox" name="job_ids" value="{{ j.id }}" form="review-bulk-form">
-    <a href="/jobs/{{ j.id }}" class="font-medium text-white hover:underline truncate">{{ j.original_name }}</a>
+     x-init="manual = window.dtReviewPanelOpen ? window.dtReviewPanelOpen('{{ j.id }}', 'manual', window.dtManualHasSaved('{{ j.id }}')) : window.dtManualHasSaved('{{ j.id }}')">
+  <div class="flex items-center gap-3">
+    <span class="shrink-0 border-r border-[#242424] pr-3" @click.stop>
+      <input id="review-job-{{ j.id }}" type="checkbox" name="job_ids" value="{{ j.id }}" form="review-bulk-form"
+             aria-label="Select {{ j.original_name }} for bulk apply"
+             class="focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#c7f0c7]">
+    </span>
+    <a href="/jobs/{{ j.id }}" @click.stop
+       class="font-medium text-white hover:underline truncate focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#c7f0c7]">{{ j.original_name }}</a>
     <span class="text-xs px-2 py-0.5 border border-[#4a4326] text-[#f2e5b5]">{{ (j.review_reason.value | replace('_', ' ')) if j.review_reason else "review" }}</span>
     {% if j.dry_run_override == true or (j.review_reason and j.review_reason.value == "dry_run") %}
     <span class="text-xs px-2 py-0.5 border border-[#2a2a2a] text-[#8a8a8a]" title="Ran in dry-run mode (no files written)">DRY</span>
@@ -282,8 +308,12 @@
     {% if j.score is not none %}<span class="text-xs text-[#8a8a8a]">score {{ "%.2f"|format(j.score) }}</span>{% endif %}
     <div class="ml-auto flex items-center gap-2 shrink-0">
       {% if not (j.review_reason and j.review_reason.value in ["destination_conflict", "dry_run"]) %}
-      <button type="button" @click="manual = !manual"
+      <button type="button" @click="manual = !manual; window.dtReviewSetPanel('{{ j.id }}', 'manual', manual)"
               class="text-xs text-[#8a8a8a] hover:text-[#c7f0c7]" :class="{ 'text-[#c7f0c7]': manual }">manual tag</button>
+      {% if j.review_reason and j.review_reason.value in ["no_match", "album_mismatch"] %}
+      <a href="/review/{{ j.id }}/contribute{% if latest_contributions.get(j.id) %}?mode={{ latest_contributions[j.id].mode }}&contribution_id={{ latest_contributions[j.id].id }}{% endif %}"
+         class="text-xs text-[#f2e5b5] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#c7f0c7]">contribute to MusicBrainz{% if latest_contributions.get(j.id) %} ({{ latest_contributions[j.id].status | replace('_', ' ') }}){% endif %}</a>
+      {% endif %}
       {% endif %}
       <button type="button" title="Remove from review queue (keeps the file; job becomes skipped)"
               hx-post="/review/{{ j.id }}/skip" hx-target="closest .dt-review-item" hx-swap="outerHTML"
@@ -369,6 +399,10 @@
           <input name="genres" class="bg-black border border-[#2a2a2a] text-white px-2 py-1 focus:outline-none"></label>
       </div>
       <p class="text-xs text-[#5a5a5a]">Title + at least one artist required. Cover art (local fallback) and lyrics are fetched automatically, then the file is moved into the library.</p>
+      <div class="flex items-center gap-3 text-xs">
+        <span class="dt-draft-status text-[#5a5a5a]" aria-live="polite">{% if saved_draft %}saved on server{% endif %}</span>
+        <button type="button" class="dt-reset-draft text-[#8a8a8a] hover:text-[#ffb4b4]">discard saved draft</button>
+      </div>
       {% if j.review_reason and j.review_reason.value == "duplicate_detected" %}
       <button class="manual-submit-btn px-3 py-1.5 border border-[#4a4326] bg-[#0c0e0c] text-[#f2e5b5] hover:bg-[#0f140f] text-xs">[ apply anyway ]</button>
       {% else %}
@@ -469,9 +503,7 @@
           <label class="flex items-center gap-2 p-2 hover:bg-[#0d0d0d]">
             <input type="radio" name="pick" value="{{ c.recording_id }}|{{ c.release_id }}" {% if loop.first %}checked{% endif %}>
             <span class="text-xs text-[#8a8a8a]">{{ "%.2f"|format(c.score) }}</span>
-            <span class="text-[#cfcfcf]">{{ c.title or "Unknown title" }}</span>
-            {% if c.artist %}<span class="text-[#9a9a9a]">· {{ c.artist }}</span>{% endif %}
-            {% if c.album %}<span class="text-[#8a8a8a]">— {{ c.album }}</span>{% endif %}
+            <span class="text-[#cfcfcf]">{{ c.title or "Unknown title" }} — {{ c.artist or "Unknown artist" }} — {{ c.album or "Unknown album" }}</span>
             <a class="ml-auto text-xs text-[#cfcfcf] hover:underline" target="_blank"
                href="https://musicbrainz.org/recording/{{ c.recording_id }}">MB</a>
           </label>
@@ -496,7 +528,19 @@
           // cover thumbnail so the embedded cover re-syncs to the chosen release
           // and can't carry over art from a different album.
           form.addEventListener('change', (e) => {
-            if (e.target && e.target.name === 'pick') form.dataset.coverPicked = '';
+            if (e.target && e.target.name === 'pick') {
+              form.dataset.coverPicked = '';
+              const explicit = form.querySelector('input[name=cover_release_explicit]');
+              if (explicit) explicit.value = '';
+              const selectedRelease = (e.target.value.split('|')[1] || '').trim();
+              const coverOut = form.querySelector('input[name=cover_release_id]');
+              if (coverOut && selectedRelease) coverOut.value = selectedRelease;
+              form.querySelectorAll('.cover-btn').forEach(function (button) {
+                const selected = button.dataset.releaseId === selectedRelease;
+                button.classList.toggle('border-[#c7f0c7]', selected);
+                button.classList.toggle('border-transparent', !selected);
+              });
+            }
           });
           // Populate recording/release (and cover) via htmx:configRequest so the
           // values land in the request htmx is about to send, regardless of
@@ -528,6 +572,9 @@
             if (coverOut && rel && !hasFile && form.dataset.coverPicked !== '1') {
               coverOut.value = rel;
               evt.detail.parameters['cover_release_id'] = coverOut.value;
+              evt.detail.parameters['cover_release_explicit'] = '';
+            } else if (form.dataset.coverPicked === '1') {
+              evt.detail.parameters['cover_release_explicit'] = '1';
             }
           });
         })();
@@ -556,12 +603,15 @@
         </div>
         <input type="hidden" name="cover_release_id" id="cover_release_{{ j.id }}"
                value="{{ cands[0].release_id }}">
+        <input type="hidden" name="cover_release_explicit" id="cover_release_explicit_{{ j.id }}"
+               value="">
         <label class="flex items-center gap-2 text-xs text-[#8a8a8a]">
           <span>Custom cover:</span>
           <input type="file" name="cover_art_file" accept="image/*"
-                 onchange="if(this.value) document.getElementById('cover_release_{{ j.id }}').value=''"
+                 onchange="if(this.value) { document.getElementById('cover_release_{{ j.id }}').value=''; document.getElementById('cover_release_explicit_{{ j.id }}').value=''; this.closest('form').dataset.coverPicked=''; window.dtReviewCustomCover('{{ j.id }}', true); }"
                  class="text-xs text-[#cfcfcf]">
         </label>
+        <span class="dt-custom-cover-warning text-xs text-[#f2e5b5]" data-job-id="{{ j.id }}" aria-live="polite"></span>
       </div>
       <script>
         function selectCover(btn, groupId, urlInputId) {
@@ -572,12 +622,16 @@
           btn.classList.remove('border-transparent');
           btn.classList.add('border-[#c7f0c7]');
           document.getElementById(urlInputId).value = btn.dataset.releaseId;
+          document.getElementById(urlInputId).dispatchEvent(new Event('change', { bubbles: true }));
           // Mark an explicit cover choice so the submit handler won't override
           // it with the chosen release's default front cover.
           btn.closest('form').dataset.coverPicked = '1';
+          var explicitInput = btn.closest('form').querySelector('input[name=cover_release_explicit]');
+          if (explicitInput) explicitInput.value = '1';
           // Clear custom file input when picking from strip
           var fileInput = btn.closest('form').querySelector('input[type=file][name=cover_art_file]');
           if (fileInput) fileInput.value = '';
+          window.dtReviewCustomCover(btn.closest('.dt-review-item').dataset.jobId, false);
         }
       </script>
       {% endif %}
@@ -653,12 +707,85 @@ dtKeys.register('x', () => {
   if (btn) btn.click();
 });
 
+// ── Reconciled per-card presentation state ───────────────────────────────
+// Browser storage owns only UI choices. Manual text is additionally autosaved
+// server-side below; custom-cover bytes are deliberately never serialized.
+(function () {
+  const KEY = 'dt.review.ui';
+  function load() {
+    try { return JSON.parse(localStorage.getItem(KEY) || '{}') || {}; }
+    catch (_) { return {}; }
+  }
+  function update(id, patch) {
+    const all = load();
+    all[String(id)] = Object.assign({}, all[String(id)] || {}, patch);
+    localStorage.setItem(KEY, JSON.stringify(all));
+  }
+  window.dtReviewPanelOpen = function (id, panel, fallback) {
+    const row = load()[String(id)] || {};
+    return row.panels && row.panels[panel] != null ? !!row.panels[panel] : !!fallback;
+  };
+  window.dtReviewSetPanel = function (id, panel, open) {
+    const row = load()[String(id)] || {};
+    const panels = Object.assign({}, row.panels || {});
+    panels[panel] = !!open;
+    update(id, { panels: panels });
+  };
+  window.dtReviewCustomCover = function (id, selected) {
+    update(id, { customCover: !!selected });
+    const note = document.querySelector('.dt-custom-cover-warning[data-job-id="' + id + '"]');
+    if (note) note.textContent = selected
+      ? 'Custom cover selected for this visit; uploaded bytes do not survive reload.'
+      : '';
+  };
+  function restoreCard(card) {
+    const id = card.dataset.jobId;
+    const row = load()[String(id)] || {};
+    const form = card.querySelector('form[id^=apply-form-]');
+    if (form && row.pick) {
+      const radio = [...form.querySelectorAll('input[name=pick]')]
+        .find(function (input) { return input.value === row.pick; });
+      if (radio) radio.checked = true;
+    }
+    if (form && row.releaseType != null) {
+      const select = form.querySelector('select[name=release_type_override]');
+      if (select) select.value = row.releaseType;
+    }
+    if (form && row.cover) {
+      const hidden = form.querySelector('input[name=cover_release_id]');
+      if (hidden) hidden.value = row.cover;
+      const explicit = form.querySelector('input[name=cover_release_explicit]');
+      if (explicit) explicit.value = '1';
+      form.dataset.coverPicked = '1';
+      form.querySelectorAll('.cover-btn').forEach(function (button) {
+        button.classList.toggle('border-[#c7f0c7]', button.dataset.releaseId === row.cover);
+        button.classList.toggle('border-transparent', button.dataset.releaseId !== row.cover);
+      });
+    }
+    if (row.customCover) {
+      const note = card.querySelector('.dt-custom-cover-warning');
+      if (note) note.textContent = 'Custom cover must be selected again; uploaded bytes are not saved.';
+    }
+  }
+  document.addEventListener('change', function (event) {
+    const card = event.target.closest && event.target.closest('.dt-review-item[data-job-id]');
+    if (!card) return;
+    if (event.target.name === 'pick') update(card.dataset.jobId, { pick: event.target.value, cover: null });
+    if (event.target.name === 'cover_release_id') update(card.dataset.jobId, { cover: event.target.value, customCover: false });
+    if (event.target.name === 'release_type_override') update(card.dataset.jobId, { releaseType: event.target.value });
+  });
+  function restore() { document.querySelectorAll('.dt-review-item[data-job-id]').forEach(restoreCard); }
+  window.addEventListener('DOMContentLoaded', restore);
+  window.addEventListener('pageshow', restore);
+  document.body.addEventListener('htmx:afterSwap', restore);
+})();
+
 // ── Persistent review selection ──────────────────────────────────────────
 // The "needs review" checkboxes live only in the DOM, so navigating to a job
 // screen (or the "Nothing to apply" bounce) used to wipe a multi-selection.
 // Mirror the checked set into localStorage and restore it on every load, so a
-// selection survives navigation, back, and refresh. Only ids still present on
-// the page are kept (applied/cleared jobs prune themselves out).
+// selection survives navigation, back, and refresh. Stored ids are removed
+// only by an explicit resolution event, never because a card is absent.
 (function () {
   const LS_KEY = 'dt.review.selected';
   const reviewBoxes = () =>
@@ -668,9 +795,16 @@ dtKeys.register('x', () => {
     catch (_) { return new Set(); }
   };
   const saveSel = () => {
-    const ids = [];
-    reviewBoxes().forEach(b => { if (b.checked) ids.push(b.value); });
-    localStorage.setItem(LS_KEY, JSON.stringify(ids));
+    const ids = loadSel();
+    reviewBoxes().forEach(b => {
+      if (b.checked) ids.add(b.value); else ids.delete(b.value);
+    });
+    localStorage.setItem(LS_KEY, JSON.stringify([...ids]));
+  };
+  const forget = (id) => {
+    const ids = loadSel();
+    ids.delete(String(id));
+    localStorage.setItem(LS_KEY, JSON.stringify([...ids]));
   };
   const syncSelectAll = () => {
     const all = document.getElementById('review-select-all');
@@ -682,7 +816,6 @@ dtKeys.register('x', () => {
     const sel = loadSel();
     reviewBoxes().forEach(b => { b.checked = sel.has(b.value); });
     syncSelectAll();
-    saveSel();  // prune ids no longer on the page
   };
   document.addEventListener('change', (e) => {
     const t = e.target;
@@ -702,19 +835,24 @@ dtKeys.register('x', () => {
   document.body.addEventListener('reviewApplied', (e) => {
     const ids = (e.detail && e.detail.ids) || [];
     ids.forEach((id) => {
+      forget(id);
       const box = document.querySelector(
         'input[name=job_ids][form=review-bulk-form][value="' + id + '"]');
       const card = box && box.closest('.dt-review-item');
       if (card) card.remove();
     });
-    saveSel();  // prune the removed ids
     syncSelectAll();
   });
 
-  // After a single apply / skip / manual-apply swaps a card out (hx-swap
-  // outerHTML → empty), the removed checkbox is gone; re-save so the persisted
-  // selection prunes it, and refresh the select-all state.
-  document.body.addEventListener('htmx:afterSwap', () => { saveSel(); syncSelectAll(); });
+  // A single apply / skip / manual-apply swaps the whole card out. Forget that
+  // exact id before the swap; inner search-result swaps never match the card.
+  document.body.addEventListener('htmx:beforeSwap', (e) => {
+    const target = e.detail && e.detail.target;
+    if (target && target.matches && target.matches('.dt-review-item')) {
+      forget(target.dataset.jobId);
+    }
+  });
+  document.body.addEventListener('htmx:afterSwap', syncSelectAll);
 
   // ── Individual Apply folds into an active multi-selection ───────────────
   // When one or more OTHER review items are already selected, clicking a single
@@ -753,9 +891,12 @@ dtKeys.register('x', () => {
 // localStorage under `dt.review.manual` so a refresh doesn't lose work.
 (function () {
   const LS_KEY = 'dt.review.manual';
+  const saveTimers = {};
   function loadAll() {
-    try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}') || {}; }
-    catch (_) { return {}; }
+    let local = {};
+    try { local = JSON.parse(localStorage.getItem(LS_KEY) || '{}') || {}; }
+    catch (_) {}
+    return Object.assign({}, local, window.dtServerReviewDrafts || {});
   }
   function saveAll(obj) { localStorage.setItem(LS_KEY, JSON.stringify(obj)); }
 
@@ -822,8 +963,29 @@ dtKeys.register('x', () => {
   function saveForm(form) {
     if (!form || !form.dataset.jobId) return;
     const all = loadAll();
-    all[form.dataset.jobId] = readForm(form);
+    const data = readForm(form);
+    all[form.dataset.jobId] = data;
+    window.dtServerReviewDrafts[form.dataset.jobId] = data;
     saveAll(all);
+    const id = form.dataset.jobId;
+    const status = form.querySelector('.dt-draft-status');
+    if (status) status.textContent = 'saving…';
+    clearTimeout(saveTimers[id]);
+    saveTimers[id] = setTimeout(function () {
+      fetch('/review/' + id + '/draft', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: data })
+      }).then(function (response) {
+        if (!response.ok) throw new Error('save failed (' + response.status + ')');
+        return response.json();
+      }).then(function () {
+        if (status) status.textContent = 'saved on server';
+      }).catch(function () {
+        if (status) status.textContent = 'save failed — do not reload until saving succeeds';
+      });
+    }, 450);
   }
   function restoreForm(form) {
     if (!form || !form.dataset.jobId) return;
@@ -869,22 +1031,39 @@ dtKeys.register('x', () => {
   function pruneAndRestore() {
     // Restore every visible manual form.
     document.querySelectorAll('.dt-manual-form').forEach(restoreForm);
-    // Prune saved entries for jobs no longer on the page.
-    const alive = new Set(
-      [...document.querySelectorAll('.dt-review-item[data-job-id]')]
-        .map(el => el.dataset.jobId)
-    );
-    const all = loadAll();
-    let changed = false;
-    Object.keys(all).forEach(function (id) {
-      if (!alive.has(id)) { delete all[id]; changed = true; }
-    });
-    if (changed) saveAll(all);
   }
+  function forgetDraft(id) {
+    const all = loadAll();
+    delete all[String(id)];
+    delete window.dtServerReviewDrafts[String(id)];
+    saveAll(all);
+  }
+  document.addEventListener('click', function (event) {
+    const button = event.target.closest && event.target.closest('.dt-reset-draft');
+    if (!button) return;
+    const form = button.closest('.dt-manual-form');
+    const id = form && form.dataset.jobId;
+    if (!id || !confirm('Discard the saved manual fields and unresolved MusicBrainz draft for this item?')) return;
+    fetch('/review/' + id + '/reset', { method: 'POST', credentials: 'same-origin' })
+      .then(function (response) {
+        if (!response.ok) throw new Error();
+        forgetDraft(id);
+        window.location.reload();
+      })
+      .catch(function () {
+        const status = form.querySelector('.dt-draft-status');
+        if (status) status.textContent = 'reset failed';
+      });
+  });
   window.addEventListener('DOMContentLoaded', pruneAndRestore);
   window.addEventListener('pageshow', pruneAndRestore);
-  // After htmx swaps a card out (apply / skip / manual apply), prune its entry.
-  document.body.addEventListener('htmx:afterSwap', pruneAndRestore);
+  document.body.addEventListener('reviewApplied', function (event) {
+    ((event.detail && event.detail.ids) || []).forEach(forgetDraft);
+  });
+  document.body.addEventListener('htmx:beforeSwap', function (event) {
+    const target = event.detail && event.detail.target;
+    if (target && target.matches && target.matches('.dt-review-item')) forgetDraft(target.dataset.jobId);
+  });
 })();
 
 // ── Persistent scroll position ────────────────────────────────────────────

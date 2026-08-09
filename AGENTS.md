@@ -58,6 +58,8 @@ observable.
 | Ingest orchestration and worker queue | `dragontag/app/ingest/pipeline.py` |
 | Album-level release election | `dragontag/app/ingest/album.py` |
 | MusicBrainz, AcoustID, scoring, tag reads | `dragontag/app/identify/` |
+| MusicBrainz contribution drafts and editor handoff | `dragontag/app/contribute/` |
+| Review draft lifecycle and stale pruning | `dragontag/app/review_state.py` |
 | Canonical schema and format writers | `dragontag/app/tagging/` |
 | Paths, moves, scans, cleanup, retag, revert | `dragontag/app/library/` |
 | Background jobs and scheduled dispatch | `dragontag/app/tasks.py`, `scheduler.py` |

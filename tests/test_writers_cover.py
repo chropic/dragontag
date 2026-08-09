@@ -74,6 +74,35 @@ def test_uppercase_png_mime_is_treated_as_png(tmp_path):
     assert max(Image.open(BytesIO(apic.data)).size) <= 1200
 
 
+def test_wav_retag_replaces_existing_embedded_cover(tmp_path):
+    """A review re-tag must replace, not stack or retain, pipeline artwork."""
+    from mutagen.wave import WAVE
+
+    p = tmp_path / "retag.wav"
+    _make_wav(p)
+    old_cover = _img_bytes(300, "JPEG")
+    wav_write(
+        p,
+        TrackTags(title="Old match", cover_bytes=old_cover, cover_mime="image/jpeg"),
+        Separators(),
+    )
+
+    new_cover = BytesIO()
+    Image.new("RGB", (400, 400), (10, 220, 40)).save(new_cover, format="PNG")
+    new_cover_bytes = new_cover.getvalue()
+    wav_write(
+        p,
+        TrackTags(title="Reviewed match", cover_bytes=new_cover_bytes, cover_mime="image/png"),
+        Separators(),
+    )
+
+    apics = WAVE(str(p)).tags.getall("APIC")
+    assert len(apics) == 1
+    assert apics[0].mime == "image/png"
+    assert apics[0].data == new_cover_bytes
+    assert apics[0].data != old_cover
+
+
 def test_partial_write_cover_caps_oversized_art(tmp_path):
     from mutagen.wave import WAVE
 

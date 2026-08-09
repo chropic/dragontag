@@ -51,6 +51,8 @@ from .models import (
     Job,
     JobStatus,
     LibraryFolder,
+    MusicBrainzContribution,
+    ReviewDraft,
     ReviewReason,
     ScheduledTask,
     Track,
@@ -193,6 +195,18 @@ def _startup() -> None:
     \/___/  \/_/\/ /\/_/\/_/\/___/  \/_____/\/_/\/_/  \/_/  \/_/\/_/\/___/
                                                         starting up...""")
     store()                       # ensure /config and SQLite are ready
+    # Crash/restart cleanup belongs to startup, not a GET render path: remove
+    # only local unresolved drafts whose review job no longer exists.
+    from .review_state import prune_stale_review_state
+    with session() as s:
+        stale_drafts, stale_contributions = prune_stale_review_state(s)
+        if stale_drafts or stale_contributions:
+            s.commit()
+            log.info(
+                "pruned %d stale review draft(s) and %d preflight contribution(s)",
+                stale_drafts,
+                stale_contributions,
+            )
     logsetup.apply(settings().log_verbosity)
     from .tagging.writers._atomic import cleanup_orphaned_temp_files
     removed = cleanup_orphaned_temp_files(env().library_path)
@@ -460,6 +474,35 @@ def queue_page(
             .where(Job.status == JobStatus.needs_review)
             .order_by(Job.updated_at.desc())
         ).all()
+        # Normalize even older persisted rows at the render boundary.  Each
+        # display field falls back independently, so one malformed neighbor
+        # never blanks the other two.
+        for item in items:
+            payload = dict(item.candidates_json or {})
+            payload["items"] = [
+                mbq.normalize_candidate_payload(candidate)
+                for candidate in payload.get("items", [])
+            ]
+            item.candidates_json = payload
+        item_ids = [item.id for item in items]
+        review_drafts = {
+            row.job_id: row.fields_json
+            for row in (
+                s.exec(select(ReviewDraft).where(ReviewDraft.job_id.in_(item_ids))).all()
+                if item_ids else []
+            )
+        }
+        contribution_rows = (
+            s.exec(
+                select(MusicBrainzContribution)
+                .where(MusicBrainzContribution.job_id.in_(item_ids))
+                .order_by(MusicBrainzContribution.id.desc())
+            ).all()
+            if item_ids else []
+        )
+        latest_contributions: dict[int, MusicBrainzContribution] = {}
+        for contribution in contribution_rows:
+            latest_contributions.setdefault(contribution.job_id, contribution)
         total = s.exec(select(func.count(Job.id))).one()
         jobs = s.exec(
             select(Job).order_by(Job.updated_at.desc())
@@ -485,6 +528,8 @@ def queue_page(
         "active_page": "queue",
         "separators": settings().separators,
         "release_type_options": ["Album", "Single", "EP", "Compilation", "Soundtrack", "Other"],
+        "review_drafts": review_drafts,
+        "latest_contributions": latest_contributions,
     })
     response.set_cookie(
         _QUEUE_PREFS_COOKIE,
@@ -508,6 +553,8 @@ def jobs_clear_completed(request: Request, _: None = Depends(require_auth)):
     with session() as s:
         rows = s.exec(select(Job).where(Job.status == JobStatus.done)).all()
         for r in rows:
+            from .review_state import cleanup_review_state
+            cleanup_review_state(s, r.id)
             s.delete(r)
         s.commit()
     return _toast_response("/queue", f"Cleared {len(rows)} completed job(s).")
@@ -518,6 +565,8 @@ def jobs_clear_errors(request: Request, _: None = Depends(require_auth)):
     with session() as s:
         rows = s.exec(select(Job).where(Job.status == JobStatus.error)).all()
         for r in rows:
+            from .review_state import cleanup_review_state
+            cleanup_review_state(s, r.id)
             s.delete(r)
         s.commit()
     return _toast_response("/queue", f"Cleared {len(rows)} error job(s).")
@@ -530,6 +579,8 @@ def jobs_clear_all(request: Request, _: None = Depends(require_auth)):
     with session() as s:
         rows = s.exec(select(Job).where(~Job.status.in_(active))).all()
         for r in rows:
+            from .review_state import cleanup_review_state
+            cleanup_review_state(s, r.id)
             s.delete(r)
         s.commit()
     return _toast_response("/queue", f"Cleared {len(rows)} job(s).")
@@ -552,6 +603,8 @@ def jobs_clear_selected(
         for jid in job_ids:
             r = s.get(Job, jid)
             if r and r.status not in active:
+                from .review_state import cleanup_review_state
+                cleanup_review_state(s, r.id)
                 s.delete(r)
                 deleted += 1
         s.commit()
@@ -563,6 +616,8 @@ def jobs_clear_needs_review(request: Request, _: None = Depends(require_auth)):
     with session() as s:
         rows = s.exec(select(Job).where(Job.status == JobStatus.needs_review)).all()
         for r in rows:
+            from .review_state import cleanup_review_state
+            cleanup_review_state(s, r.id)
             s.delete(r)
         s.commit()
     return _toast_response("/queue", f"Cleared {len(rows)} needs-review job(s).")
@@ -672,8 +727,11 @@ def _apply_review_match(
     review state (e.g. applied by a concurrent action).
 
     ``cover_bytes`` (a request-scoped upload read before backgrounding) wins
-    over ``cover_release_id``; both are optional and fall back to the
-    pipeline's own CAA fetch + local-cover fallback."""
+    over ``cover_release_id``. Routes resolve ``cover_release_id`` to the
+    newly selected tagging release unless the user explicitly chose another
+    release's thumbnail, so stale browser defaults cannot retain the old
+    candidate's artwork. Both are optional and fall back to the pipeline's
+    own CAA fetch + local-cover fallback."""
     def step(ctx) -> None:
         with session() as s:
             job = s.get(Job, job_id)
@@ -747,6 +805,7 @@ def _candidate_probe_tags(job: Job, rec: str, rel: str):
         ),
         {},
     )
+    item = mbq.normalize_candidate_payload(item)
     return TrackTags(
         title=item.get("title"),
         artist_display=item.get("artist"),
@@ -792,6 +851,632 @@ def _apply_manual_match(job_id: int, fields: dict[str, Any]):
     return step
 
 
+@app.post("/review/{job_id}/draft")
+async def review_draft_save(
+    job_id: int,
+    request: Request,
+    _: None = Depends(require_auth),
+):
+    """Debounced server-side autosave for manual review metadata."""
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        payload = await request.json()
+        fields = payload.get("fields", payload) if isinstance(payload, dict) else {}
+    else:
+        form = await request.form()
+        fields = dict(form)
+        fields["artist"] = list(form.getlist("artist"))
+        fields["album_artist"] = list(form.getlist("album_artist"))
+    with session() as s:
+        job = s.get(Job, job_id)
+        if not job:
+            raise HTTPException(404)
+        from .review_state import save_review_draft
+        try:
+            draft = save_review_draft(s, job, fields)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        s.commit()
+        saved_at = draft.updated_at.isoformat()
+    return JSONResponse({"ok": True, "saved_at": saved_at})
+
+
+@app.post("/review/{job_id}/reset")
+def review_reset(job_id: int, request: Request, _: None = Depends(require_auth)):
+    """Explicitly discard manual and unresolved contribution drafts."""
+    with session() as s:
+        job = s.get(Job, job_id)
+        if not job:
+            raise HTTPException(404)
+        from .review_state import cleanup_review_state
+        cleanup_review_state(s, job_id)
+        s.commit()
+    return _toast_response("/queue", "Discarded saved manual and contribution drafts.")
+
+
+def _contribution_allowed(job: Job) -> bool:
+    return (
+        job.status == JobStatus.needs_review
+        and job.review_reason in {ReviewReason.no_match, ReviewReason.album_mismatch}
+    )
+
+
+def _default_contribution_snapshot(job: Job, mode: str, draft: ReviewDraft | None) -> dict[str, Any]:
+    stored = dict(job.chosen_tags_json or {})
+    manual = dict(draft.fields_json or {}) if draft else {}
+
+    def first(*values, default=""):
+        for value in values:
+            if value not in (None, "", []):
+                return value
+        return default
+
+    title = str(first(manual.get("title"), stored.get("title"), Path(job.original_name).stem))
+    artists = first(manual.get("artist"), stored.get("artists"), default=[])
+    if not isinstance(artists, list):
+        artists = [artists]
+    artists = [str(value) for value in artists if str(value).strip()] or ["Unknown artist"]
+    artist_rows = [{"name": value} for value in artists]
+    provenance = f"Local audio file: {job.original_name}. Verify against a reliable source before submitting."
+    edit_note = "Prepared from local file metadata with dragontag; metadata and source reviewed before submission."
+    if mode == "standalone":
+        return {
+            "title": title,
+            "artists": artist_rows,
+            "duration_ms": None,
+            "disambiguation": "",
+            "isrc": "",
+            "source": provenance,
+            "edit_note": edit_note,
+        }
+    album = str(first(manual.get("album"), stored.get("album"), title))
+    album_artists = first(manual.get("album_artist"), stored.get("album_artists"), artists)
+    if not isinstance(album_artists, list):
+        album_artists = [album_artists]
+    release_artists = [{"name": str(value)} for value in album_artists if str(value).strip()] or artist_rows
+    try:
+        track_position = int(first(manual.get("track_num"), stored.get("track"), default=1))
+    except (TypeError, ValueError):
+        track_position = 1
+    try:
+        medium_position = int(first(manual.get("disc_num"), stored.get("disc"), default=1))
+    except (TypeError, ValueError):
+        medium_position = 1
+    return {
+        "medium_total": 1,
+        "release": {
+            "title": album,
+            "artists": release_artists,
+            "release_group": {"title": album, "mbid": stored.get("mb_release_group_id") or ""},
+            "date": str(first(manual.get("date"), stored.get("date"))),
+            "country": str(stored.get("release_country") or ""),
+            "type": str(first(manual.get("release_type"), stored.get("release_type"), default="Album")),
+            "status": str(stored.get("release_status") or "Official"),
+            "labels": [],
+            "barcode": str(stored.get("barcode") or ""),
+        },
+        "media": [{
+            "position": medium_position,
+            "format": str(stored.get("media") or "Digital Media"),
+            "track_total": 1,
+            "tracks": [{
+                "position": track_position,
+                "title": title,
+                "artists": artist_rows,
+                "duration_ms": None,
+                "recording_mbid": "",
+            }],
+        }],
+        "provenance": provenance,
+        "edit_note": edit_note,
+    }
+
+
+def _get_contribution(s, contribution_id: int, job_id: int) -> MusicBrainzContribution:
+    contribution = s.get(MusicBrainzContribution, contribution_id)
+    if not contribution or contribution.job_id != job_id:
+        raise HTTPException(404)
+    return contribution
+
+
+@app.get("/musicbrainz/contributions", response_class=HTMLResponse)
+def musicbrainz_contribution_history(
+    request: Request,
+    _: None = Depends(require_auth),
+):
+    """Read-only audit history, including outcomes whose Job row was cleared."""
+    with session() as s:
+        rows = s.exec(
+            select(MusicBrainzContribution)
+            .order_by(MusicBrainzContribution.updated_at.desc())
+            .limit(500)
+        ).all()
+    return templates.TemplateResponse(request, "musicbrainz_contribution_history.html", {
+        "request": request,
+        "contributions": rows,
+        "active_page": "queue",
+    })
+
+
+@app.get("/musicbrainz/contributions/{contribution_id}", response_class=HTMLResponse)
+def musicbrainz_contribution_audit(
+    contribution_id: int,
+    request: Request,
+    _: None = Depends(require_auth),
+):
+    """Read-only detail for one retained contribution outcome."""
+    with session() as s:
+        contribution = s.get(MusicBrainzContribution, contribution_id)
+        if not contribution:
+            raise HTTPException(404)
+    return templates.TemplateResponse(request, "musicbrainz_contribution_audit.html", {
+        "request": request,
+        "contribution": contribution,
+        "active_page": "queue",
+    })
+
+
+@app.get("/review/{job_id}/contribute", response_class=HTMLResponse)
+def musicbrainz_contribution_page(
+    job_id: int,
+    request: Request,
+    _: None = Depends(require_auth),
+    mode: str = "release",
+    contribution_id: int = 0,
+):
+    from .contribute import musicbrainz as mbc
+    if mode not in {"release", "standalone"}:
+        raise HTTPException(400, "invalid contribution mode")
+    with session() as s:
+        job = s.get(Job, job_id)
+        if not job:
+            raise HTTPException(404)
+        if not _contribution_allowed(job):
+            raise HTTPException(409, "MusicBrainz contribution is only available for no-match or album-mismatch review items")
+        draft = s.get(ReviewDraft, job_id)
+        contribution = None
+        if contribution_id:
+            contribution = _get_contribution(s, contribution_id, job_id)
+        if contribution is None:
+            contribution = s.exec(
+                select(MusicBrainzContribution)
+                .where(
+                    MusicBrainzContribution.job_id == job_id,
+                    MusicBrainzContribution.mode == mode,
+                )
+                .order_by(MusicBrainzContribution.id.desc())
+            ).first()
+        snapshot = (
+            contribution.draft_snapshot_json
+            if contribution and contribution.draft_snapshot_json
+            else _default_contribution_snapshot(job, mode, draft)
+        )
+    return templates.TemplateResponse(request, "musicbrainz_contribution.html", {
+        "request": request,
+        "job": job,
+        "mode": mode,
+        "contribution": contribution,
+        "draft_json": json.dumps(snapshot, indent=2, ensure_ascii=False),
+        "decision_keys": mbc.plausible_decision_keys(
+            contribution.duplicate_results_json if contribution else {}
+        ),
+        "active_page": "queue",
+    })
+
+
+@app.post("/review/{job_id}/contribution/preflight")
+def musicbrainz_contribution_preflight(
+    job_id: int,
+    request: Request,
+    _: None = Depends(require_auth),
+    mode: str = Form(...),
+    draft_json: str = Form(...),
+    contribution_id: int = Form(default=0),
+):
+    from .contribute import musicbrainz as mbc
+    try:
+        raw = json.loads(draft_json)
+        snapshot = mbc.validate_draft(mode, raw)
+    except (json.JSONDecodeError, mbc.ContributionValidationError) as exc:
+        return _toast_response(
+            f"/review/{job_id}/contribute?mode={mode}", f"Draft error: {exc}", "error"
+        )
+    with session() as s:
+        job = s.get(Job, job_id)
+        if not job:
+            raise HTTPException(404)
+        if not _contribution_allowed(job):
+            raise HTTPException(409, "job is not eligible for contribution")
+        contribution = (
+            _get_contribution(s, contribution_id, job_id) if contribution_id else None
+        )
+        if contribution and contribution.status not in {"draft", "preflight", "preflight_error", "preflight_cancelled"}:
+            return _toast_response(
+                f"/review/{job_id}/contribute?mode={mode}&contribution_id={contribution.id}",
+                "That handoff snapshot is immutable; start a new draft to change it.",
+                "error",
+            )
+        if contribution is None:
+            contribution = MusicBrainzContribution(job_id=job_id, mode=mode)
+        contribution.mode = mode
+        contribution.status = "preflight"
+        contribution.draft_snapshot_json = snapshot
+        contribution.duplicate_results_json = {}
+        contribution.decisions_json = {}
+        contribution.warnings_json = []
+        contribution.updated_at = now_utc()
+        s.add(contribution)
+        s.commit()
+        s.refresh(contribution)
+        contribution_id = contribution.id
+
+    def run(ctx):
+        try:
+            results = mbc.search_duplicates(snapshot, mode, ctx=ctx)
+            with session() as s:
+                row = _get_contribution(s, contribution_id, job_id)
+                row.duplicate_results_json = results
+                row.status = "draft"
+                row.updated_at = now_utc()
+                row.log = (row.log or "") + "Duplicate preflight completed.\n"
+                s.add(row)
+                s.commit()
+            return "duplicate preflight complete"
+        except tasks.TaskCancelled:
+            with session() as s:
+                row = _get_contribution(s, contribution_id, job_id)
+                row.status = "preflight_cancelled"
+                row.updated_at = now_utc()
+                row.log = (row.log or "") + "Duplicate preflight cancelled.\n"
+                s.add(row)
+                s.commit()
+            raise
+        except Exception as exc:
+            with session() as s:
+                row = _get_contribution(s, contribution_id, job_id)
+                row.status = "preflight_error"
+                row.warnings_json = list(row.warnings_json or []) + [str(exc)]
+                row.updated_at = now_utc()
+                s.add(row)
+                s.commit()
+            raise
+
+    task_id = tasks.run_task("mb_preflight", f"MusicBrainz preflight (job {job_id})", run)
+    with session() as s:
+        row = _get_contribution(s, contribution_id, job_id)
+        row.task_id = task_id
+        row.task_ids_json = list(row.task_ids_json or []) + [task_id]
+        s.add(row)
+        s.commit()
+    return _toast_response(
+        f"/review/{job_id}/contribute?mode={mode}&contribution_id={contribution_id}",
+        "Duplicate preflight started; refresh this page when the tracked task finishes.",
+        job_id=task_id,
+    )
+
+
+@app.post("/review/{job_id}/contribution/{contribution_id}/handoff", response_class=HTMLResponse)
+def musicbrainz_contribution_handoff(
+    job_id: int,
+    contribution_id: int,
+    request: Request,
+    _: None = Depends(require_auth),
+    decisions_json: str = Form(default="{}"),
+):
+    from .contribute import musicbrainz as mbc
+    with session() as s:
+        job = s.get(Job, job_id)
+        if not job or not _contribution_allowed(job):
+            raise HTTPException(409, "job is not eligible for contribution")
+        contribution = _get_contribution(s, contribution_id, job_id)
+        if contribution.status != "draft":
+            raise HTTPException(409, "duplicate preflight must finish before handoff")
+        try:
+            decisions_raw = json.loads(decisions_json or "{}")
+            decisions = mbc.validate_decisions(
+                contribution.duplicate_results_json, decisions_raw
+            )
+        except (json.JSONDecodeError, mbc.ContributionValidationError) as exc:
+            return _toast_response(
+                f"/review/{job_id}/contribute?mode={contribution.mode}&contribution_id={contribution.id}",
+                f"Duplicate decisions required: {exc}",
+                "error",
+            )
+        callback = (
+            str(request.base_url).rstrip("/")
+            + f"/musicbrainz/return?job_id={job_id}&contribution_id={contribution_id}"
+        )
+        if contribution.mode == "release":
+            reused_entity = mbc.reused_id(
+                decisions, "releases", contribution.draft_snapshot_json["release"]["title"]
+            )
+        else:
+            reused_entity = mbc.reused_id(
+                decisions, "recordings", contribution.draft_snapshot_json["title"]
+            )
+        if reused_entity:
+            contribution.decisions_json = decisions
+            contribution.returned_mbids_json = {
+                "release": reused_entity if contribution.mode == "release" else "",
+                "recording": reused_entity if contribution.mode == "standalone" else "",
+            }
+            contribution.status = "submitted"
+            contribution.handed_off_at = now_utc()
+            contribution.updated_at = now_utc()
+            contribution.log = (contribution.log or "") + "Existing MusicBrainz entity selected for reuse.\n"
+            mode = contribution.mode
+            s.add(contribution)
+            s.commit()
+            return _toast_response(
+                f"/review/{job_id}/contribute?mode={mode}&contribution_id={contribution_id}",
+                "Existing MusicBrainz entity selected. Refresh it before local apply.",
+            )
+        if contribution.mode == "release":
+            seed_payload = mbc.build_release_seed_payload(
+                contribution.draft_snapshot_json, decisions, callback
+            )
+        else:
+            seed_payload = mbc.build_standalone_seed_payload(
+                contribution.draft_snapshot_json, decisions
+            )
+        contribution.decisions_json = decisions
+        contribution.seed_payload_json = seed_payload
+        contribution.status = "handoff"
+        contribution.handed_off_at = now_utc()
+        contribution.updated_at = now_utc()
+        contribution.log = (contribution.log or "") + "Official editor handoff prepared.\n"
+        s.add(contribution)
+        s.commit()
+        s.refresh(job)
+        s.refresh(contribution)
+        mode = contribution.mode
+    seed_fields = [
+        (name, value)
+        for name, values in seed_payload.items()
+        for value in (values if isinstance(values, list) else [values])
+    ]
+    return templates.TemplateResponse(request, "musicbrainz_handoff.html", {
+        "request": request,
+        "job": job,
+        "contribution": contribution,
+        "mode": mode,
+        "editor_url": mbc.editor_url(mode),
+        "seed_fields": seed_fields,
+        "active_page": "queue",
+    })
+
+
+@app.get("/musicbrainz/return", response_class=HTMLResponse)
+def musicbrainz_return(
+    request: Request,
+    _: None = Depends(require_auth),
+    job_id: int = 0,
+    contribution_id: int = 0,
+    release_mbid: str = "",
+):
+    """Non-mutating return page; recording the MBID always requires POST."""
+    with session() as s:
+        contribution = _get_contribution(s, contribution_id, job_id)
+        job = s.get(Job, job_id)
+        if not job:
+            raise HTTPException(404)
+    return templates.TemplateResponse(request, "musicbrainz_return.html", {
+        "request": request,
+        "job": job,
+        "contribution": contribution,
+        "release_mbid": release_mbid,
+        "active_page": "queue",
+    })
+
+
+@app.post("/review/{job_id}/contribution/{contribution_id}/result")
+def musicbrainz_contribution_result(
+    job_id: int,
+    contribution_id: int,
+    request: Request,
+    _: None = Depends(require_auth),
+    release_mbid: str = Form(default=""),
+    recording_mbid: str = Form(default=""),
+    release_url: str = Form(default=""),
+    recording_url: str = Form(default=""),
+):
+    from .contribute import musicbrainz as mbc
+    release_mbid = release_mbid.strip()
+    recording_mbid = recording_mbid.strip()
+    if release_mbid and not mbc.valid_mbid(release_mbid):
+        return _toast_response(
+            f"/review/{job_id}/contribute?contribution_id={contribution_id}",
+            "Release MBID is invalid.", "error"
+        )
+    if recording_mbid and not mbc.valid_mbid(recording_mbid):
+        return _toast_response(
+            f"/review/{job_id}/contribute?contribution_id={contribution_id}",
+            "Recording MBID is invalid.", "error"
+        )
+    with session() as s:
+        contribution = _get_contribution(s, contribution_id, job_id)
+        if contribution.mode == "release" and not release_mbid:
+            return _toast_response(
+                f"/review/{job_id}/contribute?mode=release&contribution_id={contribution_id}",
+                "A release MBID is required.", "error"
+            )
+        if contribution.mode == "standalone" and not recording_mbid:
+            return _toast_response(
+                f"/review/{job_id}/contribute?mode=standalone&contribution_id={contribution_id}",
+                "A recording MBID is required.", "error"
+            )
+        contribution.returned_mbids_json = {
+            "release": release_mbid,
+            "recording": recording_mbid,
+        }
+        contribution.returned_urls_json = {
+            "release": release_url.strip(),
+            "recording": recording_url.strip(),
+        }
+        contribution.status = "submitted"
+        contribution.updated_at = now_utc()
+        contribution.log = (contribution.log or "") + "User recorded returned MusicBrainz identifiers.\n"
+        mode = contribution.mode
+        s.add(contribution)
+        s.commit()
+    return _toast_response(
+        f"/review/{job_id}/contribute?mode={mode}&contribution_id={contribution_id}",
+        "Recorded as submitted/pending. Refresh MusicBrainz metadata before local apply.",
+    )
+
+
+@app.post("/review/{job_id}/contribution/{contribution_id}/refresh")
+def musicbrainz_contribution_refresh(
+    job_id: int,
+    contribution_id: int,
+    request: Request,
+    _: None = Depends(require_auth),
+):
+    from .contribute import musicbrainz as mbc
+    with session() as s:
+        contribution = _get_contribution(s, contribution_id, job_id)
+        if contribution.status not in {"submitted", "ambiguous", "refresh_error", "refresh_cancelled", "verified"}:
+            raise HTTPException(409, "record a returned result before refreshing")
+        snapshot = dict(contribution.draft_snapshot_json)
+        mbids = dict(contribution.returned_mbids_json)
+        mode = contribution.mode
+        contribution.status = "refreshing"
+        contribution.updated_at = now_utc()
+        s.add(contribution)
+        s.commit()
+
+    def run(ctx):
+        try:
+            ctx.check_cancelled()
+            preview = mbc.refresh_result(mode, snapshot, mbids)
+            ctx.check_cancelled()
+            with session() as s:
+                row = _get_contribution(s, contribution_id, job_id)
+                row.preview_json = preview
+                row.status = preview["state"]
+                if preview["state"] == "verified":
+                    row.verified_at = now_utc()
+                warning = preview.get("warning")
+                row.warnings_json = [warning] if warning else []
+                row.updated_at = now_utc()
+                row.log = (row.log or "") + f"Refresh result: {preview['state']}.\n"
+                s.add(row)
+                s.commit()
+            return preview["state"]
+        except tasks.TaskCancelled:
+            with session() as s:
+                row = _get_contribution(s, contribution_id, job_id)
+                row.status = "refresh_cancelled"
+                row.updated_at = now_utc()
+                row.log = (row.log or "") + "MusicBrainz refresh cancelled.\n"
+                s.add(row)
+                s.commit()
+            raise
+        except Exception as exc:
+            with session() as s:
+                row = _get_contribution(s, contribution_id, job_id)
+                row.status = "refresh_error"
+                row.warnings_json = list(row.warnings_json or []) + [str(exc)]
+                row.updated_at = now_utc()
+                s.add(row)
+                s.commit()
+            raise
+
+    task_id = tasks.run_task("mb_refresh", f"Refresh MusicBrainz result (job {job_id})", run)
+    with session() as s:
+        row = _get_contribution(s, contribution_id, job_id)
+        row.task_id = task_id
+        row.task_ids_json = list(row.task_ids_json or []) + [task_id]
+        s.add(row)
+        s.commit()
+    return _toast_response(
+        f"/review/{job_id}/contribute?mode={mode}&contribution_id={contribution_id}",
+        "MusicBrainz refresh started; no file will change until you review and confirm.",
+        job_id=task_id,
+    )
+
+
+@app.post("/review/{job_id}/contribution/{contribution_id}/apply")
+def musicbrainz_contribution_apply(
+    job_id: int,
+    contribution_id: int,
+    request: Request,
+    _: None = Depends(require_auth),
+):
+    with session() as s:
+        contribution = _get_contribution(s, contribution_id, job_id)
+        job = s.get(Job, job_id)
+        if not job or job.status != JobStatus.needs_review:
+            raise HTTPException(409, "job is not awaiting review")
+        if contribution.status != "verified" or not contribution.preview_json.get("tags"):
+            raise HTTPException(409, "verified MusicBrainz metadata is required")
+        tags_json = dict(contribution.preview_json["tags"])
+        contribution.status = "apply_queued"
+        contribution.updated_at = now_utc()
+        s.add(contribution)
+        s.commit()
+
+    def step(ctx):
+        from .tagging.schema import TrackTags
+        try:
+            ctx.check_cancelled()
+            with session() as s:
+                row = _get_contribution(s, contribution_id, job_id)
+                job = s.get(Job, job_id)
+                if not job or job.status != JobStatus.needs_review:
+                    return
+                tags = TrackTags(**tags_json)
+                from .ingest.pipeline import prepare_tags, _commit_tag_path
+                prepare_tags(job, tags)
+                _commit_tag_path(s, job, Path(job.source_path), tags, score=1.0)
+                if job.status == JobStatus.done:
+                    row.status = "applied"
+                    row.applied_at = now_utc()
+                    row.updated_at = now_utc()
+                    row.log = (row.log or "") + "Verified metadata applied locally.\n"
+                    from .review_state import cleanup_review_state
+                    cleanup_review_state(s, job_id, keep_contribution_id=contribution_id)
+                    s.add(row)
+                    s.commit()
+                else:
+                    row.status = "apply_blocked"
+                    row.updated_at = now_utc()
+                    s.add(row)
+                    s.commit()
+        except tasks.TaskCancelled:
+            with session() as s:
+                row = _get_contribution(s, contribution_id, job_id)
+                row.status = "verified"
+                row.updated_at = now_utc()
+                row.log = (row.log or "") + "Local apply cancelled before file mutation.\n"
+                s.add(row)
+                s.commit()
+            raise
+        except Exception as exc:
+            with session() as s:
+                row = _get_contribution(s, contribution_id, job_id)
+                row.status = "apply_failed"
+                row.warnings_json = list(row.warnings_json or []) + [str(exc)]
+                row.updated_at = now_utc()
+                s.add(row)
+                s.commit()
+            raise
+        ctx.log(f"applied verified MusicBrainz contribution {contribution_id}")
+
+    task_id = tasks.run_task(
+        "mb_contribution_apply", f"Apply MusicBrainz contribution (job {job_id})", step
+    )
+    with session() as s:
+        row = _get_contribution(s, contribution_id, job_id)
+        row.task_id = task_id
+        row.task_ids_json = list(row.task_ids_json or []) + [task_id]
+        s.add(row)
+        s.commit()
+    return _toast_response(
+        "/queue", "Applying reviewed MusicBrainz metadata in the background.", job_id=task_id
+    )
+
+
 @app.post("/review/bulk-apply")
 async def review_bulk_apply(request: Request, _: None = Depends(require_auth)):
     """Apply the user's chosen candidate for each selected review job, as one
@@ -801,7 +1486,10 @@ async def review_bulk_apply(request: Request, _: None = Depends(require_auth)):
     Per job the chosen recording/release comes from a ``pick_{id}`` field
     ("recording|release", from the candidate radio or a manual MB search),
     falling back to the job's stored top candidate when the user left it
-    untouched. An optional ``cover_{id}`` carries the selected cover release.
+    untouched. ``cover_{id}`` is honored as an alternate release only when
+    ``cover_explicit_{id}`` is true; otherwise artwork follows the selected
+    tagging release. This server-side rule prevents a stale hidden input from
+    retaining the original candidate's cover after a different match is picked.
     """
     form = await request.form()
     job_ids = [int(v) for v in form.getlist("job_ids") if str(v).strip().isdigit()]
@@ -875,7 +1563,14 @@ async def review_bulk_apply(request: Request, _: None = Depends(require_auth)):
             if _preflight_duplicate(s, job, _candidate_probe_tags(job, rec, rel)):
                 duplicate_ids.append(job_id)
                 continue
-            cover_release_id = str(form.get(f"cover_{job_id}", "")).strip()
+            submitted_cover_release_id = str(form.get(f"cover_{job_id}", "")).strip()
+            cover_explicit = str(form.get(f"cover_explicit_{job_id}", "")).strip().lower()
+            cover_release_id = (
+                submitted_cover_release_id
+                if cover_explicit in {"1", "true", "yes", "on"}
+                and submitted_cover_release_id
+                else rel
+            )
             steps.append((
                 f"Apply job {job_id}",
                 _apply_review_match(job_id, rec, rel, cover_release_id),
@@ -914,6 +1609,7 @@ async def review_apply(
     manual_release_id: str = Form(default=""),
     release_type_override: str | None = Form(None),
     cover_release_id: str = Form(default=""),
+    cover_release_explicit: str = Form(default=""),
     cover_art_file: UploadFile = File(default=None),
 ):
     """Apply a user-chosen MB candidate to a job stuck in review.
@@ -929,8 +1625,9 @@ async def review_apply(
     a manual MB search) → the manual id-entry inputs. If none resolve we bounce
     back to /review with a toast instead of raising.
 
-    If the user selected a cover from the thumbnail strip (``cover_release_id``)
-    or uploaded a custom image (``cover_art_file``), those bytes are set on
+    If the user explicitly selected a cover from the thumbnail strip
+    (``cover_release_id`` plus ``cover_release_explicit``), or uploaded a
+    custom image (``cover_art_file``), those bytes are set on
     the tags object before calling ``_commit_tag_path`` — which skips its own
     CAA fetch when ``tags.cover_bytes`` is already populated.
     """
@@ -972,8 +1669,12 @@ async def review_apply(
         cover_bytes = await _read_upload_capped(cover_art_file, 32 * 1024 * 1024)
         cover_mime = cover_art_file.content_type or "image/jpeg"
 
+    explicit_cover = cover_release_explicit.strip().lower() in {"1", "true", "yes", "on"}
+    effective_cover_release_id = cover_release_id.strip() if explicit_cover else rel
+    effective_cover_release_id = effective_cover_release_id or rel
+
     step = _apply_review_match(
-        job_id, rec, rel, cover_release_id,
+        job_id, rec, rel, effective_cover_release_id,
         cover_bytes=cover_bytes, cover_mime=cover_mime,
         release_type_override=(release_type_override or ""),
     )
@@ -999,6 +1700,8 @@ def review_skip(job_id: int, request: Request, _: None = Depends(require_auth)):
             msg = f"Job {job_id} is not awaiting review."
             return _toast(msg, "error") if _is_htmx(request) else _toast_response("/queue", msg, "error")
         job.status = JobStatus.skipped
+        from .review_state import cleanup_review_state
+        cleanup_review_state(s, job_id)
         s.add(job)
         s.commit()
     msg = "Removed from review."
@@ -1142,6 +1845,8 @@ def resolve_conflict(
 
         if action == "skip":
             job.status = JobStatus.skipped
+            from .review_state import cleanup_review_state
+            cleanup_review_state(s, job_id)
             s.add(job)
             s.commit()
             return RedirectResponse("/queue", status_code=303)
@@ -1173,6 +1878,8 @@ def resolve_conflict(
         from .library.scanner import _upsert_from_disk
 
         job.status = JobStatus.done
+        from .review_state import cleanup_review_state
+        cleanup_review_state(s, job_id)
         job.destination_path = str(dest)
         # The tags were already written before the conflict was detected —
         # index the moved file now so it shows up in the library without a
@@ -2526,17 +3233,7 @@ def _api_mb_search_inner(request: Request, title: str, artist: str, album: str, 
     return templates.TemplateResponse(request, "_mb_search_results.html", {
         "request": request,
         "job_id": job_id,
-        "cands": [
-            {
-                "recording_id": c.recording_id,
-                "release_id": c.release_id,
-                "score": c.score,
-                "title": c.raw_recording.get("title", ""),
-                "artist": c.raw_recording.get("artist-credit-phrase", ""),
-                "album": c.raw_release.get("title", ""),
-            }
-            for c in cands
-        ],
+        "cands": [mbq.normalize_candidate_payload(c) for c in cands],
         "searched": searched,
     })
 

@@ -73,6 +73,13 @@ folders must retain album-level election instead of selecting each edition in
 isolation. See `test_musicbrainz_credits.py`, `test_infer_release_type.py`, and
 `test_album_election.py`.
 
+Candidate JSON has one authoritative normalized shape. Automatic lookup,
+AcoustID, direct recording/release MBID expansion, manual search, persistence,
+reload, and bulk apply preserve title, artist, and album independently. Review
+artwork follows the selected tagging release unless an alternate thumbnail was
+explicitly selected; a stale hidden default is never an alternate choice. See
+`test_musicbrainz.py` and `test_review_queue_integrity.py`.
+
 ## Pipeline, tasks, and database state
 
 **All automatic identification reaches the common gates.** New clue or lookup
@@ -104,6 +111,35 @@ All persisted datetimes are naive UTC from `timeutil.now_utc`. Convert only at
 display boundaries through `main._local_tz`; `scheduler._cron_tz` follows the
 same timezone precedence before converting the next fire back to naive UTC.
 See `test_timezone_resolution.py` and `test_bug_sweep_core.py`.
+
+## Review and MusicBrainz contribution safety
+
+Manual review text is normalized and autosaved to `ReviewDraft` through an
+authenticated POST. Drafts are removed only when a job is successfully
+resolved, skipped, explicitly reset, cleared, or found stale at startup.
+Browser storage owns UI-only choices, never uploaded cover bytes, and DOM
+absence is not evidence that state is stale. Checkbox/title targets remain
+independent. See `test_review_drafts.py`, `test_review_queue_integrity.py`, and
+the optional `test_browser_queue_smoke.py`.
+
+MusicBrainz WS/2 is used only for search and verification. Core entity creation
+uses the official seeded web editors and the user's existing MusicBrainz browser
+session; dragontag stores no passwords, cookies, OAuth tokens, or API
+credentials. Every plausible duplicate requires an explicit
+reuse/new/different-edition decision before handoff. Returned MBIDs mean only
+submitted/available, not accepted.
+
+Duplicate preflight, entity refresh, and confirmed local apply run as tracked,
+cancellable tasks. Network calls happen outside SQLite write transactions and
+outside `path_lock`. A failed, ambiguous, pending, or cancelled refresh never
+writes tags, moves a file, or resolves its review job. Handoff, submitted,
+verified, and applied outcomes remain auditable after ordinary job cleanup. See
+`test_musicbrainz_contributions.py` and `test_musicbrainz_responsiveness.py`.
+
+MusicBrainz clients share a one-request-start-per-second gate. The mutex guards
+only the next start time and is released before the network response, so a slow
+ingest lookup cannot serialize unrelated interactive searches behind its full
+response duration.
 
 ## Configuration and web boundaries
 

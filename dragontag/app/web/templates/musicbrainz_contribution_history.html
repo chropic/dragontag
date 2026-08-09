@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}MusicBrainz contribution history — dragontag{% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto">
+  <div class="flex items-center gap-3 mb-5">
+    <a href="/queue" class="text-[#8a8a8a] hover:text-white">&larr; queue</a>
+    <h2 class="font-bold text-lg">MusicBrainz contribution history</h2>
+  </div>
+  <p class="text-xs text-[#8a8a8a] mb-4">Submitted and later outcomes remain here even after ordinary job history is cleared.</p>
+  <div class="border border-[#242424] bg-[#0a0a0a]">
+    {% for contribution in contributions %}
+    <a href="/musicbrainz/contributions/{{ contribution.id }}" class="grid grid-cols-4 gap-3 px-3 py-2 border-b border-[#1f1f1f] text-xs hover:bg-[#0d0d0d]">
+      <span class="text-white">#{{ contribution.id }} · job {{ contribution.job_id }}</span>
+      <span class="text-[#8a8a8a]">{{ contribution.mode }}</span>
+      <span class="text-[#cfcfcf]">{{ contribution.status | replace('_', ' ') }}</span>
+      <span class="text-[#5a5a5a]">{{ format_local(contribution.updated_at) }}</span>
+    </a>
+    {% else %}
+    <p class="p-4 text-sm text-[#8a8a8a]">No MusicBrainz contribution records.</p>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

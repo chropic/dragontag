@@ -19,11 +19,14 @@ from __future__ import annotations
 import logging
 import re
 import socket
+import threading
 import time
 from dataclasses import dataclass, field
+from functools import wraps
 from typing import Any
 
 import musicbrainzngs as mb
+import musicbrainzngs.musicbrainz as mb_core
 
 from ..config import settings
 from ..tagging.schema import TrackTags
@@ -32,6 +35,48 @@ from .artist_split import split_multi_artist
 log = logging.getLogger(__name__)
 
 _pkg_version_cache: str | None = None
+
+
+class RequestStartGate:
+    """Thread-safe spacing for request *starts*, never request duration.
+
+    musicbrainzngs' built-in decorator keeps its mutex around the full socket
+    operation.  A slow ingest response therefore prevents an otherwise safe
+    interactive lookup from even starting.  This gate reserves only the next
+    start slot while locked; the network call happens after the lock is free.
+    """
+
+    def __init__(self, interval: float = 1.0) -> None:
+        self.interval = interval
+        self._next_start = 0.0
+        self._lock = threading.Lock()
+
+    def wait(self) -> None:
+        with self._lock:
+            now = time.monotonic()
+            delay = self._next_start - now
+            if delay > 0:
+                time.sleep(delay)
+                now = time.monotonic()
+            self._next_start = max(now, self._next_start) + self.interval
+
+
+request_start_gate = RequestStartGate()
+_raw_mb_request = getattr(mb_core._mb_request, "fun", mb_core._mb_request)
+
+
+@wraps(_raw_mb_request)
+def _gated_mb_request(*args, **kwargs):
+    request_start_gate.wait()
+    return _raw_mb_request(*args, **kwargs)
+
+
+def _install_request_start_gate() -> None:
+    # High-level musicbrainzngs helpers resolve this module global at call time.
+    # Reassignment is idempotent and leaves mocked high-level calls in tests
+    # untouched while every real WS/2 request shares this one gate.
+    if mb_core._mb_request is not _gated_mb_request:
+        mb_core._mb_request = _gated_mb_request
 
 
 def _mb_retry(fn, *args, retries: int = 2, backoff: float = 2.0, **kwargs):
@@ -67,7 +112,10 @@ def _ensure_configured() -> None:
             _pkg_version_cache = "0.9.5"
     mb.set_useragent("dragontag", _pkg_version_cache, s.musicbrainz_user_agent)
     mb.set_hostname(s.musicbrainz_server)
-    mb.set_rate_limit(True)
+    # Disable musicbrainzngs' lock-across-network limiter and replace only its
+    # low-level request entry point with our shared request-start gate.
+    mb.set_rate_limit(False)
+    _install_request_start_gate()
     # musicbrainzngs uses urllib, which has no default timeout — a half-open
     # connection would otherwise hang the single ingest worker forever. Set a
     # process-wide socket default so every MB (and AcoustID urllib) call is
@@ -192,7 +240,7 @@ def matchmaking_tags_allowed(tags: TrackTags, *, album_hint: str | None) -> bool
 
 
 def candidate_payload(candidate: Candidate, *, score: float | None = None) -> dict[str, Any]:
-    """Return the stable JSON/UI view of a candidate, including artist."""
+    """Return the authoritative stored/UI shape for one candidate."""
     return {
         "recording_id": candidate.recording_id,
         "release_id": candidate.release_id,
@@ -202,6 +250,50 @@ def candidate_payload(candidate: Candidate, *, score: float | None = None) -> di
         or _artist_phrase(candidate.track)
         or _artist_phrase(candidate.raw_release),
         "album": candidate.raw_release.get("title"),
+    }
+
+
+def normalize_candidate_payload(value: Candidate | dict[str, Any]) -> dict[str, Any]:
+    """Normalize new and previously persisted candidates field-by-field.
+
+    Missing or malformed neighbors never erase a valid title, artist, or album.
+    This function is intentionally safe to use at every storage/render boundary.
+    """
+    if isinstance(value, Candidate):
+        return candidate_payload(value)
+    if not isinstance(value, dict):
+        return {
+            "recording_id": "", "release_id": "", "score": 0.0,
+            "title": None, "artist": None, "album": None,
+        }
+
+    raw_recording = value.get("raw_recording") if isinstance(value.get("raw_recording"), dict) else {}
+    raw_release = value.get("raw_release") if isinstance(value.get("raw_release"), dict) else {}
+    track = value.get("track") if isinstance(value.get("track"), dict) else {}
+
+    def clean(raw: Any) -> str | None:
+        if raw is None:
+            return None
+        text = str(raw).strip()
+        return text or None
+
+    raw_score = value.get("score", 0.0)
+    try:
+        normalized_score = float(raw_score)
+    except (TypeError, ValueError):
+        normalized_score = 0.0
+    return {
+        "recording_id": clean(value.get("recording_id")) or "",
+        "release_id": clean(value.get("release_id")) or "",
+        "score": normalized_score,
+        "title": clean(value.get("title"))
+        or clean(raw_recording.get("title"))
+        or clean(track.get("title")),
+        "artist": clean(value.get("artist"))
+        or _artist_phrase(raw_recording)
+        or _artist_phrase(track)
+        or _artist_phrase(raw_release),
+        "album": clean(value.get("album")) or clean(raw_release.get("title")),
     }
 
 
@@ -362,6 +454,8 @@ def candidates_from_mbid(text: str, *, title_hint: str | None = None) -> list[Ca
                         score=1.0,
                         recording_id=rid,
                         release_id=lid,
+                        medium=medium,
+                        track=trk,
                         raw_recording=rec,
                         raw_release=rel,
                     )

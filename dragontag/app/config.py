@@ -304,7 +304,10 @@ class Env(BaseSettings):
 
     # Deployment-only web boundary controls. They deliberately remain outside
     # UserSettings: a browser user must not be able to weaken container policy.
-    allowed_hosts: str = "localhost,127.0.0.1,[::1],testserver"
+    # Empty/"*" accepts the Host header supplied by ordinary Docker and
+    # reverse-proxy deployments. Operators with a stable public host should
+    # set a comma-separated explicit allowlist.
+    allowed_hosts: str = "*"
     trusted_proxy_ips: str = ""
     session_cookie_secure: bool = False
     max_request_bytes: int = 2 * 1024 * 1024 * 1024

@@ -28,7 +28,10 @@ from importlib.metadata import version as _pkg_version
 try:
     _DRAGONTAG_VERSION = _pkg_version("dragontag")
 except Exception:
-    _DRAGONTAG_VERSION = "0.9.5"
+    # Source checkouts are not always installed as package metadata. The
+    # repository version is still authoritative; never stamp audio with an
+    # unrelated historical fallback.
+    from dragontag import __version__ as _DRAGONTAG_VERSION
 
 
 @dataclass

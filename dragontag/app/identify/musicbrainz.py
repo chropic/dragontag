@@ -109,7 +109,8 @@ def _ensure_configured() -> None:
             from importlib.metadata import version as _pkg_version
             _pkg_version_cache = _pkg_version("dragontag")
         except Exception:
-            _pkg_version_cache = "0.9.5"
+            from dragontag import __version__
+            _pkg_version_cache = __version__
     mb.set_useragent("dragontag", _pkg_version_cache, s.musicbrainz_user_agent)
     mb.set_hostname(s.musicbrainz_server)
     # Disable musicbrainzngs' lock-across-network limiter and replace only its

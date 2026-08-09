@@ -56,7 +56,14 @@ from .models import (
     ReviewReason,
     ScheduledTask,
     Track,
+    append_job_log,
 )
+
+
+# ``available_timezones`` may walk the host tzdata tree.  The catalog is
+# immutable for the lifetime of a process, so keep that filesystem work out of
+# every authenticated settings request (and out of unrelated request latency).
+_TIMEZONE_CHOICES = tuple(sorted(available_timezones()))
 
 
 def _local_tz() -> ZoneInfo:
@@ -1824,10 +1831,14 @@ def resolve_conflict(
     job_id: int,
     request: Request,
     _: None = Depends(require_auth),
-    action: str = Form(...),  # "replace" | "rename" | "skip"
+    action: str = Form(...),  # "replace" | "rename" | "skip" | "skip_delete"
 ):
     """Handle a destination-exists conflict per user choice."""
     from .library.filelock import path_lock
+
+    allowed_actions = {"replace", "rename", "skip", "skip_delete"}
+    if action not in allowed_actions:
+        raise HTTPException(400, "invalid conflict action")
 
     with session() as s:
         job = s.get(Job, job_id)
@@ -1843,6 +1854,13 @@ def resolve_conflict(
         src = Path(job.source_path)
         dest = Path(job.destination_path)
 
+        # The dry-run card reuses this endpoint for its non-destructive Skip
+        # action. Every action that touches a physical file is valid only for
+        # a real destination conflict; a crafted form must not turn another
+        # kind of review into an overwrite, rename, or deletion.
+        if action != "skip" and job.review_reason != ReviewReason.destination_conflict:
+            raise HTTPException(400, "job is not a destination conflict")
+
         if action == "skip":
             job.status = JobStatus.skipped
             from .review_state import cleanup_review_state
@@ -1850,6 +1868,85 @@ def resolve_conflict(
             s.add(job)
             s.commit()
             return RedirectResponse("/queue", status_code=303)
+
+        if action == "skip_delete":
+            # Refuse to unlink when stale/corrupt job state aliases the
+            # destination. Symlinks and differently-spelled equivalent paths
+            # are covered by samefile when both paths still exist.
+            same_file = False
+            try:
+                same_file = src.resolve(strict=False) == dest.resolve(strict=False)
+                if not same_file and src.exists() and dest.exists():
+                    same_file = os.path.samefile(src, dest)
+            except OSError:
+                pass
+            if same_file:
+                return _toast_response(
+                    "/queue",
+                    "Refusing to delete: the incoming and destination paths refer to the same file.",
+                    "error",
+                )
+
+            sidecar_error: OSError | None = None
+            try:
+                with path_lock(src):
+                    src.unlink(missing_ok=True)
+                    sidecar = src.with_suffix(".lrc")
+                    try:
+                        sidecar.unlink(missing_ok=True)
+                    except OSError as exc:
+                        # The requested audio deletion has already succeeded;
+                        # retain an honest warning about the orphaned sidecar.
+                        sidecar_error = exc
+            except OSError as exc:
+                return _toast_response(
+                    "/queue", f"Could not delete incoming file {src.name}: {exc}", "error"
+                )
+
+            job.status = JobStatus.skipped
+            job.log = append_job_log(
+                job.log,
+                f"Incoming destination-conflict file deleted: {src}\n",
+            )
+            # A conflict can come from an explicit in-library re-tag, not only
+            # from the drop folder. If the incoming path was already indexed,
+            # remove that now-phantom Track row and detach historical jobs.
+            indexed = s.exec(select(Track).where(Track.path == str(src))).first()
+            if indexed is not None:
+                for linked_job in s.exec(
+                    select(Job).where(Job.track_id == indexed.id)
+                ).all():
+                    linked_job.track_id = None
+                    s.add(linked_job)
+                s.delete(indexed)
+            from .review_state import cleanup_review_state
+            cleanup_review_state(s, job_id)
+            s.add(job)
+            try:
+                s.commit()
+            except Exception as exc:
+                # The requested unlink is irreversible. If SQLite fails now,
+                # report the physical truth loudly instead of returning a raw
+                # 500 or implying that the review row was resolved.
+                s.rollback()
+                log.critical(
+                    "skip-delete: DIVERGED — %s was deleted but job %s could not be updated",
+                    src,
+                    job_id,
+                    exc_info=True,
+                )
+                return _toast_response(
+                    "/queue",
+                    f"Deleted {src.name}, but the database update failed; the review row may still be present: {exc}",
+                    "error",
+                )
+            if sidecar_error:
+                return _toast_response(
+                    "/queue",
+                    f"Deleted {src.name}, but its lyric sidecar could not be deleted: {sidecar_error}",
+                    "error",
+                )
+            return _toast_response("/queue", f"Skipped and deleted {src.name}.")
 
         # This handler mutates a physical file just like the pipeline /
         # organizer / revert — hold the per-path lock so it can't interleave
@@ -1926,7 +2023,7 @@ def settings_page(request: Request, _: None = Depends(require_auth), saved: str 
             "saved": bool(saved),
             "tz_env_locked": bool(tz_env),
             "tz_current": tz_env or settings().timezone or "UTC",
-            "tz_choices": sorted(available_timezones()),
+            "tz_choices": _TIMEZONE_CHOICES,
         }
     )
 

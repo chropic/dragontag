@@ -141,8 +141,9 @@ Open **http://localhost:7593** and log in. First boot redirects to `/setup` if n
 
 ### Reverse proxy and request security
 
-Direct Docker use works with the default localhost-only host policy. If dragontag
-sits behind HTTPS, set `DRAGONTAG_ALLOWED_HOSTS` to the public host,
+Direct Docker use accepts the proxy/browser Host header by default. If dragontag
+sits behind HTTPS, set `DRAGONTAG_ALLOWED_HOSTS` to the public host (or a
+comma-separated allowlist),
 `DRAGONTAG_TRUSTED_PROXY_IPS` to the proxy's source IP, and
 `DRAGONTAG_SESSION_COOKIE_SECURE=true`. Request and per-upload limits are
 configured through `DRAGONTAG_MAX_REQUEST_BYTES` and

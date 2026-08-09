@@ -202,6 +202,9 @@ log = logging.getLogger(__name__)
 # Auth-guarded equivalents are served at /api-docs and /openapi.json instead.
 app = FastAPI(title="dragontag", version=__version__, docs_url=None, redoc_url=None, openapi_url=None)
 _allowed_hosts = [host.strip() for host in env().allowed_hosts.split(",") if host.strip()]
+# Docker bridges and reverse proxies commonly supply an IP/container Host that
+# cannot be predicted from inside the image. The deployment variable remains
+# an explicit allowlist when the operator knows the public host.
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=_allowed_hosts or ["*"])
 
 # Cookie-signing secret comes from the session-secret Docker secret. The

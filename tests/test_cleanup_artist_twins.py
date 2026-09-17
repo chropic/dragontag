@@ -84,9 +84,18 @@ def test_report_mode_detects_but_changes_nothing(folder):
     assert not (root / ".dragontag-trash").exists()
 
 
-def test_apply_merges_case_twin_artists(folder):
+def test_apply_merges_case_twin_artists(folder, monkeypatch):
     fid, root = folder
     tid = _twin_library(fid, root)
+    real_walk = os.walk
+
+    def sidecars_first(*args, **kwargs):
+        for dirname, dirnames, filenames in real_walk(*args, **kwargs):
+            yield dirname, dirnames, sorted(
+                filenames, key=lambda name: name.endswith(".lrc"), reverse=True
+            )
+
+    monkeypatch.setattr(actions.os, "walk", sidecars_first)
 
     out = actions.cleanup_library(fid, apply=True)
 

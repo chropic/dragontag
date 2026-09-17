@@ -1,8 +1,9 @@
 """LRCLIB lyrics client.
 
 Fetches lyrics for a track by artist + title, returning synced LRC text when
-available or plain text as a fallback.  All network errors are swallowed so
-a lyrics miss never fails the pipeline.
+available or plain text as a fallback.  Synced lyrics are kept verbatim so
+Enhanced LRC word/syllable timestamps survive embedding.  All network errors
+are swallowed so a lyrics miss never fails the pipeline.
 """
 from __future__ import annotations
 
@@ -23,7 +24,7 @@ def fetch(
     album: str | None = None,
     duration: float | None = None,
 ) -> str | None:
-    """Return synced LRC text, plain text, or None (not found / error / instrumental).
+    """Return LRC/Enhanced LRC text, plain text, or None.
 
     Tries an exact-match lookup first (artist + title + optional album/duration),
     then falls back to a freetext search and takes the top result.

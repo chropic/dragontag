@@ -3,7 +3,13 @@
 Regression: the fallback took ``hits[0]`` unconditionally, so a near-miss could
 embed a different song's lyrics (and skew the explicit classifier).
 """
-from dragontag.app.tagging.lyrics_fetcher import _hit_matches
+from dragontag.app.tagging.lyrics_fetcher import _hit_matches, _parse
+
+
+def test_enhanced_lrc_is_preserved_verbatim():
+    lyrics = "[00:18.85]<00:18.85>Tryna <00:19.31>put<00:19.51>"
+
+    assert _parse({"syncedLyrics": lyrics}) == lyrics
 
 
 def test_exact_match_accepted():

@@ -28,7 +28,9 @@ _PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-_LRC_TS = re.compile(r"\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]\s*")
+# LRC line timestamps use ``[]``; Enhanced LRC adds ``<>`` timestamps before
+# words or syllables and may append one to mark the final interval's end.
+_LRC_TS = re.compile(r"(?:\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]|<\d{1,2}:\d{2}(?:\.\d{1,3})?>)\s*")
 
 
 def strip_lrc_timestamps(text: str) -> str:

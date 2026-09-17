@@ -4,6 +4,7 @@
 
 ## WIP - release readiness (2026-08-09)
 
+- LRCLIB Enhanced LRC word/syllable timing is preserved verbatim in `LYRICS`, and the advisory classifier now ignores both line and inline timestamps.
 - Backups are verified and atomically published under collision-safe names; missed schedules are recorded as skipped instead of replayed; and manual re-tag selections cannot run unattended.
 - Skip + Delete now requires a locked full-content duplicate check. Durable change and MusicBrainz contribution audit records survive ordinary cleanup.
 - Readiness checks SQLite and storage mounts; lifecycle, webhook, destination-path, settings, folder-dependency, and bounded-queue hardening improve local release safety.

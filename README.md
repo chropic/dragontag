@@ -234,7 +234,7 @@ The canonical schema lives in [`schema.py`](dragontag/app/tagging/schema.py).
 | `GENRE` | Top community-voted MB tags, filtered for quality |
 | `LABEL` · `MEDIA` · `BARCODE` · `ISRC` | Label, format, barcode, and recording ISRC from MB |
 | `RELEASECOUNTRY` · `RELEASESTATUS` · `RELEASETYPE` · `SCRIPT` | Release metadata from MB |
-| `LYRICS` | Synced `.lrc` or plain text from LRCLIB |
+| `LYRICS` | Synced LRC (including Enhanced LRC word/syllable timestamps) or plain text from LRCLIB |
 | `ITUNESADVISORY` | `0` = clean · `1` = explicit (auto-classified from lyrics) |
 | `ACOUSTID_ID` | AcoustID fingerprint match, or carried over from a pre-existing tag |
 | `MUSICBRAINZ_TRACKID` | MB recording ID — the primary link back to the source |

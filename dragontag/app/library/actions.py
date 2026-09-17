@@ -992,6 +992,12 @@ def _merge_twin_folder(
               "conflicts": 0, "covers_deduped": 0}
     loser_images: list[Path] = []
     for dp, _dn, fns in os.walk(loser):
+        # The audio move below owns its matching lyric sidecar.  Remember the
+        # pairs from the walk snapshot so filesystem-dependent filename order
+        # cannot quarantine the .lrc before its audio file is processed.
+        audio_stems = {
+            Path(fn).stem for fn in fns if Path(fn).suffix.lower() in SUPPORTED_EXTS
+        }
         for fn in fns:
             if ctx:
                 ctx.check_cancelled()
@@ -1028,6 +1034,8 @@ def _merge_twin_folder(
                 source_dirs.add(src.parent)
                 s.commit()
                 counts["audio_moved"] += 1
+            elif ext == ".lrc" and src.stem in audio_stems:
+                continue
             elif _COVER_RE.match(fn) and album_level:
                 loser_images.append(src)  # elected after the walk
             elif _COVER_RE.match(fn):

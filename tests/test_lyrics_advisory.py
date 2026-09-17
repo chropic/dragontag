@@ -70,3 +70,10 @@ def test_strip_lrc_timestamps():
     assert "[" not in stripped
     assert "Some line" in stripped
     assert "Another line" in stripped
+
+
+def test_enhanced_lrc_timestamps_stripped_before_check():
+    lyrics = "[00:18.85]<00:18.85>holy <00:19.31>shit<00:19.51>"
+
+    assert strip_lrc_timestamps(lyrics) == "holy shit"
+    assert is_explicit(lyrics) is True

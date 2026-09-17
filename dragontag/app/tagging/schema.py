@@ -107,7 +107,7 @@ class TrackTags:
     cover_mime: str = "image/jpeg"
 
     # --- lyrics & advisory ---
-    # lyrics: plain text or LRC synced format; fetched by tagging/lyrics_fetcher.py
+    # lyrics: plain text, LRC, or Enhanced LRC; fetched by tagging/lyrics_fetcher.py
     # advisory: 0=clean, 1=explicit, None=no lyrics available
     lyrics: str | None = None
     advisory: int | None = None
